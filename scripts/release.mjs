@@ -12,8 +12,9 @@
  * 发布用 GitHub CLI（gh），凭证 = gh 的登录态，跑前用 `gh auth status` 自查。
  * 发布目标仓与本仓不同，所有 gh 调用都显式带 --repo。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -124,6 +125,87 @@ export function assertManifestMatchesVersion({ manifestContent, clientVersion, z
   )
 }
 
+/**
+ * 复用现成产物发版时的三道加严闸（`--use-existing-artifacts`）。
+ *
+ * 背景：公证提交成功、Apple 也判了 Accepted，但 notarytool 轮询那一步网络超时 → 整条
+ * 发布链退出码 1。产物其实只差一个 `stapler staple`，重跑却要从头再打包 + 再公证一次
+ * （二十分钟，再赌一次同样的网络，还多耗一次公证配额）。真实撞过一次，故留这条路。
+ *
+ * **但复用产物比正常流程更危险**：正常流程里产物是刚构建的，复用则可能发出一份陈旧的、
+ * 或公证根本没做完的包。所以这条路的闸必须比默认路径更严，下面三条缺一不可——
+ * 其中「票据是否真的装订上」这一条，默认路径里原本谁都没查过（撞上那次正是靠手工
+ * `stapler validate` 才发现 dmg 是裸的）。
+ */
+function stapleValidated(target) {
+  return spawnSync('xcrun', ['stapler', 'validate', target], { stdio: 'ignore' }).status === 0
+}
+
+export function assertArtifactsNotarized(plan, { distDir = join(repoRoot, 'dist'), validate = stapleValidated } = {}) {
+  const dmg = plan.assets.find((file) => file.endsWith('.dmg'))
+  const app = join(distDir, 'mac-arm64', 'NarraCat.app')
+  const bare = [
+    ...(validate(dmg) ? [] : [`dmg 容器：${dmg}`]),
+    ...(existsSync(app) && validate(app) ? [] : [`app（zip 的内容物）：${app}`]),
+  ]
+  if (bare.length === 0) return
+  throw new Error(
+    [
+      '以下产物没有装订公证票据，用户打开会被 Gatekeeper 拦下：',
+      ...bare.map((line) => `  · ${line}`),
+      '',
+      '公证「提交成功」不等于「票据装订上了」——notarytool 轮询超时就会停在这一步。',
+      '先查真实状态：xcrun notarytool info <submission-id> --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"',
+      'status=Accepted 的话补装订即可：xcrun stapler staple <文件>；否则重新走完整打包。',
+    ].join('\n'),
+  )
+}
+
+/**
+ * zip 的实际 sha512 必须与清单一致——**这是自动更新的命脉**：electron-updater 更新走的是
+ * zip（清单顶层 `path`/`sha512` 指向它），对不上则用户下载后校验失败、更新静默失败。
+ *
+ * 注意 dmg 不做这个校验，因为它**必然**对不上：公证脚本第一步是 `codesign --force` 重签
+ * dmg，发生在清单生成之后。dmg 只供人手动下载、走 Gatekeeper 而非 sha512 校验，故无碍。
+ */
+export function assertZipMatchesManifest(plan) {
+  const manifestFile = plan.assets.find((file) => file.endsWith('latest-mac.yml'))
+  const zipFile = plan.assets.find((file) => file.endsWith('.zip'))
+  const manifest = parseYaml(readFileSync(manifestFile, 'utf8'))
+  const expected = manifest?.sha512
+  const actual = createHash('sha512').update(readFileSync(zipFile)).digest('base64')
+  if (expected === actual) return
+  throw new Error(
+    [
+      'zip 的 sha512 与 latest-mac.yml 不符——自动更新会在用户机器上校验失败。',
+      `  清单：${expected ?? '未知'}`,
+      `  实际：${actual}`,
+      '产物与清单来自不同次打包，不能复用。请走完整打包发版。',
+    ].join('\n'),
+  )
+}
+
+/**
+ * 产物不得早于 HEAD 提交——防的是「改完代码忘了重新打包，直接复用上一次的产物发版」。
+ * 版本号校验挡不住这一类：同一个提交数下改动源码，版本号一模一样，清单也「新鲜」。
+ */
+export function assertArtifactsNotStale(plan, { cwd = repoRoot, distDir = join(repoRoot, 'dist') } = {}) {
+  const app = join(distDir, 'mac-arm64', 'NarraCat.app')
+  if (!existsSync(app)) return
+  const headIso = execFileSync('git', ['log', '-1', '--format=%cI'], { cwd, encoding: 'utf8' }).trim()
+  const headTime = new Date(headIso).getTime()
+  const builtTime = statSync(app).mtimeMs
+  if (builtTime >= headTime) return
+  throw new Error(
+    [
+      '产物比当前提交还旧，复用它等于发布一份不含最新代码的包：',
+      `  产物构建于：${new Date(builtTime).toISOString()}`,
+      `  HEAD 提交于：${headIso}`,
+      '请走完整打包发版（去掉 --use-existing-artifacts）。',
+    ].join('\n'),
+  )
+}
+
 function assertManifestFreshness(plan, clientVersion) {
   const manifestFile = plan.assets.find((file) => file.endsWith('latest-mac.yml'))
   const zipFile = plan.assets.find((file) => file.endsWith('.zip'))
@@ -206,16 +288,27 @@ function releaseNotes(plan) {
   ].join('\n')
 }
 
-export async function runRelease() {
+export async function runRelease({ useExistingArtifacts = false } = {}) {
   // 放在打包之前：非交互环境就别浪费几分钟签名 + 公证了。
   assertInteractive(process.stdin.isTTY)
 
   const clientVersion = resolveClientBuildVersion({ root: repoRoot })
-  runPackageRc({ cwd: repoRoot, notarize: true })
+  if (useExistingArtifacts) {
+    process.stdout.write('⚠️  跳过打包，复用 dist/ 现成产物（--use-existing-artifacts）\n')
+  } else {
+    runPackageRc({ cwd: repoRoot, notarize: true })
+  }
 
   const plan = createReleasePlan({ clientVersion })
   assertArtifactsExist(plan.assets)
   assertManifestFreshness(plan, clientVersion)
+  if (useExistingArtifacts) {
+    // 复用产物比刚打完的更危险，三道闸缺一不可（见各函数注释）
+    assertArtifactsNotStale(plan)
+    assertZipMatchesManifest(plan)
+    assertArtifactsNotarized(plan)
+    process.stdout.write('✓ 复用产物已通过：不早于 HEAD / zip 与清单一致 / dmg 与 app 票据均已装订\n')
+  }
   await confirm(plan, clientVersion)
 
   publishRelease(plan)
@@ -243,7 +336,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // 漏这一步的后果是「凭证明明配好了却报缺失」，整条发布链在真机上打不通
   // （package-rc.mjs / notarize-dmg.mjs 的 CLI 入口是同款处置，见 package-rc.test.mjs 的回归测试）。
   loadEnvFiles()
-  runRelease().catch((error) => {
+  runRelease({ useExistingArtifacts: process.argv.includes('--use-existing-artifacts') }).catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     process.exit(1)
   })

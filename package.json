@@ -19,6 +19,7 @@
     "package": "node scripts/package-rc.mjs",
     "package:release": "node scripts/package-rc.mjs --notarize",
     "release": "node scripts/release.mjs",
+    "release:use-existing": "node scripts/release.mjs --use-existing-artifacts",
     "ops:status": "node scripts/ops-status.mjs",
     "ops:issues": "node scripts/ops-issues.mjs",
     "ops:check": "node scripts/ops-check.mjs",

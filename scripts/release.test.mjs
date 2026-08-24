@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { mkdtemp, rm, writeFile, mkdir, utimes } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import {
+  assertArtifactsNotStale,
+  assertArtifactsNotarized,
   assertInteractive,
+  assertZipMatchesManifest,
   assertManifestMatchesVersion,
   createReleasePlan,
   formatConfirmation,
@@ -223,5 +231,73 @@ describe('assertInteractive', () => {
 
   test('交互终端放行', () => {
     expect(() => assertInteractive(true)).not.toThrow()
+  })
+})
+
+describe('复用现成产物的三道加严闸（--use-existing-artifacts）', () => {
+  const VERSION = '0.2.64'
+
+  async function makeDist({ zipBody = 'ZIPDATA', manifestSha } = {}) {
+    const dir = await mkdtemp(join(tmpdir(), 'reuse-'))
+    const distDir = join(dir, 'dist')
+    await mkdir(join(distDir, 'mac-arm64', 'NarraCat.app'), { recursive: true })
+    const zipName = `NarraCat-${VERSION}-mac-arm64.zip`
+    await writeFile(join(distDir, zipName), zipBody)
+    await writeFile(join(distDir, `NarraCat-${VERSION}-mac-arm64.dmg`), 'DMG')
+    const sha = manifestSha ?? createHash('sha512').update(zipBody).digest('base64')
+    await writeFile(
+      join(distDir, 'latest-mac.yml'),
+      `version: ${VERSION}\nfiles:\n  - url: ${zipName}\n    sha512: ${sha}\npath: ${zipName}\nsha512: ${sha}\n`,
+    )
+    return { dir, distDir, plan: createReleasePlan({ clientVersion: VERSION, distDir }) }
+  }
+
+  test('票据闸：dmg 或 app 没装订就必须拒绝——「公证提交成功」不等于「票据装订上了」', async () => {
+    const { dir, distDir, plan } = await makeDist()
+    try {
+      // 全部验过 → 放行
+      expect(() =>
+        assertArtifactsNotarized(plan, { distDir, validate: () => true }),
+      ).not.toThrow()
+      // 任何一个没票据 → 拒绝（真机撞过的正是 dmg 裸着这一种）
+      expect(() =>
+        assertArtifactsNotarized(plan, { distDir, validate: (t) => !t.endsWith('.dmg') }),
+      ).toThrow(/没有装订公证票据/)
+      expect(() =>
+        assertArtifactsNotarized(plan, { distDir, validate: (t) => t.endsWith('.dmg') }),
+      ).toThrow(/没有装订公证票据/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('zip 闸：sha512 对不上就必须拒绝——这是自动更新的命脉', async () => {
+    const good = await makeDist()
+    try {
+      expect(() => assertZipMatchesManifest(good.plan)).not.toThrow()
+    } finally {
+      await rm(good.dir, { recursive: true, force: true })
+    }
+
+    const bad = await makeDist({ manifestSha: 'AAAA-来自另一次打包的清单' })
+    try {
+      expect(() => assertZipMatchesManifest(bad.plan)).toThrow(/自动更新会在用户机器上校验失败/)
+    } finally {
+      await rm(bad.dir, { recursive: true, force: true })
+    }
+  })
+
+  test('陈旧闸：产物早于 HEAD 提交就必须拒绝——防「改完代码忘了重新打包」', async () => {
+    const { dir, distDir, plan } = await makeDist()
+    try {
+      // 刚建出来的产物晚于 HEAD → 放行
+      expect(() => assertArtifactsNotStale(plan, { distDir })).not.toThrow()
+      // 把产物时间推回 2020 年 → 拒绝
+      const app = join(distDir, 'mac-arm64', 'NarraCat.app')
+      await utimes(app, new Date('2020-01-01'), new Date('2020-01-01'))
+      expect(() => assertArtifactsNotStale(plan, { distDir })).toThrow(/产物比当前提交还旧/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })
