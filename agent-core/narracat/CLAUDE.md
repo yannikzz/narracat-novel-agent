@@ -157,7 +157,7 @@ CI workflow 住在**仓库根** `.github/workflows/`（不在本目录的 `.gith
 
 三位版本号 `x.y.z`：x = 架构方向 / 重大转型；y = 功能阶段迭代；z = 每次非 trivial 提交递增。x / y 仅在用户明确要求时增加。
 
-当前基准：**4.0.178**（narracat.manifest.json、mcp-server/package.json，以及 App 层 `agent-core/narracat-agent-core.lock.json` 的 version 字段均保持与此一致）。
+当前基准：**4.0.179**（narracat.manifest.json、mcp-server/package.json，以及 App 层 `agent-core/narracat-agent-core.lock.json` 的 version 字段均保持与此一致）。
 
 **bump 流程**（每次非 trivial 提交，三处版本号 + 本节基准必须逐字一致）：(1) 更新本节「当前基准」；(2) 同步 narracat.manifest.json 与 mcp-server/package.json 的 version 字段；(3) 同步 App 层版本闸门 `agent-core/narracat-agent-core.lock.json` 的 `version`——漏改会导致 App 启动报「Agent Core version 应为 X，实际为 Y」、且 `bun --no-cache run verify:narracat-agent-core` 失败。
 
