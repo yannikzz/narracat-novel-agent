@@ -18,6 +18,7 @@ import {
   restoreSourceManifestIfClobbered,
   resolveStepEnv,
 } from './package-rc.mjs'
+import { CLIENT_BUILD_VERSION_RE } from './client-build-version.mjs'
 import { DEFAULT_APP_PATH } from './verify-signed-artifact.mjs'
 
 const packageRcModuleUrl = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'package-rc.mjs')).href
@@ -460,7 +461,7 @@ describe('CLI 入口守卫：node scripts/package-rc.mjs 必须先加载 .env �
 describe('resolvePackageClientVersion — 内测包版本号覆盖', () => {
   test('未设环境变量时走 git 计数（与正式链路同源）', () => {
     const version = resolvePackageClientVersion({ env: {} })
-    expect(version).toMatch(/^0\.1\.\d+$/)
+    expect(version).toMatch(CLIENT_BUILD_VERSION_RE)
   })
 
   test('设了就用它——测试包要能压过线上版本，否则 electron-updater 会静默换掉它', () => {
@@ -469,7 +470,7 @@ describe('resolvePackageClientVersion — 内测包版本号覆盖', () => {
 
   test('空白值视同未设，不产出空版本号', () => {
     const version = resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: '   ' } })
-    expect(version).toMatch(/^0\.1\.\d+$/)
+    expect(version).toMatch(CLIENT_BUILD_VERSION_RE)
   })
 
   test('非法值 fail-loud，不静默打出坏版本号的包', () => {

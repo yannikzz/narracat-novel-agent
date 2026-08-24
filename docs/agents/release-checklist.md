@@ -9,7 +9,7 @@
 - Target: macOS arm64
 - Artifact: DMG plus unpacked `.app`
 - Artifact naming: `NarraCat-${version}-mac-arm64`
-- Client build version: `0.1.<release commit count>` from `scripts/client-build-version.mjs`
+- Client build version: `0.2.<release commit count>` from `scripts/client-build-version.mjs` (line prefix = `CLIENT_BUILD_VERSION_PREFIX`; raised `0.1` → `0.2` on 2026-08-25, see ADR-0006 amendment — a `0.1.x` cut would rank below the shipped `v0.1.1930` and reach nobody)
 
 ## Automatic Gate
 

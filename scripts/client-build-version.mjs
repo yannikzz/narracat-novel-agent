@@ -6,7 +6,26 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
 
-export const CLIENT_BUILD_VERSION_PREFIX = '0.1'
+/**
+ * 客户端版本线前缀。**这是对外契约的一部分，改它等于改所有存量用户的更新判定。**
+ *
+ * 2026-08-25 由 `0.1` 抬到 `0.2`：本仓（公开仓）2026-08-04 以干净历史重建，提交数从 0
+ * 重新计数，而线上最后一个正式版 `v0.1.1930` 的数字来自旧主仓的提交数。两套计数撞在同一条
+ * `0.1.x` 线上，新仓发出来的 `0.1.63` 在 semver 下**小于**线上的 `0.1.1930`——electron-updater
+ * 只在 feed 版本更高时才更新，存量用户一个都收不到，等于发了个寂寞。
+ *
+ * 开源准备期（ADR-0006 落地时）判断过「首发版本号变小属预期，同仓内单调递增即可」——
+ * 那句话对内部构建成立，**漏掉的是存量用户的自动更新**，这次补上。
+ *
+ * 抬 minor 而不是给计数加偏移量：semver 下 `0.2.x` 恒大于任何 `0.1.x`，一次性了结，
+ * 不必猜旧线到底数到了多少；偏移量方案则要一直背着那个魔数。
+ */
+export const CLIENT_BUILD_VERSION_PREFIX = '0.2'
+
+/** 版本号格式正则（SSOT——校验方一律用它，不要各自手写 `^0\.1\.` 这类硬编码） */
+export const CLIENT_BUILD_VERSION_RE = new RegExp(
+  `^${CLIENT_BUILD_VERSION_PREFIX.replace(/\./g, '\\.')}\\.\\d+$`,
+)
 
 export function formatClientBuildVersion(commitCount) {
   const count = Number(commitCount)

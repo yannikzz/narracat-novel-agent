@@ -37,7 +37,7 @@ bun --no-cache run ops:status
 
 ## Client Version
 
-- 客户端构建版本使用 `0.1.<release commit 提交数>`。
+- 客户端构建版本使用 `0.2.<release commit 提交数>`（版本线前缀是 `CLIENT_BUILD_VERSION_PREFIX`，2026-08-25 由 `0.1` 抬到 `0.2`，见 ADR-0006 修订——本仓干净历史重建后提交数从 0 重数，而线上 `v0.1.1930` 的数字来自旧主仓，仍走 `0.1.x` 的话新版在 semver 下反而更小，存量用户收不到更新）。
 - 提交数由构建 / 发布脚本在打包时从当前 release commit 派生，例如 `git rev-list --count HEAD`。
 - `package.json` 的 `version` 是源码清单 / 产品线基础版本，不承载提交数派生的客户端构建版本。
 - About 版本展示、RC artifact 命名和发布验收记录必须使用同一套客户端构建版本解析逻辑。

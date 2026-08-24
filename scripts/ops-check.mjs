@@ -2,7 +2,11 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveClientBuildVersion } from './client-build-version.mjs'
+import {
+  CLIENT_BUILD_VERSION_PREFIX,
+  CLIENT_BUILD_VERSION_RE,
+  resolveClientBuildVersion,
+} from './client-build-version.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -114,8 +118,10 @@ function addClientBuildVersionFailures(files, failures, clientBuildVersion) {
     failures.push('scripts/client-build-version.mjs must export formatClientBuildVersion and resolveClientBuildVersion.')
   }
 
-  if (typeof clientBuildVersion === 'string' && !/^0\.1\.\d+$/.test(clientBuildVersion)) {
-    failures.push(`client build version must match 0.1.<commit count>, got ${clientBuildVersion}.`)
+  if (typeof clientBuildVersion === 'string' && !CLIENT_BUILD_VERSION_RE.test(clientBuildVersion)) {
+    failures.push(
+      `client build version must match ${CLIENT_BUILD_VERSION_PREFIX}.<commit count>, got ${clientBuildVersion}.`,
+    )
   }
 }
 
