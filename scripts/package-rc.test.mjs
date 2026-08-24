@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -12,8 +12,10 @@ import {
   createPackageRcSteps,
   findMissingCorpusEnv,
   findMissingNotarizeEnv,
+  captureSourceManifest,
   packagedAppBinaryPath,
   resolvePackageClientVersion,
+  restoreSourceManifestIfClobbered,
   resolveStepEnv,
 } from './package-rc.mjs'
 import { DEFAULT_APP_PATH } from './verify-signed-artifact.mjs'
@@ -486,5 +488,56 @@ describe('resolvePackageClientVersion — 内测包版本号覆盖', () => {
     )
     expect(releaseSource).not.toContain('NARRACAT_CLIENT_VERSION')
     expect(releaseSource).not.toContain('resolvePackageClientVersion')
+  })
+})
+
+describe('源 package.json 看门狗 — 打包工具改写它是静默的', () => {
+  async function makeRepo(manifest = '{\n  "name": "x",\n  "scripts": {}\n}\n') {
+    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'pkgjson-')))
+    await writeFile(join(dir, 'package.json'), manifest)
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir })
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: dir })
+    execFileSync('git', ['add', 'package.json'], { cwd: dir })
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir })
+    return dir
+  }
+
+  test('没被改写时什么都不做', async () => {
+    const dir = await makeRepo()
+    try {
+      const before = captureSourceManifest(dir)
+      expect(restoreSourceManifestIfClobbered(before, dir, () => {})).toBe('untouched')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('打包前干净、事后被截断 → 自动还原，scripts 段不会被静默删掉', async () => {
+    const dir = await makeRepo()
+    try {
+      const before = captureSourceManifest(dir)
+      await writeFile(join(dir, 'package.json'), '{"name":"x"}\n') // 模拟 electron-builder 落下的精简 metadata
+      const logs = []
+      expect(restoreSourceManifestIfClobbered(before, dir, (m) => logs.push(m))).toBe('restored')
+      expect(await readFile(join(dir, 'package.json'), 'utf8')).toContain('scripts')
+      expect(logs.join('')).toContain('package.json')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('打包前就有未提交改动 → 只告警不还原（绝不吃掉作者自己的编辑）', async () => {
+    const dir = await makeRepo()
+    try {
+      await writeFile(join(dir, 'package.json'), '{\n  "name": "x",\n  "scripts": {},\n  "mine": 1\n}\n')
+      const before = captureSourceManifest(dir)
+      expect(before.wasGitClean).toBe(false)
+      await writeFile(join(dir, 'package.json'), '{"name":"x"}\n')
+      expect(restoreSourceManifestIfClobbered(before, dir, () => {})).toBe('warned')
+      expect(await readFile(join(dir, 'package.json'), 'utf8')).not.toContain('scripts')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })

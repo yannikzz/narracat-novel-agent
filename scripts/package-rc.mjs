@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { resolveClientBuildVersion } from './client-build-version.mjs'
+import { resolveClientBuildVersion, resolveOverridableClientVersion } from './client-build-version.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -247,26 +248,68 @@ export function createPackageRcSteps({
 }
 
 /**
- * 内测包版本号覆盖（只服务本地测试打包，不进正式发布链路）。
- *
- * 客户端版本 = `git rev-list --count HEAD`，而 squash 合并会让计数回落（五个分支提交
- * 合成一个），于是本地测试包的版本号可能低于线上正式版。此时 electron-updater 的
- * `autoDownload=true` + `autoInstallOnAppQuit=true` 会静默把测试包换成线上版本——
- * 真机验收因此测的是老引擎，且日志里毫无痕迹（真实踩过：#48 验收第二轮整份日志作废）。
- * 打测试包时用 `NARRACAT_CLIENT_VERSION=0.1.9999 bun run package` 压过线上即可。
- *
- * 只在这个入口生效：`release.mjs`（正式发布）与 `ops-check.mjs` 照旧走 git 计数，
- * 免得环境变量残留把正式版本号打歪。
+ * 打包入口的客户端版本号：直接复用 SSOT（见 client-build-version.mjs 的
+ * resolveOverridableClientVersion——版本号在打包链上有两条独立取值路径，必须同源）。
  */
 export function resolvePackageClientVersion({ cwd = repoRoot, env = process.env } = {}) {
-  const override = String(env.NARRACAT_CLIENT_VERSION ?? '').trim()
-  if (!override) return resolveClientBuildVersion({ root: cwd })
-  if (!/^\d+\.\d+\.\d+$/.test(override)) {
-    throw new Error(
-      `NARRACAT_CLIENT_VERSION 必须是 x.y.z 三段数字版本号，实际收到：${override}`,
-    )
+  return resolveOverridableClientVersion({ root: cwd, env })
+}
+
+/**
+ * 源 package.json 被打包工具改写的看门狗。
+ *
+ * 实锤过一次：一轮 `bun run package` 之后仓库根 package.json 从 145 行被截断成 42 行——
+ * scripts / devDependencies / build（electron-builder 配置）全没了，只剩 runtime
+ * dependencies。electron-builder 为产物合成精简 metadata（`extraMetadata.version` 走的
+ * 就是这条路）时会落到源目录，正常情况下事后还原，异常情况下就留在那儿。
+ *
+ * 危害不在打包本身（产物是好的），在于**它是静默的**：文件照常存在、`bun run package`
+ * 退出码 0，下一次 `git add -A` 就把「删掉全部 scripts」当成正常改动提交进去。
+ *
+ * 处置分两档，取决于打包前它是否干净——打包前就有未提交改动时绝不动它（那是作者自己的
+ * 编辑，自动 checkout 会吃掉），只告警。
+ */
+function readSourceManifest(cwd) {
+  try {
+    return readFileSync(join(cwd, 'package.json'), 'utf8')
+  } catch {
+    return null
   }
-  return override
+}
+
+function isSourceManifestGitClean(cwd) {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain', '--', 'package.json'], {
+      cwd,
+      encoding: 'utf8',
+    })
+    return out.trim() === ''
+  } catch {
+    // 非 git 环境 / git 不可用 → 当作「脏」，只告警不自动恢复（安全方向）
+    return false
+  }
+}
+
+export function captureSourceManifest(cwd = repoRoot) {
+  return { content: readSourceManifest(cwd), wasGitClean: isSourceManifestGitClean(cwd) }
+}
+
+/** 返回 'untouched' | 'restored' | 'warned'（供测试断言分档，不吞掉行为差异） */
+export function restoreSourceManifestIfClobbered(before, cwd = repoRoot, log = console.error) {
+  const after = readSourceManifest(cwd)
+  if (before?.content == null || after == null || after === before.content) return 'untouched'
+
+  if (!before.wasGitClean) {
+    log(
+      '⚠️  打包过程改写了仓库根 package.json，但它打包前就有未提交改动，故不自动恢复。\n' +
+        '   请自行核对 `git diff package.json`（打包工具通常只会留下一份精简 metadata）。',
+    )
+    return 'warned'
+  }
+
+  execFileSync('git', ['checkout', '--', 'package.json'], { cwd })
+  log('⚠️  打包过程改写了仓库根 package.json，已自动 `git checkout` 还原（产物不受影响）。')
+  return 'restored'
 }
 
 export function runPackageRc({ cwd = repoRoot, stdio = 'inherit', notarize = false } = {}) {
@@ -275,9 +318,15 @@ export function runPackageRc({ cwd = repoRoot, stdio = 'inherit', notarize = fal
     assertCorpusCredentials()
   }
   const clientVersion = resolvePackageClientVersion({ cwd })
-  for (const step of createPackageRcSteps({ clientVersion, notarize })) {
-    const env = resolveStepEnv(step)
-    execFileSync(step.command, step.args, { cwd, stdio, ...(env ? { env } : {}) })
+  const manifestBefore = captureSourceManifest(cwd)
+  try {
+    for (const step of createPackageRcSteps({ clientVersion, notarize })) {
+      const env = resolveStepEnv(step)
+      execFileSync(step.command, step.args, { cwd, stdio, ...(env ? { env } : {}) })
+    }
+  } finally {
+    // 放 finally：打包中途失败时源文件同样可能已被改写，那时更需要还原
+    restoreSourceManifestIfClobbered(manifestBefore, cwd)
   }
 }
 

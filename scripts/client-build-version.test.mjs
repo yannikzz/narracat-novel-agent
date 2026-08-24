@@ -3,8 +3,10 @@ import { describe, expect, test } from 'bun:test'
 import {
   CLIENT_BUILD_VERSION_PREFIX,
   formatClientBuildVersion,
+  CLIENT_VERSION_OVERRIDE_ENV,
   readGitCommitCount,
   resolveClientBuildVersion,
+  resolveOverridableClientVersion,
 } from './client-build-version.mjs'
 
 describe('client build version', () => {
@@ -34,5 +36,53 @@ describe('client build version', () => {
 
     expect(count).toBe(7)
     expect(commands).toEqual(['git', '/usr/bin/git'])
+  })
+})
+
+describe('resolveOverridableClientVersion — 打包链版本号 SSOT', () => {
+  const stubCount = () => 64
+
+  test('未设覆盖时与 resolveClientBuildVersion 同值', () => {
+    expect(resolveOverridableClientVersion({ env: {}, readCommitCount: stubCount })).toBe(
+      resolveClientBuildVersion({ readCommitCount: stubCount }),
+    )
+  })
+
+  test('设了就用它——测试包要能压过线上版本，否则会被 electron-updater 静默换掉', () => {
+    expect(
+      resolveOverridableClientVersion({
+        env: { [CLIENT_VERSION_OVERRIDE_ENV]: '0.1.9999' },
+        readCommitCount: stubCount,
+      }),
+    ).toBe('0.1.9999')
+  })
+
+  test('空白值视同未设', () => {
+    expect(
+      resolveOverridableClientVersion({
+        env: { [CLIENT_VERSION_OVERRIDE_ENV]: '  ' },
+        readCommitCount: stubCount,
+      }),
+    ).toBe('0.1.64')
+  })
+
+  test('非法值 fail-loud，不静默打出坏版本号', () => {
+    for (const bad of ['abc', '0.1', '0.1.2.3', 'v0.1.2']) {
+      expect(() =>
+        resolveOverridableClientVersion({
+          env: { [CLIENT_VERSION_OVERRIDE_ENV]: bad },
+          readCommitCount: stubCount,
+        }),
+      ).toThrow(new RegExp(CLIENT_VERSION_OVERRIDE_ENV))
+    }
+  })
+
+  test('正式发布链路不吃这个环境变量：release.mjs 只引用无覆盖的那支', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { dirname, join } = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const src = await readFile(join(dirname(fileURLToPath(import.meta.url)), 'release.mjs'), 'utf8')
+    expect(src).not.toContain(CLIENT_VERSION_OVERRIDE_ENV)
+    expect(src).not.toContain('resolveOverridableClientVersion')
   })
 })
