@@ -246,12 +246,35 @@ export function createPackageRcSteps({
   ]
 }
 
+/**
+ * 内测包版本号覆盖（只服务本地测试打包，不进正式发布链路）。
+ *
+ * 客户端版本 = `git rev-list --count HEAD`，而 squash 合并会让计数回落（五个分支提交
+ * 合成一个），于是本地测试包的版本号可能低于线上正式版。此时 electron-updater 的
+ * `autoDownload=true` + `autoInstallOnAppQuit=true` 会静默把测试包换成线上版本——
+ * 真机验收因此测的是老引擎，且日志里毫无痕迹（真实踩过：#48 验收第二轮整份日志作废）。
+ * 打测试包时用 `NARRACAT_CLIENT_VERSION=0.1.9999 bun run package` 压过线上即可。
+ *
+ * 只在这个入口生效：`release.mjs`（正式发布）与 `ops-check.mjs` 照旧走 git 计数，
+ * 免得环境变量残留把正式版本号打歪。
+ */
+export function resolvePackageClientVersion({ cwd = repoRoot, env = process.env } = {}) {
+  const override = String(env.NARRACAT_CLIENT_VERSION ?? '').trim()
+  if (!override) return resolveClientBuildVersion({ root: cwd })
+  if (!/^\d+\.\d+\.\d+$/.test(override)) {
+    throw new Error(
+      `NARRACAT_CLIENT_VERSION 必须是 x.y.z 三段数字版本号，实际收到：${override}`,
+    )
+  }
+  return override
+}
+
 export function runPackageRc({ cwd = repoRoot, stdio = 'inherit', notarize = false } = {}) {
   if (notarize) {
     assertNotarizeCredentials()
     assertCorpusCredentials()
   }
-  const clientVersion = resolveClientBuildVersion({ root: cwd })
+  const clientVersion = resolvePackageClientVersion({ cwd })
   for (const step of createPackageRcSteps({ clientVersion, notarize })) {
     const env = resolveStepEnv(step)
     execFileSync(step.command, step.args, { cwd, stdio, ...(env ? { env } : {}) })

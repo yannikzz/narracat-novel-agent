@@ -13,6 +13,7 @@ import {
   findMissingCorpusEnv,
   findMissingNotarizeEnv,
   packagedAppBinaryPath,
+  resolvePackageClientVersion,
   resolveStepEnv,
 } from './package-rc.mjs'
 import { DEFAULT_APP_PATH } from './verify-signed-artifact.mjs'
@@ -451,5 +452,39 @@ describe('CLI 入口守卫：node scripts/package-rc.mjs 必须先加载 .env �
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('resolvePackageClientVersion — 内测包版本号覆盖', () => {
+  test('未设环境变量时走 git 计数（与正式链路同源）', () => {
+    const version = resolvePackageClientVersion({ env: {} })
+    expect(version).toMatch(/^0\.1\.\d+$/)
+  })
+
+  test('设了就用它——测试包要能压过线上版本，否则 electron-updater 会静默换掉它', () => {
+    expect(resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: '0.1.9999' } })).toBe('0.1.9999')
+  })
+
+  test('空白值视同未设，不产出空版本号', () => {
+    const version = resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: '   ' } })
+    expect(version).toMatch(/^0\.1\.\d+$/)
+  })
+
+  test('非法值 fail-loud，不静默打出坏版本号的包', () => {
+    for (const bad of ['abc', '0.1', '0.1.2.3', 'v0.1.2']) {
+      expect(() => resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: bad } })).toThrow(
+        /NARRACAT_CLIENT_VERSION/,
+      )
+    }
+  })
+
+  test('覆盖只在打包入口生效：release.mjs 不得引用它', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const releaseSource = await readFile(
+      join(dirname(fileURLToPath(import.meta.url)), 'release.mjs'),
+      'utf8',
+    )
+    expect(releaseSource).not.toContain('NARRACAT_CLIENT_VERSION')
+    expect(releaseSource).not.toContain('resolvePackageClientVersion')
   })
 })
