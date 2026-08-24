@@ -1,7 +1,7 @@
 ---
 description: 重写已完成章节 — 回滚记忆后重新执行写作流程，并分析对后续章节的级联影响
 argument-hint: <章节号>（可追加一句重写要求）
-allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack", "mcp__plugin_narracat_novelmemory__novel_rollback_chapter", "mcp__plugin_narracat_novelmemory__novel_get_review", "mcp__plugin_narracat_novelmemory__novel_get_arc", "mcp__plugin_narracat_novelmemory__novel_update_progress", "mcp__plugin_narracat_novelmemory__novel_checkpoint"]
+allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack", "mcp__plugin_narracat_novelmemory__novel_rollback_chapter", "mcp__plugin_narracat_novelmemory__novel_get_review", "mcp__plugin_narracat_novelmemory__novel_get_arc", "mcp__plugin_narracat_novelmemory__novel_character_state", "mcp__plugin_narracat_novelmemory__novel_update_progress", "mcp__plugin_narracat_novelmemory__novel_checkpoint"]
 ---
 
 重写指定的已完成章节：确认 → 构建上下文包 → 记忆回滚 → 重写 → 审修 → 入库 → 级联影响分析。
@@ -22,6 +22,7 @@ allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__plugin_na
 - 调 `novel_build_writing_context_pack(chapter=chapter_num)`，记下返回的 pack_path、manuscript_path 与 word_count_range（上下文包由工具落盘），后续步骤直接引用。
 - 工具返回错误 → 终止：不回滚记忆、不覆盖正文。
 - Read {manuscript_path} 当前正文，保存为旧稿（步骤 6 级联分析用）。
+- Read {pack_path}：包里有 `characters_without_cards` 时逐个按条目上的 `character_uid` 调 `novel_character_state` 补查，把这些角色的当前状态翻成人话记为 `{角色状态补充}`（无该键则为空），步骤 3 派发时附上。本命令的写手直接读包、手上没有查询工具，这一步不补它就只能靠猜。
 
 ## 步骤 2：记忆回滚
 
@@ -36,7 +37,9 @@ Task(chapter-writer): "重写第 {chapter_num} 章正文。
 目标字数区间: {word_count_range 的下限}-{word_count_range 的上限} 字。
 输出路径: {manuscript_path}
 WritingContextPack 路径: {pack_path}
-重写要求: {用户的重写要求；无则用步骤 0 取得的 blockers；两者都无则写「按细纲重写」}"
+重写要求: {用户的重写要求；无则用步骤 0 取得的 blockers；两者都无则写「按细纲重写」}
+包外补充的角色状态: {角色状态补充；为空则写「无」}
+包里没给全的角色资料以上面这段为准，不要去翻或猜项目里的文件。"
 ```
 
 完成后调 `novel_checkpoint(command="rewrite {chapter_num}", step=3, chapter=chapter_num)`。

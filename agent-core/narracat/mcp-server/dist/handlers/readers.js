@@ -2008,14 +2008,42 @@ export async function novelBuildWritingContextPack(args, ctx) {
         warnings.push("未解析出出场角色，角色状态卡为空");
     }
     const characterCards = getCharacterCardsForPack(ctx, [...cardCharacterMap.values()], Math.max(1, chapter - 1));
-    let droppedCards = 0;
+    // 出场角色名单必须完整，哪怕卡没随包给出（issue #48）。缺卡分两种成因，都得点名到人：
+    //  ① 尚无状态记录——角色在 cardCharacterMap 里但折叠不出卡（新登场 stub / 未抽出事实），
+    //     getCharacterCardsForPack 内部直接跳过，从来不在下面的裁剪计数里；
+    //  ② 超预算被裁——下面的 while 从尾部丢整张卡。
+    // 两类都带 character_uid：novel_character_state 只吃 uid，只给名字等于让消费者自己去
+    // 翻角色档案找 uid（真机实测审校就是在这一步开始猜文件路径的），名单就白给了。
+    const cardedNames = new Set(characterCards.map((card) => card.character));
+    const uidByName = new Map([...cardCharacterMap.values()].map((entry) => [entry.name, entry.uid]));
+    const charactersWithoutCards = [];
+    for (const { uid, name } of cardCharacterMap.values()) {
+        if (cardedNames.has(name))
+            continue;
+        charactersWithoutCards.push({ character: name, character_uid: uid, reason: "尚无状态记录" });
+    }
+    const droppedCardNames = [];
     while (characterCards.length > 1 &&
         estimateBlockTokens(characterCards) > BLOCK_BUDGETS.character_cards) {
-        characterCards.pop();
-        droppedCards += 1;
+        const dropped = characterCards.pop();
+        if (!dropped)
+            break;
+        droppedCardNames.unshift(dropped.character); // pop 是从尾部丢，unshift 还原成原排序
     }
-    if (droppedCards > 0) {
-        buildNotes.push(`角色状态卡超预算，已丢弃排序靠后的 ${droppedCards} 个角色`);
+    for (const name of droppedCardNames) {
+        const uid = uidByName.get(name);
+        charactersWithoutCards.push({
+            character: name,
+            ...(uid ? { character_uid: uid } : {}),
+            reason: "状态卡超预算未随包给出",
+        });
+    }
+    if (droppedCardNames.length > 0) {
+        // 点名到人，而不是只报个数：主会话手上有 novel_character_state，write.md 步骤 2 也早就
+        // 写着「包内信息有缺口时补查」——此前只报「已丢弃 2 个角色」，它知道少了人却不知道少了谁，
+        // 那条补救链路整条空转（issue #48 根因）。
+        buildNotes.push(`角色状态卡超预算，未随包给出 ${droppedCardNames.length} 个角色的卡（${droppedCardNames.join("、")}）` +
+            `——需要其状态时按 character_uid 调 novel_character_state 补查，结果写进任务书`);
     }
     // 区块 6.2：本章计划状态变更（planned_state_changes 计划账 → 写手前置）。
     // 具名数据行喂给写手（靶而非纪律段）；display_name 与角色卡同一词表口径。
@@ -2145,6 +2173,9 @@ export async function novelBuildWritingContextPack(args, ctx) {
         through_line_anchor: throughLineAnchor,
         arc_summaries: arcSummaries,
         character_cards: characterCards,
+        ...(charactersWithoutCards.length > 0
+            ? { characters_without_cards: charactersWithoutCards }
+            : {}),
         ...(plannedStateChanges.length > 0 ? { planned_state_changes: plannedStateChanges } : {}),
         character_relationships: characterRelationships,
         derived_relationships: derivedRelationships,

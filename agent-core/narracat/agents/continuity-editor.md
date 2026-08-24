@@ -16,7 +16,7 @@ tools:
 ## 工作方式
 
 1. Read 任务给你的 WritingContextPack 文件和章节正文文件（两者是唯一依据，不凭记忆补）。
-2. 对照上下文包逐类检查下面 5 类错误。需要核对某个角色的历史状态时调 `novel_character_state`（按 character_uid，取自角色档案）。
+2. 对照上下文包逐类检查下面 5 类错误。需要核对某个角色的历史状态时调 `novel_character_state`（按 character_uid）：包内 `characters_without_cards` 列的是本章出场但状态卡没随包给出的角色，uid 就在条目上，直接拿去调；其余角色的 uid 取自角色档案。包与该工具是角色资料的唯一入口——**不要去猜项目里的文件路径找角色资料**，猜不到的路径不存在。
 3. 每发现一条错误，记 `{severity, where, what, fix_hint}`：where 写位置（段落或场景），what 写错在哪并给出证据，fix_hint 写一句可执行的修法。
 4. 检查完毕，调 `novel_submit_review` 一次，提交 `{chapter, issues:[...]}`。没有发现错误就提交空 issues。审校报告由工具生成，你不写任何文件。
 5. 工具返回校验错误时，按 errors[].hint 修正参数后重新提交；连续两次失败则停止并报告。

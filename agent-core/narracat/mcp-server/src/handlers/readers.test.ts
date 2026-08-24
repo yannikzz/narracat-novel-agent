@@ -2927,6 +2927,119 @@ describe("novel_build_writing_context_pack · planned_state_changes 前置区块
   });
 });
 
+describe("WCP characters_without_cards — 出场名单不静默缺人（issue #48）", () => {
+  const GUANSHI_UID = "33333333-3333-4333-8333-333333333333";
+
+  /** 撑爆区块预算的厚卡：BLOCK_BUDGETS.character_cards = 1500，中文 estimateTokens ≈ 1/字 */
+  function seedFatCard(fixture: ProjectFixture, uid: string, name: string): void {
+    insertFact(fixture.db, {
+      id: `f-fat-${uid}`,
+      novelId: fixture.ctx.novelId,
+      subjectUid: uid,
+      subject: name,
+      predicate: "status",
+      object: "刀".repeat(900),
+      fromChapter: 1,
+    });
+  }
+
+  function seedThinCard(fixture: ProjectFixture, uid: string, name: string): void {
+    insertFact(fixture.db, {
+      id: `f-thin-${uid}`,
+      novelId: fixture.ctx.novelId,
+      subjectUid: uid,
+      subject: name,
+      predicate: "status",
+      object: `${name}守在药圃外`,
+      fromChapter: 1,
+    });
+  }
+
+  async function buildPack(fixture: ProjectFixture): Promise<{
+    pack: {
+      character_cards: Array<{ character: string }>;
+      characters_without_cards?: Array<{
+        character: string;
+        character_uid?: string;
+        reason: string;
+      }>;
+    };
+    warnings: string[];
+  }> {
+    const result = (await novelBuildWritingContextPack({ chapter: 2 }, fixture.ctx)) as {
+      pack_path: string;
+      warnings: string[];
+    };
+    return {
+      pack: JSON.parse(readFileSync(result.pack_path, "utf-8")),
+      warnings: result.warnings,
+    };
+  }
+
+  it("折叠不出卡的出场角色点名到人并带 uid（赵伯只有双主体关系事实、药圃管事零事实）", async () => {
+    const fixture = createProject();
+    await seedFullProject(fixture);
+
+    const { pack } = await buildPack(fixture);
+    const missing = pack.characters_without_cards ?? [];
+
+    // 名单不变量：有卡的 + 没卡的 == 全部出场角色，一个都不能静默消失
+    expect(
+      [...pack.character_cards.map((c) => c.character), ...missing.map((m) => m.character)].sort(),
+    ).toEqual(["林晚", "药圃管事", "赵伯"]);
+
+    const guanshi = missing.find((m) => m.character === "药圃管事");
+    expect(guanshi?.reason).toBe("尚无状态记录");
+    // uid 必须带上：novel_character_state 只认 character_uid，只给名字等于让消费者自己
+    // 去翻角色档案找 uid——真机实测审校就是在这一步开始猜文件路径的
+    expect(guanshi?.character_uid).toBe(GUANSHI_UID);
+    expect(missing.find((m) => m.character === "赵伯")?.character_uid).toBe(ZHAOBO_UID);
+  });
+
+  it("超预算裁掉的卡按人点名，诊断给名字而不是只报个数", async () => {
+    const fixture = createProject();
+    await seedFullProject(fixture);
+    seedFatCard(fixture, LINWAN_UID, "林晚");
+    seedFatCard(fixture, ZHAOBO_UID, "赵伯");
+    seedFatCard(fixture, GUANSHI_UID, "药圃管事");
+
+    const { pack, warnings } = await buildPack(fixture);
+    const missing = pack.characters_without_cards ?? [];
+
+    // 三张厚卡远超 1500 预算，裁到下限 1 张 → 另外两人进名单
+    expect(pack.character_cards).toHaveLength(1);
+    const dropped = missing.filter((m) => m.reason === "状态卡超预算未随包给出");
+    expect(dropped).toHaveLength(2);
+    // 名单不变量在裁剪路径上同样成立（不依赖谁被留下这个排序细节）
+    expect(
+      [...pack.character_cards.map((c) => c.character), ...missing.map((m) => m.character)].sort(),
+    ).toEqual(["林晚", "药圃管事", "赵伯"]);
+    for (const entry of dropped) expect(entry.character_uid).toBeTruthy();
+
+    // 回给主会话的诊断必须点名到人：write.md 步骤 2 的补查指令挂在名字上，
+    // 只报「已丢弃 2 个角色」的话它知道少了人却不知道少了谁，整条补救链路空转（#48 根因）
+    const note = warnings.find((w) => w.includes("角色状态卡超预算"));
+    expect(note).toBeTruthy();
+    for (const entry of dropped) expect(note).toContain(entry.character);
+    expect(note).toContain("novel_character_state");
+  });
+
+  it("全员有卡且不超预算时不带该键（可选区块，不给零缺口的包添噪音）", async () => {
+    const fixture = createProject();
+    await seedFullProject(fixture);
+    seedThinCard(fixture, ZHAOBO_UID, "赵伯");
+    seedThinCard(fixture, GUANSHI_UID, "药圃管事");
+
+    const { pack } = await buildPack(fixture);
+    expect(pack.character_cards.map((c) => c.character).sort()).toEqual([
+      "林晚",
+      "药圃管事",
+      "赵伯",
+    ]);
+    expect(pack).not.toHaveProperty("characters_without_cards");
+  });
+});
+
 describe("WCP derived_relationships（读时 2 跳共邻）", () => {
   const ZHISHI_UID = "44444444-4444-4444-8444-444444444444";
   const XUANCHEN_UID = "55555555-5555-4555-8555-555555555555";
