@@ -295,7 +295,8 @@ Workbench 使用固定 px 侧栏 + 流式内容区，不使用百分比作为可
 
 三条规则，缺一条就会出 bug：
 
-1. **必须 `max()` 保底。** 非 mac / 非 win 平台变量是 `0`，裸写 `pl-[var(--titlebar-inset-left)]` 会让该侧 padding 直接归零——布局在这些平台上塌掉，而开发机上永远复现不了。
+1. **兼作视觉间距的 padding 必须 `max()` 保底。** 非 mac / 非 win 平台变量是 `0`，若这一侧 padding 同时承担内容与窗口边缘的正常间距，裸写 `pl-[var(--titlebar-inset-left)]` 会让它直接归零——布局在这些平台上塌掉，而开发机上永远复现不了。
+   *例外：纯让位型 padding 可以裸写。* 当某侧 padding 的**唯一职责**就是给系统按钮腾地方、不承担任何视觉间距时（典型是 `justify-end` 的左栏头部：内容右对齐，左侧本就该是空的），归零正是期望行为。现有两处如此——`SettingsLayout.tsx` 与 `WorkbenchPrimarySidebar.tsx` 的 `pl-[var(--titlebar-inset-left)]`。判断依据是**这侧 padding 去掉后设计上是否还需要间距**，不是「有没有写 max()」。
 2. **呼吸位不可省。** 系统按钮与我们的图标之间只隔一条让位线时会被读成同一组按钮。左右各留 `1rem` / `0.75rem`。
 3. **已经在 caption 带下方的元素不要二次让位。** 上下分区之后，卡片内部的头部（Agent 面板头、聊天卡头）已经整体位于系统按钮下方，再消费 `inset-right` 会把按钮无故推离卡片右缘上百像素。
 
