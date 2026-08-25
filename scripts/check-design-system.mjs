@@ -11,6 +11,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 /** 路径归一化为 POSIX 分隔符（导出供测试）。 */
 export function toPosixPath(path) {
@@ -168,27 +169,27 @@ function main() {
     (file) => /\.(css|ts|tsx)$/.test(file) && !/^src\/dev\//.test(file),
   )
 
-  for (const file of sourceFiles) {
-    const content = readText(file)
+  // 每个文件只读一次，三道守卫共用同一份内容。
+  const sources = sourceFiles.map((path) => ({ path, content: readText(path) }))
+
+  for (const { path, content } of sources) {
     for (const [pattern, message] of forbidden) {
       if (pattern.test(content)) {
-        console.error(`${file} violates design-system guard: ${message} (${pattern})`)
+        console.error(`${path} violates design-system guard: ${message} (${pattern})`)
         process.exit(1)
       }
     }
   }
 
-  const productionSourceFiles = sourceFiles.filter((file) => !/\.test\.(ts|tsx)$/.test(file))
+  const productionSources = sources.filter(({ path }) => !/\.test\.(ts|tsx)$/.test(path))
 
-  const coverageFailure = allowlistCoverageFailure(productionSourceFiles)
+  const coverageFailure = allowlistCoverageFailure(productionSources.map(({ path }) => path))
   if (coverageFailure) {
     console.error(coverageFailure)
     process.exit(1)
   }
 
-  const brandAssetViolations = collectBrandAssetViolations({
-    files: productionSourceFiles.map((path) => ({ path, content: readText(path) })),
-  })
+  const brandAssetViolations = collectBrandAssetViolations({ files: productionSources })
   if (brandAssetViolations.length > 0) {
     for (const file of brandAssetViolations) {
       console.error(
@@ -198,11 +199,10 @@ function main() {
     process.exit(1)
   }
 
-  for (const file of productionSourceFiles) {
-    const content = readText(file)
+  for (const { path, content } of productionSources) {
     for (const [pattern, message] of offScaleFontSizeGuards) {
       if (pattern.test(content)) {
-        console.error(`${file} violates typography scale guard: ${message} (${pattern})`)
+        console.error(`${path} violates typography scale guard: ${message} (${pattern})`)
         process.exit(1)
       }
     }
@@ -229,6 +229,8 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-if (process.argv[1] && toPosixPath(process.argv[1]).endsWith('check-design-system.mjs')) {
+// ESM 主模块判断走 pathToFileURL（仓内惯例）：文件名后缀判断会把 not-check-design-system.mjs
+// 之类的导入者也当成 CLI 入口，裸 `file://${process.argv[1]}` 则在路径含空格/软链时静默失效。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main()
 }

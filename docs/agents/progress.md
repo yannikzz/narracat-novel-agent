@@ -6,6 +6,8 @@
 
 `main`（= `db5db0d`，已 push）。**2026-08-25 发布 `v0.2.65` 到线上**（距上一个正式版 `v0.1.1930` 11 天、27 个提交），feed 已切换、真机验收通过。
 
+当前工作分支 `fix/24-check-design-windows-path`（PR #52，修 #24 设计系统守卫在 Windows 恒红），待 Windows CI job 出绿后合并。
+
 ## Current Phase
 
 主线 `main`。产品北极星 = ADR-0030「账房归我们 / 花归用户 / 尺归读者」；产品方向 2026-07-11 定案两大模块「用户编辑 + 可配置底座」。**正文编辑器主战役已收官**（PR #443 合并 main，ADR-0031，引擎 4.0.91，产品主人真机验收通过）；写作质量「脱胎换骨」主线阶段性收刀（arc 速度靶 PR #441 / 获得引擎四刀 PR #442 均已合并）。ADR 已扩至 **0035**。
@@ -590,6 +592,15 @@ P1A-1 完成门已闭合。分支仍未推送、未创建 PR、未合并，继�
 - Agent Core cutover：NarraCat-app 已切到内部维护 `agent-core/narracat/` 作为 NarraCat Agent Core 源码；仓库内 `resources/NarraCat` 已移除，旧 plugin 清单工件仅作为 SDK 运行适配层保留，`mcp-server/dist` 随 Agent Core 提交。
 
 ## Now
+
+**2026-08-25 · #24 `check:design` 在 Windows 恒红已修（分支 `fix/24-check-design-windows-path`，PR #52，待合）**
+
+- **根因是路径分隔符，不是 issue 正文猜的行尾**（社区贡献者 @zfengChen 在 Windows 10 实机诊断并给出证据链）：`listFiles()` 的 `relative('.', path)` 在 Windows 返回反斜杠，而品牌资产白名单存正斜杠 → `Set.has()` 恒 false → 三个合规包装器（`BrandMark` / `BrandStoryBanner` / `brand-illustrations`）被误扫，它们本来就该引用资产目录 → 守卫恒红；mac 恒绿，永远看不见。
+- 修复：扫描结果统一走 `toPosixPath()`；读文件统一 LF 归一化（行尾非本次根因，但跨行子串契约在 `core.autocrlf=true` 下同样假红）；新增 `allowlistCoverageFailure()` 让白名单落空 fail loud 并点名；品牌违规一次报全；待读文件清单由 `requiredContracts` 推导，删掉需人工同步的第二份清单。
+- 补 `scripts/check-design-system.test.mjs`——本仓守卫脚本此前唯一没有测试的一个，喂反斜杠 / CRLF 输入，让这类「mac 上永远看不见」的缺陷在 mac 上就能拦；退化副本（`toPosixPath` 恒等）实测 4 fail，证明测试真拦得住。
+- **CI 接线两处**：`app-ci` 增跑 `check:design`（issue 说它「最容易漏跑」，而 CI 此前从未跑过它）；新增 `design-guard-windows` job（windows-latest + 强制 `core.autocrlf=true` 检出，不装依赖，只跑守卫与其单测）——ubuntu / mac 都是正斜杠 + LF，Windows 那一半只有真 runner 能证，这条也让跨平台守卫缺陷以后不再靠人工真机复现。
+- 验证：全量 `bun --no-cache run test` 3159 pass / 0 fail、`typecheck`、`check:design` 均绿；ubuntu CI 已确认新步骤真跑到（日志有 `Design-system contracts present.`）。
+- 下一步：Windows job 出绿后合并并关 #24；回复 issue 里的贡献者（诊断归功 + 说明为何在他的一行修法上多做了覆盖自检 / 单测 / CI 三件事）。`scripts/check-no-native-details.mjs` 的主模块判断仍是文件名后缀式（本仓惯例是 `pathToFileURL`），留作小债。
 
 **当前（2026-07-30）· 模型上限实验闭环 + 成稿句法根因已修（4.0.150，未 push）**
 
