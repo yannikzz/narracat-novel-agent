@@ -8,11 +8,23 @@
 
 **2026-08-25 追加**：PR #52 已合入 main（= `938abe7`）——#24 设计系统守卫在 Windows 恒红已修，`design-guard-windows` CI job 上线，#24 已关闭。
 
+**2026-08-25 再追加（issue 清扫轮）**：main = `84522b5`。合入 PR #26（Windows 顶栏 caption 让位，社区 @yuki-czf，关 #11）、PR #53（顶栏让位契约进 `docs/design.md` §4.4）、PR #54（NovelMemory 工具名缩到 64 以内，关 #12，引擎 **4.0.180**）；关闭 #28（墙钟优化收官）。**GitHub 上零 open PR，只剩 #25 / #39 / #42 / #5 四条**；分支从 11 条清到 3 条（`main` / `signatures` / `feat/windows-port`）。下一步回到 Windows 适配（#25）。
+
 ## Current Phase
 
 主线 `main`。产品北极星 = ADR-0030「账房归我们 / 花归用户 / 尺归读者」；产品方向 2026-07-11 定案两大模块「用户编辑 + 可配置底座」。**正文编辑器主战役已收官**（PR #443 合并 main，ADR-0031，引擎 4.0.91，产品主人真机验收通过）；写作质量「脱胎换骨」主线阶段性收刀（arc 速度靶 PR #441 / 获得引擎四刀 PR #442 均已合并）。ADR 已扩至 **0035**。
 
 产品路线以下方 **Next（产品路线图 · 2026-07-12 统筹版）** 为准：四条泳道 = A 花的所有权（用户编辑）/ B 花的表达权（可配置底座）/ C 尺（评价与验证）/ D 账房（记忆与资产底座）。战略层以 `docs/COMPASS.md` 为准，执行入口 `/next-issue`。
+
+**2026-08-25（issue 清扫轮：社区 PR 合入 + 工具名长度硬下限收口）**：清空积压，为 Windows 适配腾出场地。
+
+- **PR #26 合入（关 #11，社区 @yuki-czf）**：Windows 顶栏 caption 让位——方案是「上下分区 + WCO 运行时实测」，与 mac「红绿灯悬于侧边栏」视觉语言对等（caption 悬于 canvas gutter，卡片从 caption 带下方开始），而不是加大 padding 绕过去。新增 `--titlebar-inset-left/right` 与 `--titlebar-gutter-top` 三个平台感知变量；`150px` 只是 100% 缩放下的回退值，真值由 `navigator.windowControlsOverlay.getTitlebarAreaRect()` 实测覆盖（125%/150% DPI 下 caption 更宽，硬编码必漏）。**审核时特意验了 CSS 产物**——本仓有过 Tailwind 任意值里 `max()`/`calc()`/`var()` 被静默丢弃的先例，逐条 grep `out/renderer/assets/*.css` 确认全部落盘。合到当时 main 后本地实测：typecheck / 3169 tests / check:design / check:architecture / build 全过。125%/150% DPI 待真机走查（并入 #25 Task 12）。
+- **PR #53（配套契约件）**：把上面这套机制写进 `docs/design.md` §4.4 成为全局布局契约——顶栏是每个新页面都要碰的地方，机制不上文档等于机制不存在（#11 已经发生过一次）。含两套策略的选择依据（通栏 header 走水平让位 / canvas 浮卡走上下分区），**选错的代价是 Windows 上按钮打架而 mac 上看不出来**。原稿「必须 `max()` 保底」的无条件规则与三处既有实现冲突，已改成按职责判断（纯让位型 padding 归零正是期望行为）。
+- **PR #54（关 #12，引擎 4.0.180）**：NovelMemory 工具全限定名的 server 段 `plugin_narracat_novelmemory`(27) → `narracat_memory`(15)，前缀 34 → 22，引擎 52 个工具全部落到 64 字符以内（最长 58）。**这不是第三方网关的怪癖，是我们自己开的门没量门框**——各家上限核实为 Anthropic Messages 128 / OpenAI Chat Completions **64** / 部分兼容网关自行按 64 截断改写成 hash 短名；自 #5 刀 1（PR #13）起 custom 渠道可选 openai wire，那条路径上 7 个工具本来必炸，只因 dogfood 一直走 deepseek（不校验长度）没暴露。**没采纳 issue 提的「按网关算法注册 hash 短名别名」**：把第三方私有实现细节焊进主干，网关改算法即静默失配，且对 openai wire 无效。改名安全的依据是 claude-sdk 退役后 NovelMemory 全部走 pi 自定义工具注册 + memory-host RPC，**没有按此名 spawn 的 MCP 进程**（`mcpServers` 只剩测试 fixture 在用，`mcp-server/dist` 里不含 server 名故无需重建）。顺手收口了 server 名的两份硬编码副本（主进程 `allowed-tools.ts` + 渲染端 `tool-phrase.ts`，漏改一侧不报错、只让工具卡悄悄退回兜底文案）到 `shared/lib/novel-memory-tool-names.ts`。新增三条守卫断言（已实测把名字改回旧值会全部转红并逐条报出「谁超了多少」），其中一条覆盖**引擎 SSOT 全部工具**而非仅当前工具面——白名单外那批 App 直调工具随时可能被加进来。
+- **#28 关闭（墙钟优化收官）**：刀 D 已由 PR #33 的只读脚本交付、主刀①（消灭 chapter-writer 白跑重试）已由 #29/PR #30 完成，刀 A/B/C 维持降级（天花板分别 ≈29%/≈11.5%/<3%，且刀 A 那 29% 里大头是四路并发挂钟）。**关闭时补了一条归因更正**：该 issue 收官评论把 26.7→14.0 分钟的下降归给「#35 的 max_tokens 修复」，而该结论 2026-08-21 已被抓包推翻（实发恒为 `Math.min(model.maxTokens, 32000)`，#35 与 #46 两刀都是空转）——#35/#46 各自补过更正，唯独 #28 这个主 issue 没有，而它才是查墙钟时最先被读到的。观测值真实，归因不可引用。剩余两项去向已写明：热写字数一次做对归创作质量层（改 prompt 必须走真稿 A/B，不能凭墙钟拍板）、刀 E 体感归产品层保留。
+- **仓库卫生**：本地+远程死分支清理（对应 PR 均已合并或关闭），从 11 条收敛到 3 条；`feat/28-write-timing-instrumentation` 的陈旧 worktree 一并 prune。
+
+**这一轮踩到并已进记忆的两个坑**：①机械全仓替换只匹配了带 `mcp__` 前缀的全限定名，漏掉 `run-manager.test.ts` 里两处裸 server 名做对象 key 的写法，全量测试才炸出来（已改成引用常量）；②替换范围没圈定，误改了 `docs/report/ab-runs/` 的 A/B 实验原始物料与 `docs/superpowers/plans/` 历史计划——它们是 untracked 私产，git 回滚不了，只能手工反向还原。**批量替换前先按目录白名单圈范围，历史记录与实验归档一律排除**（`progress.md` 里 2026-06 那条历史条目同理，保留原样未改）。
 
 **2026-08-25（发布 v0.2.65：跨版本号体系的一跳 + 公证超时救场）**：线上从 `v0.1.1930`（2026-08-14，引擎 4.0.170）跳到 **`v0.2.65`**（引擎 4.0.179），feed 已切换，真机验收通过。
 
