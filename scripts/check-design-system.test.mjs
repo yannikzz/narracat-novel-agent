@@ -3,6 +3,8 @@ import {
   BRAND_ASSET_ALLOWLIST,
   allowlistCoverageFailure,
   collectBrandAssetViolations,
+  collectOffScaleFontSizeViolations,
+  isProductionSource,
   normalizeLineEndings,
   toPosixPath,
 } from './check-design-system.mjs'
@@ -78,5 +80,40 @@ describe('allowlistCoverageFailure（白名单覆盖自检）', () => {
 
   test('扫描范围塌成空时同样 fail loud，不许静默放行', () => {
     expect(allowlistCoverageFailure([])).not.toBeNull()
+  })
+})
+
+describe('isProductionSource（测试文件豁免）', () => {
+  test('.test.ts / .test.tsx 不算生产源码——反斜杠路径同样识别', () => {
+    expect(isProductionSource('src/lib/a.test.ts')).toBe(false)
+    expect(isProductionSource('src/components/B.test.tsx')).toBe(false)
+    expect(isProductionSource(windowsPath('src/components/B.test.tsx'))).toBe(false)
+  })
+
+  test('生产文件算生产源码（含名字里带 test 但不是测试文件的）', () => {
+    expect(isProductionSource('src/components/ui/button.tsx')).toBe(true)
+    expect(isProductionSource('src/lib/test-utils.ts')).toBe(true)
+  })
+})
+
+describe('collectOffScaleFontSizeViolations（字号刻度）', () => {
+  test('生产文件里的 text-[13px] / text-[17px] 判违规', () => {
+    const violations = collectOffScaleFontSizeViolations({
+      files: [
+        { path: 'src/components/A.tsx', content: 'className="text-[13px]"' },
+        { path: 'src/components/B.tsx', content: 'className="text-[17px]"' },
+        { path: 'src/components/C.tsx', content: 'className="text-[15px]"' },
+      ],
+    })
+    expect(violations.map((v) => v.file)).toEqual(['src/components/A.tsx', 'src/components/B.tsx'])
+  })
+
+  test('测试文件里的负向断言不误伤——守卫只扫生产代码', () => {
+    const violations = collectOffScaleFontSizeViolations({
+      files: [
+        { path: 'src/components/A.test.tsx', content: "expect(cls).not.toContain('text-[13px]')" },
+      ],
+    })
+    expect(violations).toEqual([])
   })
 })

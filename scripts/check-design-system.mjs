@@ -136,6 +136,34 @@ export function allowlistCoverageFailure(scannedFiles, allowlist = BRAND_ASSET_A
 }
 
 /**
+ * 是否生产源码（导出供测试）：测试文件豁免字号与品牌资产守卫——它们会写
+ * `text-[13px]` 之类的负向断言，扫进来就是误伤。
+ * @param {string} path 文件路径
+ * @returns {boolean}
+ */
+export function isProductionSource(path) {
+  return !/\.test\.(ts|tsx)$/.test(toPosixPath(path))
+}
+
+/**
+ * 收集字号刻度违规（导出供测试）。
+ * @param {{ files: Array<{ path: string, content: string }> }} input
+ * @returns {Array<{ file: string, message: string, pattern: RegExp }>}
+ */
+export function collectOffScaleFontSizeViolations({ files }) {
+  const violations = []
+  for (const file of files) {
+    if (!isProductionSource(file.path)) continue
+    for (const [pattern, message] of offScaleFontSizeGuards) {
+      if (pattern.test(file.content)) {
+        violations.push({ file: toPosixPath(file.path), message, pattern })
+      }
+    }
+  }
+  return violations
+}
+
+/**
  * 收集品牌资产违规（导出供测试）。
  * @param {{ files: Array<{ path: string, content: string }>, allowlist?: string[] }} input
  * @returns {string[]} 违规文件路径（POSIX）
@@ -181,7 +209,7 @@ function main() {
     }
   }
 
-  const productionSources = sources.filter(({ path }) => !/\.test\.(ts|tsx)$/.test(path))
+  const productionSources = sources.filter(({ path }) => isProductionSource(path))
 
   const coverageFailure = allowlistCoverageFailure(productionSources.map(({ path }) => path))
   if (coverageFailure) {
@@ -199,13 +227,12 @@ function main() {
     process.exit(1)
   }
 
-  for (const { path, content } of productionSources) {
-    for (const [pattern, message] of offScaleFontSizeGuards) {
-      if (pattern.test(content)) {
-        console.error(`${path} violates typography scale guard: ${message} (${pattern})`)
-        process.exit(1)
-      }
+  const offScaleViolations = collectOffScaleFontSizeViolations({ files: productionSources })
+  if (offScaleViolations.length > 0) {
+    for (const { file, message, pattern } of offScaleViolations) {
+      console.error(`${file} violates typography scale guard: ${message} (${pattern})`)
     }
+    process.exit(1)
   }
 
   console.log('Design-system contracts present.')
