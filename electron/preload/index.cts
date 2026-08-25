@@ -6,6 +6,7 @@ const api = {
   revealProjectFolder: (projectPath: string) => ipcRenderer.invoke('novel:reveal-folder', projectPath),
   setTitleBarOverlaySymbolColor: (symbolColor: string) =>
     ipcRenderer.invoke('window:set-titlebar-overlay-symbol-color', symbolColor),
+  getProcessHealth: () => ipcRenderer.invoke('app:get-process-health'),
   checkReleaseGuard: () => ipcRenderer.invoke('release-guard:check'),
   getUpdaterState: () => ipcRenderer.invoke('updater:get-state'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),

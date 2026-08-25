@@ -36,6 +36,7 @@ import {
   deleteApiKey,
   getConfig,
   getNarraCatDiagnostics,
+  getProcessHealth,
   listProviderModels,
   runCorpusHealthProbe,
   runEmbeddingHealthProbe,
@@ -58,6 +59,8 @@ import type {
   EmbeddingHealthProbeResult,
   ProviderId,
 } from '@shared/types/ipc'
+import { summarizeProcessHealthEvent } from '@shared/lib/process-health'
+import type { ProcessHealthReport } from '@shared/types/process-health'
 
 declare const __NARRACAT_CLIENT_VERSION__: string | undefined
 
@@ -181,6 +184,19 @@ function AboutBetaNotice() {
 }
 
 /**
+ * 稳定性事件的一行摘要（#39）。
+ *
+ * 「未记录到异常」是有意义的信息，不是空态占位——它告诉作者「查过了，没事」，
+ * 与「读取中」（可能自己就是故障信号）必须分开显示。
+ */
+function formatProcessHealthSummary(report: ProcessHealthReport | null): string {
+  if (!report) return '读取中'
+  if (report.events.length === 0) return '未记录到异常'
+  const latest = summarizeProcessHealthEvent(report.events[0])
+  return report.events.length === 1 ? latest : `${latest}（共 ${report.events.length} 条）`
+}
+
+/**
  * 关于页诊断折叠（通用 Disclosure 的薄封装：钉住 data 锚点与摘要行样式）。
  *
  * 为什么不用原生 <details>：Windows 打包版（asar）实测渲染原生 details 元素会把渲染主线程
@@ -236,6 +252,7 @@ export function SettingsRoute() {
   const [status, setStatus] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
+  const [processHealth, setProcessHealth] = useState<ProcessHealthReport | null>(null)
   const [embeddingProbe, setEmbeddingProbe] = useState<EmbeddingHealthProbeResult | null>(null)
   const [embeddingProbeRunning, setEmbeddingProbeRunning] = useState(false)
   const [embeddingProbeStatus, setEmbeddingProbeStatus] = useState<string | null>(null)
@@ -298,6 +315,22 @@ export function SettingsRoute() {
       cancelled = true
     }
   }, [setDiagnostics])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadProcessHealth() {
+      try {
+        const report = await getProcessHealth()
+        if (!cancelled) setProcessHealth(report)
+      } catch {
+        // 取证读不出来不该让设置页打不开——诊断行会停在「读取中」，本身也是一种信号。
+      }
+    }
+    void loadProcessHealth()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // 池 / 槽位改动的统一落盘 helper：模型池化后这些改动不再走「改草稿 + 手动保存设置」，
   // 一律即时持久化，杜绝「忘了保存」。
@@ -877,6 +910,27 @@ export function SettingsRoute() {
                               {diagnostics?.agentCorePath ?? '未检测'}
                             </div>
                           </SettingsRow>
+                          <SettingsRow
+                            title="稳定性事件"
+                            description="界面崩溃、子进程退出、主线程卡死的留痕。反馈问题时把这里和下面的记录文件一起发来。"
+                          >
+                            <div
+                              className={`text-right text-xs ${
+                                processHealth && processHealth.events.length > 0
+                                  ? 'text-destructive'
+                                  : 'text-muted-foreground'
+                              }`}
+                            >
+                              {formatProcessHealthSummary(processHealth)}
+                            </div>
+                          </SettingsRow>
+                          {processHealth && processHealth.events.length > 0 ? (
+                            <SettingsRow title="记录文件">
+                              <div className="truncate text-right font-mono text-xs">
+                                {processHealth.logPath}
+                              </div>
+                            </SettingsRow>
+                          ) : null}
                           <SettingsRow
                             title="向量语义检索"
                             description="检查 embedding 模型与检索链路是否正常，区分「语义检索」与「降级为纯 FTS」。"
