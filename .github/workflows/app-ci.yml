@@ -13,3 +13,6 @@ jobs:
       - run: bun install --no-cache
       - run: bun --no-cache run typecheck
       - run: bun --no-cache run test
+      # 设计系统守卫本体也在 CI 跑一遍：它是最容易漏跑的一道，贡献者本机跑不跑得动不该
+      # 决定 main 的干净程度（跨平台形态的回归由 scripts/check-design-system.test.mjs 兜）。
+      - run: bun --no-cache run check:design
