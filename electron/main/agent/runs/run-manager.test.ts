@@ -7,7 +7,10 @@ import { createNovelProjectFixture } from '../../novel/test-novel-fixture'
 import type { AgentEvent } from '@shared/types/agent'
 import type { AppConfig } from '@shared/types/config'
 import { POOL_DEFAULT_FIELDS } from '@shared/types/config'
-import { NARRACAT_NOVEL_MEMORY_MCP_TOOLS } from '../runtime/allowed-tools'
+import {
+  NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME,
+  NARRACAT_NOVEL_MEMORY_MCP_TOOLS,
+} from '../runtime/allowed-tools'
 import type { SdkLikeStartRunArgs as RunClaudeAgentQueryArgs } from './test-sdk-like-adapter'
 import {
   createSdkLikeTestAdapter,
@@ -900,7 +903,7 @@ describe('createAgentRunManager', () => {
         { type: 'local', path: '/workspace/narracat-decktop/agent-core/narracat' },
       ])
       expect(args.options.mcpServers).toMatchObject({
-        plugin_narracat_novelmemory: {
+        [NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME]: {
           command: expectedDevRuntimePath,
           args: ['/workspace/narracat-decktop/agent-core/narracat/mcp-server/dist/index.js'],
           env: {
@@ -982,10 +985,10 @@ describe('createAgentRunManager', () => {
 
     async function* runSdkQuery(args: RunClaudeAgentQueryArgs): AsyncIterable<unknown> {
       expect(args.options.allowedTools).toContain(
-        'mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack',
+        'mcp__narracat_memory__novel_build_writing_context_pack',
       )
-      expect(args.options.allowedTools).toContain('mcp__plugin_narracat_novelmemory__novel_commit_chapter')
-      expect(args.options.allowedTools).toContain('mcp__plugin_narracat_novelmemory__novel_update_progress')
+      expect(args.options.allowedTools).toContain('mcp__narracat_memory__novel_commit_chapter')
+      expect(args.options.allowedTools).toContain('mcp__narracat_memory__novel_update_progress')
       expect(args.options.allowedTools).toEqual(expect.arrayContaining(NARRACAT_NOVEL_MEMORY_MCP_TOOLS))
       expect(args.options.allowedTools).not.toContain('Bash')
       expect(args.options.allowedTools).not.toContain('WebFetch')
@@ -995,7 +998,7 @@ describe('createAgentRunManager', () => {
       if (!canUseTool) throw new Error('expected canUseTool bridge')
       permissionResolved.resolve(
         await canUseTool(
-          'mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack',
+          'mcp__narracat_memory__novel_build_writing_context_pack',
           { chapter: 2 },
           {
             signal: new AbortController().signal,
@@ -1377,7 +1380,7 @@ describe('createAgentRunManager', () => {
       { type: 'local', path: '/workspace/narracat-decktop/agent-core/narracat' },
     ])
     expect(engineArgs?.options.mcpServers).toMatchObject({
-      plugin_narracat_novelmemory: {
+      [NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME]: {
         env: { NOVEL_CONFIG_PATH: '/novels/stars/.narracat/config.yaml' },
       },
     })

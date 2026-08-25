@@ -1,7 +1,7 @@
 ---
 description: 初始化新小说项目 — 创建目录结构和配置文件
 argument-hint: <书名>
-allowed-tools: [Read, Write, Glob, AskUserQuestion, Bash, mcp__plugin_narracat_novelmemory__novel_query]
+allowed-tools: [Read, Write, Glob, AskUserQuestion, Bash, mcp__narracat_memory__novel_query]
 ---
 
 创建小说项目骨架。本命令只做机械步骤；题材、篇幅等创作信息由 `/narracat:setup` 对话收集。

@@ -1,6 +1,6 @@
 {
   "name": "narracat",
-  "version": "4.0.179",
+  "version": "4.0.180",
   "description": "NarraCat Agent Core — AI 辅助超长篇小说创作引擎（自有契约清单，App 层发现与校验的 SSOT）",
   "commands": ["init", "learn-craft", "plan", "reference", "review", "revise-premise", "rewrite", "setup", "status", "sync-chapter-memory", "world", "write", "writer-wizard"],
   "agents": ["outline-architect", "chapter-writer", "continuity-editor", "world-curator", "memory-keeper"],

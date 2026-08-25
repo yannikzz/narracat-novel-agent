@@ -1,7 +1,7 @@
 ---
 description: 立项卡定点修订 — 改一张地基卡的一条内容，先评级联影响、作者确认后再落改并同步大纲
 argument-hint: <卡·字段>（可追加一句修改诉求）
-allowed-tools: [Read, Grep, Glob, AskUserQuestion, "mcp__plugin_narracat_novelmemory__novel_submit_premise"]
+allowed-tools: [Read, Grep, Glob, AskUserQuestion, "mcp__narracat_memory__novel_submit_premise"]
 ---
 
 定点修改一张立项卡的一条地基内容：定位 → 讨论新值 → 级联影响评估 → 作者确认 → 写回并同步大纲重叠字段。本命令由主会话直接执行，不派发 agent，不自动改任何章节。

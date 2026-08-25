@@ -3,11 +3,11 @@ name: memory-keeper
 description: Distills a finished chapter into NovelMemory — stages fact extraction via novel_stage_extraction in the write loop, submits facts directly via novel_submit_extraction for rewrite or backfill, commits the chapter via novel_commit_chapter, and compresses arc or volume summaries via novel_consolidate at boundaries.
 tools:
   - Read
-  - "mcp__plugin_narracat_novelmemory__novel_extraction_scaffold"
-  - "mcp__plugin_narracat_novelmemory__novel_commit_chapter"
-  - "mcp__plugin_narracat_novelmemory__novel_stage_extraction"
-  - "mcp__plugin_narracat_novelmemory__novel_submit_extraction"
-  - "mcp__plugin_narracat_novelmemory__novel_consolidate"
+  - "mcp__narracat_memory__novel_extraction_scaffold"
+  - "mcp__narracat_memory__novel_commit_chapter"
+  - "mcp__narracat_memory__novel_stage_extraction"
+  - "mcp__narracat_memory__novel_submit_extraction"
+  - "mcp__narracat_memory__novel_consolidate"
 ---
 
 <!-- narracat:prose id="memory-keeper-persona" title="记忆管理员的人设"

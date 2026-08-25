@@ -77,7 +77,7 @@ bun --no-cache run dev          # 必须在该臂的 checkout 里启动
 - 没有等价的 headless 跑法：一次 Agent run 由主进程装配（pi runtime + 每项目一个 NovelMemory
   utilityProcess + 权限闸），命令行单跑引擎 prompt 不等价，别拿它出 A/B 结论。
 - 工具白名单由 App 装配，`NARRACAT_COMMAND_ALLOWED_TOOLS` 已含全量 NovelMemory 工具
-  （`mcp__plugin_narracat_novelmemory__*`）；若自己写临时 runner，必须显式带上——
+  （`mcp__narracat_memory__*`）；若自己写临时 runner，必须显式带上——
   这是 2026-06-05 dogfood 踩过的坑。
 - 模型基准对齐 dogfood 现状（当前 DeepSeek V4 Pro），两臂必须同 provider 同模型。
 

@@ -3,8 +3,8 @@ name: continuity-editor
 description: Reviews a finished chapter for objective continuity errors only, then submits findings once via novel_submit_review.
 tools:
   - Read
-  - "mcp__plugin_narracat_novelmemory__novel_submit_review"
-  - "mcp__plugin_narracat_novelmemory__novel_character_state"
+  - "mcp__narracat_memory__novel_submit_review"
+  - "mcp__narracat_memory__novel_character_state"
 ---
 
 <!-- narracat:prose id="continuity-editor-persona" title="审校的人设"

@@ -1,7 +1,7 @@
 ---
 description: 规划大纲 — 书级引擎 / 卷级与 arc / 章级细纲三层规划，按批推进
 argument-hint: <创意方向或修改指令>
-allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestion, mcp__plugin_narracat_novelmemory__novel_get_structure_budget, mcp__plugin_narracat_novelmemory__novel_get_arc, mcp__plugin_narracat_novelmemory__novel_get_arc_velocity_target, mcp__plugin_narracat_novelmemory__novel_checkpoint, mcp__plugin_narracat_novelmemory__novel_mint_character_uid, mcp__plugin_narracat_novelmemory__novel_list_candidate_characters, mcp__plugin_narracat_novelmemory__novel_register_candidate_character]
+allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestion, mcp__narracat_memory__novel_get_structure_budget, mcp__narracat_memory__novel_get_arc, mcp__narracat_memory__novel_get_arc_velocity_target, mcp__narracat_memory__novel_checkpoint, mcp__narracat_memory__novel_mint_character_uid, mcp__narracat_memory__novel_list_candidate_characters, mcp__narracat_memory__novel_register_candidate_character]
 ---
 
 调度大纲架构师分层规划大纲。结构化产物由 outline-architect 自行调用提交工具入库，大纲文件（master-outline.md / vol-outline.md / ch-NNN.md）由提交工具机械渲染；主会话只做模式判定、Envelope 派发和回执推进，不写任何大纲文件，不直接编辑 state.yaml。
@@ -14,7 +14,7 @@ allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestio
 通用约定：
 
 - VV = 卷号两位补零，NNN = 章号三位补零。
-- 每个步骤完成时调用 `mcp__plugin_narracat_novelmemory__novel_checkpoint(command="plan", step=步骤号)`，下文简写为 novel_checkpoint(step=N)。
+- 每个步骤完成时调用 `mcp__narracat_memory__novel_checkpoint(command="plan", step=步骤号)`，下文简写为 novel_checkpoint(step=N)。
 - automation_level == "auto" 时跳过本命令所有 AskUserQuestion，按各处标注的默认项推进。
 - 派发 subagent 只传路径与参数（Envelope），不复述 agent 内部规则。
 - 进度与控制状态边界见 `${CLAUDE_PLUGIN_ROOT}/docs/contracts/command-progress.md`：automation_level 取值、模式判定（新建/修改/补卷/补纲）、前置检查流水账与内部步骤编号是控制状态，只用于自身分支判断，不复述进面向作者的文本，也不写进任务列表的步骤名。
@@ -32,7 +32,7 @@ allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestio
 
 ## 步骤 1：结构预算
 
-调 `mcp__plugin_narracat_novelmemory__novel_get_structure_budget` 取预算表（tier、卷数、arc 跨度、storyline 预算、伏笔预算、payoff_beats 下限等）。工具报 config 缺篇幅字段 → 输出「请先执行 /narracat:setup 补齐篇幅设置」，终止。完成后 novel_checkpoint(step=1)。
+调 `mcp__narracat_memory__novel_get_structure_budget` 取预算表（tier、卷数、arc 跨度、storyline 预算、伏笔预算、payoff_beats 下限等）。工具报 config 缺篇幅字段 → 输出「请先执行 /narracat:setup 补齐篇幅设置」，终止。完成后 novel_checkpoint(step=1)。
 
 ## 步骤 2：模式判定
 
@@ -58,7 +58,7 @@ Glob `bible/world/*.md` 与 `bible/characters/*.md` 取设定文件实际路径�
 - 「对抗力量」卡 → antagonistic_force
 - 「金手指与爽点引擎」卡整卡 → golden_finger（含能力 / 限制 / 成长性 / 反馈回路 / 为何不消灭冲突；按卡的条目结构原样摘，不只摘其中一条。**反馈回路是本书的爽点节奏 spec**——小爽到什么粒度、中爽隔多久、大爽落在哪个层级，原文带出，供架构师据此编排各 arc 的爽点密度与分布）
 
-取定速靶：调 `mcp__plugin_narracat_novelmemory__novel_get_arc_velocity_target`，取返回的 `brief`，作为 Envelope 的「主线定速靶」一行随包投递给架构师。这是给架构师排 arc 的节奏参照，不向作者复述其数字。
+取定速靶：调 `mcp__narracat_memory__novel_get_arc_velocity_target`，取返回的 `brief`，作为 Envelope 的「主线定速靶」一行随包投递给架构师。这是给架构师排 arc 的节奏参照，不向作者复述其数字。
 
 取获得线锚点：从金手指卡的成长性与反馈回路两条里，摘出「尚未兑现的下一阶」——已点名但还没让主角拿到手的力量之门、下一级获得（原文摘录，两条都没点名就留空、不编造），作为 Envelope 的「主角获得线锚点」一行随包投递给架构师。
 
@@ -150,7 +150,7 @@ Task(outline-architect): "【阶段一·卷级展开】读已确认的全书骨�
 
 Glob `bible/characters/*.md` 取角色档案实际路径备用（pov_character 与章级 characters 角色引用的 `character_uid` 来源）。
 
-1. 按契约 §2 取最早缺失章 `start` 与 earliest_arc：`mcp__plugin_narracat_novelmemory__novel_get_arc(chapter=start)`。
+1. 按契约 §2 取最早缺失章 `start` 与 earliest_arc：`mcp__narracat_memory__novel_get_arc(chapter=start)`。
 2. **auto 档**：不派发断点候选，`target` 由主会话按契约 §3 的机械规则算出（arc 闭合章、不足最小前瞻窗口时顺延，含规划末尾的接受语义）。算完跳过第 3 条，直接进第 4 条派发窗口。
 3. **collaborative 档·取断点候选**：派发 outline-architect 让其读结构化大纲，从 `start` 起算出若干「产到第 N 章（断点理由）」候选（各满足最小前瞻窗口）：
 

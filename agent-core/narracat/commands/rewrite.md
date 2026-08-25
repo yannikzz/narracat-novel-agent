@@ -1,7 +1,7 @@
 ---
 description: 重写已完成章节 — 回滚记忆后重新执行写作流程，并分析对后续章节的级联影响
 argument-hint: <章节号>（可追加一句重写要求）
-allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack", "mcp__plugin_narracat_novelmemory__novel_rollback_chapter", "mcp__plugin_narracat_novelmemory__novel_get_review", "mcp__plugin_narracat_novelmemory__novel_get_arc", "mcp__plugin_narracat_novelmemory__novel_character_state", "mcp__plugin_narracat_novelmemory__novel_update_progress", "mcp__plugin_narracat_novelmemory__novel_checkpoint"]
+allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__narracat_memory__novel_build_writing_context_pack", "mcp__narracat_memory__novel_rollback_chapter", "mcp__narracat_memory__novel_get_review", "mcp__narracat_memory__novel_get_arc", "mcp__narracat_memory__novel_character_state", "mcp__narracat_memory__novel_update_progress", "mcp__narracat_memory__novel_checkpoint"]
 ---
 
 重写指定的已完成章节：确认 → 构建上下文包 → 记忆回滚 → 重写 → 审修 → 入库 → 级联影响分析。

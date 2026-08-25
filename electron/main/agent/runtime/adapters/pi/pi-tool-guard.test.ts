@@ -68,24 +68,24 @@ describe('mapSdkToolFaceToPi', () => {
     expect(blocked.includeTaskCards).toBe(false)
   })
 
-  test('mcp__plugin_narracat_novelmemory__* 进 memoryTools，其余 mcp__* 仍丢弃', () => {
+  test('mcp__narracat_memory__* 进 memoryTools，其余 mcp__* 仍丢弃', () => {
     const face = mapSdkToolFaceToPi([
       'Read',
-      'mcp__plugin_narracat_novelmemory__novel_query',
-      'mcp__plugin_narracat_novelmemory__novel_query',
+      'mcp__narracat_memory__novel_query',
+      'mcp__narracat_memory__novel_query',
       'mcp__other_server__something',
     ])
     expect(face.tools).toEqual(['read'])
-    expect(face.memoryTools).toEqual(['mcp__plugin_narracat_novelmemory__novel_query'])
+    expect(face.memoryTools).toEqual(['mcp__narracat_memory__novel_query'])
   })
 
   test('disallowedTools 挡记忆工具全限定名：不进 memoryTools（disallowed 判定在 memory 前缀判定之前生效）', () => {
     const face = mapSdkToolFaceToPi(
-      ['Read', 'mcp__plugin_narracat_novelmemory__novel_query', 'mcp__plugin_narracat_novelmemory__novel_search_memory'],
-      ['mcp__plugin_narracat_novelmemory__novel_query'],
+      ['Read', 'mcp__narracat_memory__novel_query', 'mcp__narracat_memory__novel_search_memory'],
+      ['mcp__narracat_memory__novel_query'],
     )
-    expect(face.memoryTools).toEqual(['mcp__plugin_narracat_novelmemory__novel_search_memory'])
-    expect(face.memoryTools).not.toContain('mcp__plugin_narracat_novelmemory__novel_query')
+    expect(face.memoryTools).toEqual(['mcp__narracat_memory__novel_search_memory'])
+    expect(face.memoryTools).not.toContain('mcp__narracat_memory__novel_query')
   })
 })
 

@@ -3,10 +3,17 @@
  * 两个 adapter 与六条 run 路径共用，不再借住任何具体 runtime 目录。
  */
 
+import {
+  NOVEL_MEMORY_MCP_SERVER_NAME,
+  qualifyNovelMemoryToolName,
+} from '@shared/lib/novel-memory-tool-names'
+
 /** 缺省工具面：pi adapter 与 claude-sdk adapter 共用，避免硬编码副本漂移（切片③终审修复）。 */
 export const DEFAULT_ALLOWED_TOOLS = ['Read', 'Grep', 'Glob', 'Bash', 'Skill']
 
-export const NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME = 'plugin_narracat_novelmemory'
+// server 段与前缀是两进程共用契约（渲染端 tool-phrase.ts 按同一前缀反解人读动作名），
+// 定义在 shared/lib/novel-memory-tool-names.ts；此处 re-export 保持既有 import 路径不变。
+export const NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME = NOVEL_MEMORY_MCP_SERVER_NAME
 
 export const NARRACAT_NOVEL_MEMORY_MCP_TOOL_NAMES = [
   'novel_query',
@@ -64,9 +71,7 @@ export const NARRACAT_NOVEL_MEMORY_MCP_TOOL_NAMES = [
   // 不面向真实小说创作会话，agent 不得调用——engine 侧 tools.ts 描述已写明「App 造包中心专用」。
 ]
 
-export const NARRACAT_NOVEL_MEMORY_MCP_TOOLS = NARRACAT_NOVEL_MEMORY_MCP_TOOL_NAMES.map(
-  (toolName) => `mcp__${NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME}__${toolName}`,
-)
+export const NARRACAT_NOVEL_MEMORY_MCP_TOOLS = NARRACAT_NOVEL_MEMORY_MCP_TOOL_NAMES.map(qualifyNovelMemoryToolName)
 
 export const NARRACAT_COMMAND_ALLOWED_TOOLS = [
   'Read',

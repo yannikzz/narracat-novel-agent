@@ -1,6 +1,6 @@
 /**
  * NovelMemory 工具在 pi 的注册件（切片⑥）：43 个白名单工具以与 SDK 路径逐字一致的全限定名
- * （mcp__plugin_narracat_novelmemory__novel_*）注册为自定义工具——引擎 agent .md 的 tools 声明
+ * （mcp__narracat_memory__novel_*）注册为自定义工具——引擎 agent .md 的 tools 声明
  * 一字不改即生效。schema 用 Type.Unsafe 包引擎 JSON Schema 原文（tools.js SSOT，不复刻第二份）；
  * execute 剥前缀委托 MemoryToolChannel（生产 = memory-host utilityProcess RPC）。
  */
@@ -12,9 +12,9 @@ import { getMemoryHost } from '../../../../memory/index.ts'
 import type { MemoryHostPaths } from '../../../../memory/index.ts'
 import { loadMemoryToolDefinitions } from '../../../../memory/memory-tool-definitions.ts'
 import type { MemoryToolDefinition } from '../../../../memory/memory-tool-definitions.ts'
-import { NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME } from '../../allowed-tools.ts'
+import { NOVEL_MEMORY_TOOL_PREFIX } from '@shared/lib/novel-memory-tool-names'
 
-export const MEMORY_TOOL_PREFIX = `mcp__${NARRACAT_NOVEL_MEMORY_MCP_SERVER_NAME}__`
+export const MEMORY_TOOL_PREFIX = NOVEL_MEMORY_TOOL_PREFIX
 
 export type MemoryToolChannel = (
   tool: string,

@@ -26,7 +26,7 @@ NarraCat 是 NarraCat-app 内部维护的 Agent Core，为 AI 辅助超长篇小
 - **Agents (5):** outline-architect / chapter-writer（热写薄 prompt，只读任务书与自身写作纪律，候选判优模式已撤下）/ continuity-editor / world-curator / memory-keeper（保名改内）
 - **Skills (5):** novel-structure（仅注入 outline-architect）/ novel-web-craft（写法素材库：番茄向平台写作功底的可选参考卡集合，不常驻注入任何 agent，由 write 主会话在 3a 压缩任务书时按需 Read 挑选）/ novel-memory-integration（主会话查询指南）/ novel-style-reference（远程真人范例服务查询壳）/ novel-reference-analysis-method（仅 /narracat:reference 显式调用）。旧反模式扫描 skill 已退役并删除：可机械检测子集下沉为代码扫描，词表并入 `mcp-server/src/data/prose-hygiene-lexicon.ts`
 - **Schemas (11):** OutlineStructure · ReviewReport · MemoryExtraction · WritingContextPack · ForeshadowingSystem · CascadeImpactReport · PremiseCards · DialogueSamples · StateVocabulary · CharacterEntity · AuthoredState。纪律：零 deprecated、零双形态、enum 全英文 snake_case 每个 ≤8 值（中文展示归渲染层）、单工具单次提交对象叶子字段 ≤15
-- **MCP 工具:** 全名前缀 `mcp__plugin_narracat_novelmemory__`；契约总表（新增 / 改名 / 删除、各工具签名与持有者）见总设计 §4，数据表见 §3。错误返回统一 `{ok:false, errors:[{field, expected, actual, hint}]}`
+- **MCP 工具:** 全名前缀 `mcp__narracat_memory__`；契约总表（新增 / 改名 / 删除、各工具签名与持有者）见总设计 §4，数据表见 §3。错误返回统一 `{ok:false, errors:[{field, expected, actual, hint}]}`
 
 | Agent | Skills |
 |---|---|
@@ -157,7 +157,7 @@ CI workflow 住在**仓库根** `.github/workflows/`（不在本目录的 `.gith
 
 三位版本号 `x.y.z`：x = 架构方向 / 重大转型；y = 功能阶段迭代；z = 每次非 trivial 提交递增。x / y 仅在用户明确要求时增加。
 
-当前基准：**4.0.179**（narracat.manifest.json、mcp-server/package.json，以及 App 层 `agent-core/narracat-agent-core.lock.json` 的 version 字段均保持与此一致）。
+当前基准：**4.0.180**（narracat.manifest.json、mcp-server/package.json，以及 App 层 `agent-core/narracat-agent-core.lock.json` 的 version 字段均保持与此一致）。
 
 **bump 流程**（每次非 trivial 提交，三处版本号 + 本节基准必须逐字一致）：(1) 更新本节「当前基准」；(2) 同步 narracat.manifest.json 与 mcp-server/package.json 的 version 字段；(3) 同步 App 层版本闸门 `agent-core/narracat-agent-core.lock.json` 的 `version`——漏改会导致 App 启动报「Agent Core version 应为 X，实际为 Y」、且 `bun --no-cache run verify:narracat-agent-core` 失败。
 

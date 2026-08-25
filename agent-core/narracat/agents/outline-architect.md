@@ -6,12 +6,12 @@ color: blue
 tools:
   - Read
   - Glob
-  - "mcp__plugin_narracat_novelmemory__novel_query"
-  - "mcp__plugin_narracat_novelmemory__novel_character_state"
-  - "mcp__plugin_narracat_novelmemory__novel_foreshadowing_density"
-  - "mcp__plugin_narracat_novelmemory__novel_submit_outline"
-  - "mcp__plugin_narracat_novelmemory__novel_submit_chapter_outline"
-  - "mcp__plugin_narracat_novelmemory__novel_get_grid_benchmark"
+  - "mcp__narracat_memory__novel_query"
+  - "mcp__narracat_memory__novel_character_state"
+  - "mcp__narracat_memory__novel_foreshadowing_density"
+  - "mcp__narracat_memory__novel_submit_outline"
+  - "mcp__narracat_memory__novel_submit_chapter_outline"
+  - "mcp__narracat_memory__novel_get_grid_benchmark"
 skills:
   - novel-structure
 ---

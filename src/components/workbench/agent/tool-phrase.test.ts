@@ -83,7 +83,7 @@ describe('getToolPhrase', () => {
   })
 })
 
-const NM = 'mcp__plugin_narracat_novelmemory__'
+const NM = 'mcp__narracat_memory__'
 
 describe('getToolPhrase · NovelMemory MCP 人读动作名', () => {
   test('已知工具映射为人读动作名', () => {

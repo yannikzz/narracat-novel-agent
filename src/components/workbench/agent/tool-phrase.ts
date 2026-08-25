@@ -1,4 +1,5 @@
 import { TOOL_PATH_INPUT_KEYS } from '@shared/lib/agent-path-scrub'
+import { NOVEL_MEMORY_MCP_SERVER_NAME } from '@shared/lib/novel-memory-tool-names'
 
 /**
  * 工具名有两代：当前 pi runtime 用小写内置名（read/write/edit/bash/grep/find/ls，
@@ -25,7 +26,7 @@ export const NARRACAT_AGENT_LABELS: Record<string, string> = {
 /**
  * NovelMemory MCP 工具 → 面向用户的人读动作名（CONTEXT「User-facing Agent action label」）。
  * 工具名定义权威在 agent-core mcp-server/src/tools.ts；本表持人读中文名，落实 ADR-0016 通道二
- * ——对话流不裸露 mcp__plugin_narracat_novelmemory__ / novel_* 技术标识。
+ * ——对话流不裸露 mcp__narracat_memory__ / novel_* 技术标识。
  * 新增/删除工具时与 tool-phrase.test.ts 对照测试同步（工具有而 App 缺 → 失败）。
  */
 export const NARRACAT_TOOL_LABELS: Record<string, string> = {
@@ -87,8 +88,8 @@ export const NARRACAT_TOOL_LABELS: Record<string, string> = {
   novel_list_style_anchors: '查阅本书样章锚',
 }
 
-/** SDK 工具全名 `mcp__<server>__<tool>` 里 NovelMemory MCP 的 server 段。 */
-const NARRACAT_NOVELMEMORY_SERVER = 'plugin_narracat_novelmemory'
+/** 工具全名 `mcp__<server>__<tool>` 里 NovelMemory 的 server 段——与主进程同源，见 shared 常量。 */
+const NARRACAT_NOVELMEMORY_SERVER = NOVEL_MEMORY_MCP_SERVER_NAME
 /** 未登记的 NovelMemory 工具的友好降级名——不裸露技术标识。 */
 const NARRACAT_MEMORY_FALLBACK_LABEL = '记忆引擎操作'
 
@@ -291,7 +292,7 @@ export function getToolPhrase(toolName: string, rawInput?: ToolInput): ToolPhras
         const server = mcpParts[1]
         const tool = mcpParts.slice(2).join('_')
 
-        // NarraCat NovelMemory MCP：映射为人读动作名，绝不裸露 plugin_narracat_novelmemory / novel_* 技术标识
+        // NarraCat NovelMemory MCP：映射为人读动作名，绝不裸露 narracat_memory / novel_* 技术标识
         if (server === NARRACAT_NOVELMEMORY_SERVER) {
           return phrase(NARRACAT_TOOL_LABELS[tool] ?? NARRACAT_MEMORY_FALLBACK_LABEL)
         }

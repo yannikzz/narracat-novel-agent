@@ -1,6 +1,6 @@
 ---
 description: 立项对话 — 把点子打磨成九张立项卡
-allowed-tools: [Read, Edit, AskUserQuestion, mcp__plugin_narracat_novelmemory__novel_submit_premise]
+allowed-tools: [Read, Edit, AskUserQuestion, mcp__narracat_memory__novel_submit_premise]
 ---
 
 通过追问式对话，把用户的点子打磨成一部网文的立项卡，逐张确认后经 `novel_submit_premise` 入库（引擎落库并机械渲染只读 `bible/premise.md`），并把篇幅与风格写入 `.narracat/config.yaml`。本命令由主会话直接执行，不派发 agent。
