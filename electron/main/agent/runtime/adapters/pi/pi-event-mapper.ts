@@ -25,6 +25,25 @@ export const PI_SUBAGENT_EVENT_MESSAGE_TYPE = 'narracat_pi_subagent_event'
 
 export const PI_SESSION_MESSAGE_TYPE = 'narracat_pi_session'
 
+/**
+ * 子会话异常终止（stopReason='length' / 'error'）时 Task 工具在结果 details 上打的标记。
+ * pi 的 AgentToolResult 没有 isError 字段，工具唯一的失败通道是 throw——但 throw 会连同已产出
+ * 部分与质量门反馈一起丢掉，于是走 details 侧信道分两路收口：交回模型的结果文本带 ⚠️ 前缀（主
+ * 会话据此确定性重派），交给 UI 的任务卡则映射成 tool.failed。
+ * 键名带 narracat 前缀避免与任何第三方工具的 details 撞名（本映射对全部工具生效）。
+ *
+ * UI 上的实际口径（别过度承诺）：tool.failed 复用工具级失败的既有通用呈现——执行过程流里逐项徽章
+ * 是「失败」+ 失败原因（展开可见），而不是「完成」；折叠态汇总行读作「执行过程已完成 · N 项
+ * （M 次失败）」，如实计次但不升级成 run 级红色告警（#37 刀②改的就是这句措辞，原文「自动调整
+ * M 次」把报错说成了 agent 的主动优化，见 AgentProcessStream.tsx）。仍未做的是把失败原因提到
+ * 折叠态——那要动汇总行信息密度，不在本刀范围。渲染端断言见
+ * src/components/workbench/agent/AgentSubagentAbnormalStop.test.tsx。
+ */
+export type PiSubagentAbnormalStop = 'length' | 'error'
+export interface PiSubagentAbnormalStopDetails {
+  narracatSubagentAbnormalStop: PiSubagentAbnormalStop
+}
+
 /** 会话桥在持久化会话建立后首发的合成消息（切片⑦）：只供 adapter readSessionId 消费——
  * run-manager 借它把 session id 记进 sdkSessionsByThread（resume 消费面），不映射任何 AgentEvent。 */
 export interface PiSessionMessage {
@@ -49,6 +68,11 @@ const TOOL_FAILED_FALLBACK_TEXT = '工具调用失败'
 /** stopReason='length'（单次回复触输出上限被截断）fail-loud 文案：截断稿静默入库是写作链最坏
  * 路径，宁可失败重试（生产接线门前项①）。 */
 const LENGTH_TRUNCATED_ERROR_TEXT = '模型单次回复长度达到上限，本次运行已中止，请重试或把任务拆小。'
+/** 子会话异常终止时任务卡的失败文案：区分 length / error，事后能从落盘事件查出是哪一种。 */
+const SUBAGENT_ABNORMAL_STOP_ERROR_TEXT: Record<PiSubagentAbnormalStop, string> = {
+  length: '子 agent 单次回复达到输出上限被截断，本次派发未完成，请重试或把任务拆小。',
+  error: '子 agent 因模型或服务端错误异常终止，本次派发未完成。',
+}
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -141,18 +165,28 @@ function mapToolExecutionStart(context: RuntimeMapContext, message: UnknownRecor
   return [event]
 }
 
+/** Task 工具结果 details 上的子会话异常终态标记（无标记/非法值返回 undefined）。 */
+function readSubagentAbnormalStop(result: unknown): PiSubagentAbnormalStop | undefined {
+  if (!isRecord(result) || !isRecord(result.details)) return undefined
+  const value = result.details.narracatSubagentAbnormalStop
+  return value === 'length' || value === 'error' ? value : undefined
+}
+
 function mapToolExecutionEnd(context: RuntimeMapContext, message: UnknownRecord): AgentEvent[] {
   const toolCallId = readString(message, 'toolCallId')
   if (!toolCallId) return []
 
   const text = readToolResultText(message.result)
-  if (message.isError === true) {
+  // 子会话异常终止对 pi 是「工具正常返回」，只有 details 标记能揭穿——不认这一层，跑满几分钟却
+  // 什么都没干成的派发就会挂着「完成」徽章、失败原因一个字都不显示（#29）。
+  const abnormalStop = readSubagentAbnormalStop(message.result)
+  if (message.isError === true || abnormalStop) {
     return [
       {
         type: 'tool.failed',
         runId: context.runId,
         toolCallId,
-        error: text ?? TOOL_FAILED_FALLBACK_TEXT,
+        error: abnormalStop ? SUBAGENT_ABNORMAL_STOP_ERROR_TEXT[abnormalStop] : (text ?? TOOL_FAILED_FALLBACK_TEXT),
         createdAt: context.createdAt,
       },
     ]

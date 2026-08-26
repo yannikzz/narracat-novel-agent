@@ -23,7 +23,7 @@ export function AgentToolCallRow({ part }: { part: ToolCallPart }) {
 export function getToolDisplayTitle(part: ToolCallPart): string {
   const phrase = getToolPhrase(part.toolName, part.input)
   if (part.status === 'running') return phrase.loadingLabel
-  if (part.status === 'failed') return `${phrase.label} · 已跳过`
+  if (part.status === 'failed') return `${phrase.label} · 失败`
   return part.summary ?? phrase.label
 }
 

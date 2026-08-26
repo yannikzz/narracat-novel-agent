@@ -1605,23 +1605,51 @@ describe("novel_commit_chapter", () => {
       loadFixture("commit-chapter-v5-valid.json"),
       ctx,
     )) as Record<string, unknown>;
-    expect(result.ok).toBe(false);
-    const errors = result.errors as Array<{ field: string }>;
-    expect(errors.some((e) => e.field === "characters_appeared")).toBe(true);
+    // 未建档角色是常态（新角色随剧情登场，建档是另一条流程），不该拖累整章收尾：
+    // 与同文件 checkChapterWordCount 一致走「finding-only，只标不阻断」。
+    expect(result.ok).toBe(true);
+    expect(result.skipped_characters).toEqual(
+      expect.arrayContaining([expect.stringContaining("赵伯")]),
+    );
+    // 已建档的那个照常入库，被跳过的不计入
+    expect((result.checklist as Record<string, unknown>).characters_appeared).toBe(1);
+    expect(String(result.message)).toContain("未建档");
   });
 });
 
 describe("novel_submit_extraction", () => {
-  it("relationship 一端未建档（缺 character_uid）时拒绝提交", async () => {
+  it("relationship 一端未建档时跳过该条并点名，其余事实照常入库（不再整单驳回）", async () => {
     const { ctx, root } = createProject();
     writeCharacter(root, "林晚"); // 赵伯无档案
+    const result = (await novelSubmitExtraction(
+      {
+        chapter: 1,
+        facts: [{ subject: "林晚", predicate: "status", object: "肩上有伤", change_type: "new" }],
+        relationship_updates: [{ a: "赵伯", b: "林晚", state: "愧疚照拂" }],
+      },
+      ctx,
+    )) as Record<string, unknown>;
+    // 整单驳回换来的唯一结果是 agent 剔除后重发整份清单——白跑一轮，还诱发丢字段。
+    expect(result.ok).toBe(true);
+    expect(result.facts_stored).toBe(1);
+    // 被跳过的关系必须点名，否则就成了静默丢数据
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("赵伯")]),
+    );
+    expect(result.relationships_updated).toBe(0);
+  });
+
+  it("relationship 两端都已建档时照常折算入库（跳过逻辑不误伤正常关系）", async () => {
+    const { ctx, root } = createProject();
+    writeCharacter(root, "林晚");
+    writeCharacter(root, "赵伯");
     const result = (await novelSubmitExtraction(
       { chapter: 1, facts: [], relationship_updates: [{ a: "赵伯", b: "林晚", state: "愧疚照拂" }] },
       ctx,
     )) as Record<string, unknown>;
-    expect(result.ok).toBe(false);
-    const errors = result.errors as Array<{ field: string }>;
-    expect(errors.some((e) => e.field === "relationship_updates")).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.facts_stored).toBe(1);
+    expect(result.relationships_updated).toBe(1);
   });
 
   it("受控谓词入库 + 别名归一 + relationship 字典序归一", async () => {

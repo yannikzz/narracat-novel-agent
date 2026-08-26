@@ -96,6 +96,7 @@ import type {
   RestoreNovelProjectBackupDialogResult,
 } from './project-backup'
 import type { UpdaterState } from './updater'
+import type { ProcessHealthReport } from './process-health'
 export type { AppConfig, ModelPoolEntry, ProviderId } from './config'
 export type {
   AgentEvent,
@@ -363,7 +364,15 @@ export type PublishPackDraftResult =
   | { status: 'invalid'; errors: string[]; lintFindings: Array<{ cardId: string; findings: DraftPublishLintFinding[] }> }
 
 export interface ElectronApi {
+  /** 主进程平台标识（'win32' | 'darwin' | 'linux'），渲染端顶栏布局等平台感知逻辑用。 */
+  platform: string
+  /** Windows 标题栏 overlay 符号颜色跟随主题（mac/Linux 上为 no-op）。 */
+  setTitleBarOverlaySymbolColor: (symbolColor: string) => Promise<void>
   ping: () => Promise<string>
+  /** 进程健康记录（#39）：渲染进程崩溃 / 子进程崩溃 / 主线程挂死的留痕。 */
+  getProcessHealth: () => Promise<ProcessHealthReport>
+  /** 在系统文件管理器中定位项目文件夹（损坏项目的自救入口，#38）。 */
+  revealProjectFolder: (projectPath: string) => Promise<void>
   checkReleaseGuard: () => Promise<ReleaseGateVerdict>
   getUpdaterState: () => Promise<UpdaterState>
   checkForUpdates: () => Promise<void>

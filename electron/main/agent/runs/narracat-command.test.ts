@@ -248,12 +248,12 @@ describe('NarraCat command run resolver', () => {
 
     // 写手只持有文件写入，零 MCP 写工具
     expect(chapterWriterSource).toContain('tools: Read, Write')
-    expect(chapterWriterSource).not.toContain('mcp__plugin_narracat_novelmemory__')
+    expect(chapterWriterSource).not.toContain('mcp__narracat_memory__')
     // 审校与记忆管理员只持有自己产物的提交工具
-    expect(continuityEditorSource).toContain('mcp__plugin_narracat_novelmemory__novel_submit_review')
-    expect(memoryKeeperSource).toContain('mcp__plugin_narracat_novelmemory__novel_commit_chapter')
-    expect(memoryKeeperSource).toContain('mcp__plugin_narracat_novelmemory__novel_submit_extraction')
-    expect(memoryKeeperSource).toContain('mcp__plugin_narracat_novelmemory__novel_consolidate')
+    expect(continuityEditorSource).toContain('mcp__narracat_memory__novel_submit_review')
+    expect(memoryKeeperSource).toContain('mcp__narracat_memory__novel_commit_chapter')
+    expect(memoryKeeperSource).toContain('mcp__narracat_memory__novel_submit_extraction')
+    expect(memoryKeeperSource).toContain('mcp__narracat_memory__novel_consolidate')
   })
 })
 

@@ -161,7 +161,14 @@ export function MemoryGraphView({
 
         <MemoryGraphSummaryHud summary={summary} />
 
-        <div className="absolute right-3 top-3 z-10">
+        {/* 右上角按钮：普通态卡片在 caption 带下方（方案 A），贴卡片右缘即可；
+            全屏态 fixed inset-0 盖住整个窗口（含 caption 带），须给 min/max/close 让位。 */}
+        <div
+          className={cn(
+            'absolute top-3 z-10',
+            fullscreen ? 'right-[calc(var(--titlebar-inset-right)+0.75rem)]' : 'right-3',
+          )}
+        >
           <IconTooltip label={fullscreen ? '退出全屏' : '全屏查看星图'}>
             <Button
               variant="ghost"

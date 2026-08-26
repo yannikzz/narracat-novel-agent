@@ -1,7 +1,7 @@
 ---
 description: 管理世界观和角色 — 创建、查看、修改设定
 argument-hint: <操作描述，如"创建主角"、"主角+反派+力量体系一起立项">
-allowed-tools: [Agent, Read, Write, Edit, Glob, Grep, AskUserQuestion, mcp__plugin_narracat_novelmemory__novel_checkpoint, mcp__plugin_narracat_novelmemory__novel_mint_character_uid, mcp__plugin_narracat_novelmemory__novel_list_candidate_characters, mcp__plugin_narracat_novelmemory__novel_register_candidate_character]
+allowed-tools: [Agent, Read, Write, Edit, Glob, Grep, AskUserQuestion, mcp__narracat_memory__novel_checkpoint, mcp__narracat_memory__novel_mint_character_uid, mcp__narracat_memory__novel_list_candidate_characters, mcp__narracat_memory__novel_register_candidate_character]
 ---
 
 调度世界观策展人合成角色档案、世界观设定、关系图谱。一次对话可以同时立项多个对象（如主角 + 反派 + 力量体系），最后一并落盘。

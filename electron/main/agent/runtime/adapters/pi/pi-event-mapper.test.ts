@@ -99,6 +99,25 @@ describe('mapPiMessageToAgentEvents', () => {
     ])
   })
 
+  test('Task 结果 details 带异常终态标记 → tool.failed（子会话异常终止，任务卡不谎报成功）', () => {
+    for (const [abnormalStop, error] of [
+      ['length', '子 agent 单次回复达到输出上限被截断，本次派发未完成，请重试或把任务拆小。'],
+      ['error', '子 agent 因模型或服务端错误异常终止，本次派发未完成。'],
+    ] as const) {
+      const events = mapPiMessageToAgentEvents(ctx, {
+        type: 'tool_execution_end',
+        toolCallId: 'task-1',
+        toolName: 'Task',
+        isError: false,
+        result: {
+          content: [{ type: 'text', text: '⚠️ 子 agent …' }],
+          details: { narracatSubagentAbnormalStop: abnormalStop },
+        },
+      })
+      expect(events).toEqual([{ type: 'tool.failed', runId: 'run-1', toolCallId: 'task-1', error, createdAt: ctx.createdAt }])
+    }
+  })
+
   test('message_end stopReason=error → run.failed（errorMessage 透传，含 provider 原始错误串）', () => {
     const events = mapPiMessageToAgentEvents(ctx, {
       type: 'message_end',

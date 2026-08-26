@@ -138,16 +138,14 @@ export async function novelCommitChapter(args, ctx) {
         character_uid: resolveCharacterUid(raw, aliasMap),
         name: normalizeName(raw, aliasMap),
     }));
-    // 出场角色必是已建档角色：uid 必达，否则返回可修正错误（不入库 null uid 引用）
-    const unresolvedAppeared = characterRefs.filter((c) => !c.character_uid);
-    if (unresolvedAppeared.length > 0) {
-        return errorResponse(unresolvedAppeared.map((c) => ({
-            field: "characters_appeared",
-            expected: "已建档角色（bible/characters/ 档案含 character_identity）",
-            actual: c.name,
-            hint: `角色「${c.name}」未解析到 character_uid：确认该名与 bible/characters/ 档案文件名或「别名:」声明一致，且档案顶部含 character_identity 注释`,
-        })));
-    }
+    /*
+     * 出场角色只入库解析得到 uid 的（不入库 null uid 引用）。**原先未建档即整单驳回**，与
+     * relationship_updates 同一笔账：memory-keeper 没有建档权限，驳回只会让它剔掉名字重发整份
+     * 收尾清单，真机第 23 章就白跑了一轮。改为跳过并点名，与本函数下方 checkChapterWordCount
+     * 「finding-only，只标不阻断」的处置对齐。
+     */
+    const skippedCharacters = characterRefs.filter((c) => !c.character_uid).map((c) => c.name);
+    const resolvedCharacterRefs = characterRefs.filter((c) => c.character_uid);
     const summaryId = randomUUID();
     const embedding = await embed(summary);
     const tx = ctx.db.transaction(() => {
@@ -165,7 +163,7 @@ export async function novelCommitChapter(args, ctx) {
             opening_snippet, ending_snippet, anchor_core, anchor_heartbeat,
             emotional_tone, continuation_hook, timeline_note)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(summaryId, ctx.novelId, chapter, summary, JSON.stringify(characterRefs), JSON.stringify(keyEvents), wordCount, opening, ending, anchor.core_experience, anchor.heartbeat_moment, emotionalTone, JSON.stringify(continuationHook), timelineNote);
+            .run(summaryId, ctx.novelId, chapter, summary, JSON.stringify(resolvedCharacterRefs), JSON.stringify(keyEvents), wordCount, opening, ending, anchor.core_experience, anchor.heartbeat_moment, emotionalTone, JSON.stringify(continuationHook), timelineNote);
         ftsInsert(ctx.db, summary, "chapter_summaries", summaryId, ctx.novelId, "episodic");
         if (embedding) {
             vecInsert(ctx.db, "chapter_summaries", summaryId, ctx.novelId, "episodic", embedding);
@@ -186,7 +184,8 @@ export async function novelCommitChapter(args, ctx) {
         summary_chars: summary.length,
         anchor: true,
         key_events: keyEvents.length,
-        characters_appeared: charactersAppeared.length,
+        // 只计真正入库的，被跳过的不充数
+        characters_appeared: resolvedCharacterRefs.length,
         continuation_hook: continuationHook.length,
         foreshadowing_actions: resolvedActions.map((a) => `${a.id}:${a.action}`),
         timeline_note: timelineNote !== null,
@@ -204,7 +203,11 @@ export async function novelCommitChapter(args, ctx) {
         receipt: receiptPath,
         checklist,
         lifecycle_guards: lifecycleGuards.length > 0 ? lifecycleGuards : undefined,
+        skipped_characters: skippedCharacters.length > 0 ? skippedCharacters : undefined,
         message: `第${chapter}章已收尾入库（${wordCount} 字，${resolvedActions.length} 条伏笔动作）` +
+            (skippedCharacters.length > 0
+                ? `；已跳过 ${skippedCharacters.length} 个未建档角色（${skippedCharacters.join("、")}）——需要它们进记忆的话，补档案后重提，不必为此重发本次收尾`
+                : "") +
             (wordCountShortfall
                 ? `；⚠️ 低于字数目标（${wordCountShortfall.actual}/${wordCountShortfall.target}，${Math.round(wordCountShortfall.ratio * 100)}%）`
                 : ""),
@@ -212,23 +215,28 @@ export async function novelCommitChapter(args, ctx) {
 }
 /**
  * 把原始 facts + relationship_updates 归一、UID 解析、relationship 折算为 ResolvedFact[]。
- * 关系两端未解析到 uid 时返回 errors（调用方据此终止）；否则返回 facts + 累积的 warnings。
+ * 返回 facts + 实际折算进去的关系条数 + 累积的 warnings（不再有整单驳回这条路）。
  */
 async function resolveExtractionFacts(rawFacts, relationshipUpdates, ctx) {
     const aliasMap = await loadAliasMap(ctx.projectRoot);
     const warnings = [];
-    // relationship 两端必是已建档角色：uid 必达，否则返回可修正错误
-    const unresolvedRels = relationshipUpdates.filter((rel) => !resolveCharacterUid(rel.a, aliasMap) || !resolveCharacterUid(rel.b, aliasMap));
-    if (unresolvedRels.length > 0) {
-        return {
-            errors: unresolvedRels.map((rel) => ({
-                field: "relationship_updates",
-                expected: "两端均为已建档角色（含 character_identity）",
-                actual: `${rel.a} / ${rel.b}`,
-                hint: `关系「${rel.a}—${rel.b}」至少一端未解析到 character_uid：确认两个角色名与 bible/characters/ 档案一致且含 character_identity 注释`,
-            })),
-        };
-    }
+    /*
+     * 关系两端都建了档才折算得出 uid。这里**原先是整单驳回**——一条关系不合格，整份事实清单
+     * 一条都不落。真机实测（第 23 章）证明这笔买卖不划算：memory-keeper 没有建档权限，驳回换
+     * 来的唯一结果是它剔掉那条、把整份清单重新生成并重发一遍。当章新登场五个未建档角色，三个
+     * 暂存 agent 加一个收尾 agent 各白跑一轮；其中一次重发还漏掉了 run_id，撞上 schema 校验
+     * 直接失败。而驳回文案写的是「确认角色名与档案一致」，假设的是名字写错——对真·新登场角色
+     * 完全没用。
+     *
+     * 改为跳过该条并点名。这也让同一个函数里的两套标准归一：下方「非关系事实主体未建档」本来
+     * 就是只 warning、照常入库。
+     */
+    const usableRels = relationshipUpdates.filter((rel) => {
+        if (resolveCharacterUid(rel.a, aliasMap) && resolveCharacterUid(rel.b, aliasMap))
+            return true;
+        warnings.push(`关系「${rel.a}—${rel.b}」已跳过：至少一端未建档（未解析到 character_uid）。两人都该有档案的话，补 bible/characters/ 档案的 character_identity 后重提；确属新登场角色则先登记为候选角色，不必为此重发本次清单`);
+        return false;
+    });
     // 归一 + uid 解析 + relationship 折算为 facts
     const facts = rawFacts.map((f) => {
         if (f.predicate === "relationship" && f.subject.includes("|")) {
@@ -250,7 +258,7 @@ async function resolveExtractionFacts(rawFacts, relationshipUpdates, ctx) {
             subject_character_b_uid: null,
         };
     });
-    for (const rel of relationshipUpdates) {
+    for (const rel of usableRels) {
         const nameA = normalizeName(rel.a, aliasMap);
         const nameB = normalizeName(rel.b, aliasMap);
         const swap = nameA > nameB;
@@ -276,7 +284,7 @@ async function resolveExtractionFacts(rawFacts, relationshipUpdates, ctx) {
             warnings.push(`主体「${f.subject}」未匹配已建档角色（character_uid 为空）：若为角色请补 bible/characters/ 档案 character_identity，若为势力/物件可忽略`);
         }
     }
-    return { facts, warnings };
+    return { facts, relationshipsApplied: usableRels.length, warnings };
 }
 /**
  * 共享落库：把已解析的 ResolvedFact[] 写入正式 facts 表（事务内 findExisting →
@@ -375,8 +383,6 @@ export async function novelSubmitExtraction(args, ctx) {
     const rawFacts = args["facts"];
     const relationshipUpdates = args["relationship_updates"] ?? [];
     const resolved = await resolveExtractionFacts(rawFacts, relationshipUpdates, ctx);
-    if (resolved.errors)
-        return errorResponse(resolved.errors);
     const warnings = resolved.warnings;
     const { stored, invalidated } = await commitResolvedFacts(resolved.facts, chapter, ctx, warnings);
     return {
@@ -384,7 +390,8 @@ export async function novelSubmitExtraction(args, ctx) {
         chapter,
         facts_stored: stored,
         facts_invalidated: invalidated,
-        relationships_updated: relationshipUpdates.length,
+        // 报实际折算进去的条数，不报入参条数——跳过了却报「已更新」就是骗调用方
+        relationships_updated: resolved.relationshipsApplied,
         warnings,
         message: `第${chapter}章事实变更已入库（新增 ${stored} / 失效 ${invalidated}）`,
     };
@@ -408,8 +415,6 @@ export async function novelStageExtraction(args, ctx) {
     const rawFacts = args["facts"];
     const relationshipUpdates = args["relationship_updates"] ?? [];
     const resolved = await resolveExtractionFacts(rawFacts, relationshipUpdates, ctx);
-    if (resolved.errors)
-        return errorResponse(resolved.errors);
     // upsert：同一 (novel_id, chapter, run_id) 重试/恢复覆盖既有暂存，不留陈旧行被并集重复计
     ctx.db
         .prepare(`INSERT INTO extraction_stage (id, novel_id, chapter, run_id, facts_json)

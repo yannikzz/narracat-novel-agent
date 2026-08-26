@@ -1,3 +1,4 @@
+import { NOVEL_PROJECT_INCOMPLETE_MESSAGE } from '@shared/lib/ipc-error'
 import type { Dirent } from 'node:fs'
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
@@ -22,6 +23,7 @@ import {
 import { parseYamlRecord, readNumber, readRecord, readString, stringifyYamlRecord } from './yaml'
 import { hasNarratorVoiceSection as containsNarratorVoiceSection } from '@shared/lib/narrator-voice'
 import type {
+  NovelAutomationLevel,
   NovelChapterStatus,
   NovelCheckpoint,
   NovelProjectDetail,
@@ -31,7 +33,7 @@ import type {
   UpdateNovelProjectMetadataInput,
 } from '@shared/types/novel'
 
-const missingProjectProblem = '缺少 .narracat/config.yaml 或 .narracat/state.yaml'
+const missingProjectProblem = NOVEL_PROJECT_INCOMPLETE_MESSAGE
 const corruptedStructureProblem = '全书结构数据损坏：章卷映射缺失或不完整，请让 Agent 重新同步全书结构。'
 const reservedBibleDirectoryNames = new Set([
   'characters',
@@ -163,6 +165,19 @@ function readProjectCoverPreset(config: Record<string, unknown>, identity: strin
     readString(config, 'coverPreset')?.trim() ||
     deterministicCoverPreset(identity)
   )
+}
+
+/**
+ * 缺省/非法值一律当协作档。与引擎只对得上一半，别把这条注释读成「处处一致」：
+ * `commands/plan.md` 判 `== "auto"`（`docs/contracts/new-character-intake.md` 同款），缺 key 时
+ * 确实退回逐步确认，与这里一致；但 `commands/write.md` 判的是 `== "collaborative"`，缺 key 时两个
+ * 分支都不命中、写作确认门根本不触发，行为等同全自动——这处引擎侧不一致要单独走引擎层修，App 侧
+ * 只如实显示当前档，不在这里替引擎兜。
+ * 新建（novel-create.ts）与切档（updateNovelProjectMetadata）都会写入显式值，缺 key 只出现在历史
+ * 项目或被手工改过的 config.yaml 上。
+ */
+function readProjectAutomationLevel(config: Record<string, unknown>): NovelAutomationLevel {
+  return readString(config, 'automation_level')?.trim() === 'auto' ? 'auto' : 'collaborative'
 }
 
 function normalizeMetadataTitle(title: string): string {
@@ -690,6 +705,7 @@ export async function loadNovelProjectSummary(projectPath: string): Promise<Nove
     title: (readString(config, 'title') ?? basename(projectPath)) || '未命名小说',
     genre: readProjectGenre(config),
     coverPreset: readProjectCoverPreset(config, id),
+    automationLevel: readProjectAutomationLevel(config),
     path: projectPath,
     status,
     chapterProgress: `${completed} / ${planned} 章`,
@@ -789,6 +805,11 @@ export async function updateNovelProjectMetadata(
 
   if (input.coverPreset !== undefined) {
     config.cover_preset = normalizeMetadataCoverPreset(input.coverPreset)
+    changed = true
+  }
+
+  if (input.automationLevel !== undefined) {
+    config.automation_level = input.automationLevel
     changed = true
   }
 

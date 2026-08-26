@@ -185,7 +185,7 @@ describe('CharacterChatBoardView', () => {
     const component = source()
 
     expect(dataClass(html, 'data-character-chat-avatar="true"')).toContain('rounded-full')
-    expect(component).toContain("const CHAT_PANEL_HEADER_CLASS = 'min-h-[61px] justify-between bg-workspace px-[18px] py-2'")
+    expect(component).toContain("const CHAT_PANEL_HEADER_CLASS = 'min-h-[61px] justify-between bg-workspace pl-[18px] pr-[18px] py-2'")
     expect(component).toContain('data-character-chat-profile-titlebar')
     expect(component).toContain('data-character-chat-profile-avatar="true"')
     expect(component).toContain('rounded-full border border-brand-border')

@@ -49,7 +49,9 @@ describe('WorkbenchStage', () => {
     )
 
     expect(html).toContain('data-workbench-stage="true"')
-    expect(html).toContain('h-full min-h-0 min-w-0 flex-1 py-3 pl-0 pr-3')
+    // 顶部 padding 消费 --titlebar-gutter-top（win32 上下分区：卡片从 caption 带下开始）
+    expect(html).toContain('pt-[max(0.75rem,var(--titlebar-gutter-top))] pb-3 pl-0 pr-3')
+    expect(html).not.toContain('flex-1 py-3 pl-0 pr-3')
     expect(html).not.toContain('flex-1 p-3 pt-0')
     expect(html).toContain('data-workbench-stage-grid="true"')
     expect(html).toContain('minmax(0, 1fr) 8px 460px')

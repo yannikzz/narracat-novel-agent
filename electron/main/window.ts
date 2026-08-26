@@ -43,11 +43,14 @@ function winOptions(): PlatformOptions {
     titleBarStyle: 'hidden',
     titleBarOverlay: {
       color: '#00000000',
-      symbolColor: '#ffffff',
+      // 浅色主题为主的 UI（DARK_MODE_ENABLED 门控强制浅色）用深色符号保证对比度；
+      // 渲染端主题变化时经 window:set-titlebar-overlay-symbol-color 同步覆盖。
+      symbolColor: '#3f3f46',
       height: TITLE_BAR_HEIGHT,
     },
-    // 不设 transparent（win 已知闪烁/输入法 bug），fallback-bg.css 提供背景
-    backgroundColor: '#1a1a1a',
+    // 不设 transparent（win 已知闪烁/输入法 bug），fallback-bg.css 提供背景。
+    // 底色跟浅色主题 --background (#f4f4f5)，避免启动/缩放瞬间闪深色。
+    backgroundColor: '#f4f4f5',
   }
 }
 

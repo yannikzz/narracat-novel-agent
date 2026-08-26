@@ -90,7 +90,7 @@ describe('AgentProcessStream', () => {
     expect(html).not.toContain('outputTokens')
   })
 
-  test('renders tool errors as neutral skipped items instead of a red failed rollup', () => {
+  test('renders tool errors as honest failures without escalating to a red run-level rollup', () => {
     const parts: AgentProcessPart[] = [
       {
         id: 'reasoning-1',
@@ -122,13 +122,15 @@ describe('AgentProcessStream', () => {
 
     const html = renderToStaticMarkup(<AgentProcessStream parts={parts} defaultOpen />)
 
-    // 工具级错误是自愈型瞬时事件：汇总行不标红失败，逐项徽章用中性「已跳过」
-    expect(html).toContain('执行过程已完成 · 2 项（自动调整 1 次）')
+    // 工具报错就说失败：状态机里没有「主动跳过」这一档，把 failed 说成「已跳过」是把
+    // 失败美化成主动省略（#37 刀②）。但仍不升级成 run 级红色告警——红色留给终态失败。
+    expect(html).toContain('执行过程已完成 · 2 项（1 次失败）')
     expect(html).not.toContain('执行过程失败')
-    expect(html).not.toContain('失败')
-    expect(html).toContain('已跳过')
+    expect(html).not.toContain('已跳过')
+    expect(html).not.toContain('自动调整')
+    expect(html).toContain('>失败<')
     expect(html).not.toContain('text-destructive')
-    // 错误详情仍可查看，只是不再用警报色
+    // 错误详情仍可查看，只是不用警报色
     expect(html).toContain('已完成思考')
     expect(html).toContain('读取 config.yaml')
     expect(html).toContain('Permission denied: config.yaml')

@@ -13,3 +13,28 @@ jobs:
       - run: bun install --no-cache
       - run: bun --no-cache run typecheck
       - run: bun --no-cache run test
+      # 设计系统守卫本体也在 CI 跑一遍：它是最容易漏跑的一道，贡献者本机跑不跑得动不该
+      # 决定 main 的干净程度（跨平台形态的回归由 scripts/check-design-system.test.mjs 兜）。
+      - run: bun --no-cache run check:design
+
+  # 设计系统守卫的 Windows 复跑（#24）。ubuntu 与 mac 都是正斜杠 + LF，证明不了
+  # Windows 那一半：这个 job 提供真实的 Windows checkout（core.autocrlf=true → CRLF）、
+  # 真实的 node:path.relative()（反斜杠）和完整 CLI 入口——正是让守卫恒红的那三样。
+  # 故意不装依赖：check:design 只需要 node 跑一个脚本，几十秒就能出结论，
+  # 原生模块的探路归 windows-build-smoke.yml，两件事不混。
+  design-guard-windows:
+    runs-on: windows-latest
+    steps:
+      - name: 强制 CRLF 检出（复现贡献者本机形态）
+        run: git config --global core.autocrlf true
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: 打印检出形态（留证：路径分隔符与行尾）
+        shell: bash
+        run: |
+          echo "=== core.autocrlf ==="
+          git config core.autocrlf
+          echo "=== 白名单三个文件的 eol（i/lf w/crlf = 索引 LF、工作区 CRLF）==="
+          git ls-files --eol src/components/brand/BrandMark.tsx src/components/brand/BrandStoryBanner.tsx src/components/brand/brand-illustrations.ts
+      - run: bun --no-cache run check:design
+      - run: bun --no-cache test scripts/check-design-system.test.mjs

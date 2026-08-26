@@ -146,3 +146,27 @@ describe('novel status aggregation', () => {
     expect(snapshot.references).toEqual({ sourceCount: 0, guidanceGenerated: false })
   })
 })
+
+describe('incomplete project diagnostics (#38)', () => {
+  test('logs the project path and which files are missing before throwing', async () => {
+    // 作者只会看到一句「缺少 …」，不带路径。本次线上排查就卡在这里：无法从现场倒推
+    // 到底是哪个项目、哪条路径出的问题。面向作者的文案不变，路径只进主进程日志。
+    const root = await makeProject('status-diagnostics', 'setup')
+    await rm(join(root, '.narracat', 'state.yaml'), { force: true })
+
+    const logs: string[] = []
+    const originalError = console.error
+    console.error = (...args: unknown[]) => {
+      logs.push(args.map((value) => String(value)).join(' '))
+    }
+    try {
+      await expect(aggregateNovelStatusSnapshot(root)).rejects.toThrow()
+    } finally {
+      console.error = originalError
+    }
+
+    const text = logs.join('\n')
+    expect(text).toContain(root)
+    expect(text).toContain('state.yaml')
+  })
+})

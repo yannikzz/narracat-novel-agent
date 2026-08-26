@@ -132,7 +132,7 @@ describe('agent event sink', () => {
       toolCallId: 'tool-1',
       toolName: 'Read',
       title: '读取 /Users/writer/secret-novel/chapter.md',
-      input: { file_path: '/Users/writer/secret-novel/chapter.md', apiKey: 'sk-secret' },
+      input: { path: '/Users/writer/secret-novel/chapter.md', apiKey: 'sk-secret' },
       createdAt: occurredAt,
     })
     await sink.publish({
@@ -593,5 +593,140 @@ describe('agent event sink', () => {
       type: 'session.invalidated',
       reason: 'app-restarted',
     })
+  })
+})
+
+describe('durable tool forensics (#37)', () => {
+  test('records the project-relative target path of a failed tool call', async () => {
+    // EISDIR 类错误串本身不含路径，只有 tool.started 的 input 里有。落盘不记 target 就
+    // 永远查不出 agent 到底读了哪个目录——这正是 read 失败率 25.6% 却无从定位的原因。
+    const root = await createRoot()
+    const store = createAgentConversationStore({
+      rootDir: root,
+      now: () => occurredAt,
+      createSegmentId: () => segmentId,
+    })
+    const sink = createAgentEventSink({ store, broadcast: () => {} })
+    const projectPath = '/Users/somebody/Novels/novel-x'
+
+    await sink.publish({
+      type: 'run.started',
+      runId: 'run-forensics',
+      threadId,
+      command: 'freeform',
+      prompt: '写第 20 章',
+      projectPath,
+      createdAt: occurredAt,
+    })
+    await sink.publish({
+      type: 'tool.started',
+      runId: 'run-forensics',
+      messageId: 'assistant-run-forensics',
+      toolCallId: 'tool-forensics',
+      toolName: 'Read',
+      title: '调用 Read',
+      // pi runtime 的真实参数名是 `path`（真机会话取证），测试必须用真实形态
+      input: { path: `${projectPath}/bible/characters` },
+      createdAt: occurredAt,
+    })
+    await sink.publish({
+      type: 'tool.failed',
+      runId: 'run-forensics',
+      toolCallId: 'tool-forensics',
+      error: 'EISDIR: illegal operation on a directory, read',
+      createdAt: occurredAt,
+    })
+
+    const durable = await allJsonText(root)
+    expect(durable).toContain('<项目>/bible/characters')
+    expect(durable).not.toContain('/Users/somebody')
+  })
+
+  test('rewrites in-project paths inside the error string but still scrubs anything outside the root', async () => {
+    // ENOENT 类错误串自带路径（33/50 次属此类）。相对化只能作用在项目根以内——根以外的
+    // 路径必须继续整段抹掉，否则作者截图求助就会泄露用户名与本机目录结构。
+    const root = await createRoot()
+    const store = createAgentConversationStore({
+      rootDir: root,
+      now: () => occurredAt,
+      createSegmentId: () => segmentId,
+    })
+    const sink = createAgentEventSink({ store, broadcast: () => {} })
+    const projectPath = '/Users/somebody/Novels/novel-x'
+
+    await sink.publish({
+      type: 'run.started',
+      runId: 'run-enoent',
+      threadId,
+      command: 'freeform',
+      prompt: '写第 20 章',
+      projectPath,
+      createdAt: occurredAt,
+    })
+    await sink.publish({
+      type: 'tool.started',
+      runId: 'run-enoent',
+      messageId: 'assistant-run-enoent',
+      toolCallId: 'tool-enoent',
+      toolName: 'Read',
+      title: '调用 Read',
+      createdAt: occurredAt,
+    })
+    await sink.publish({
+      type: 'tool.failed',
+      runId: 'run-enoent',
+      toolCallId: 'tool-enoent',
+      error: `ENOENT: no such file or directory, access '${projectPath}/chapters/020.md' (also tried /Users/somebody/Desktop/草稿.md)`,
+      createdAt: occurredAt,
+    })
+
+    const durable = await allJsonText(root)
+    expect(durable).toContain('<项目>/chapters/020.md')
+    expect(durable).toContain('[本机路径]')
+    expect(durable).not.toContain('/Users/somebody')
+  })
+
+  test('rewrites Agent Core paths as <引擎> so engine reads stay traceable too', async () => {
+    // agent 读的不只是小说项目，还有引擎的 skill/command 文件。开发机上引擎目录同样在
+    // /Users/… 下，不给它一个根就会被整段抹掉，引擎侧的读取失败照样查不了。
+    const root = await createRoot()
+    const store = createAgentConversationStore({
+      rootDir: root,
+      now: () => occurredAt,
+      createSegmentId: () => segmentId,
+    })
+    const agentCorePath = '/Users/somebody/app/agent-core/narracat'
+    const sink = createAgentEventSink({ store, broadcast: () => {}, agentCorePath })
+
+    await sink.publish({
+      type: 'run.started',
+      runId: 'run-engine',
+      threadId,
+      command: 'freeform',
+      prompt: '写第 20 章',
+      projectPath: '/Users/somebody/Novels/novel-x',
+      createdAt: occurredAt,
+    })
+    await sink.publish({
+      type: 'tool.started',
+      runId: 'run-engine',
+      messageId: 'assistant-run-engine',
+      toolCallId: 'tool-engine',
+      toolName: 'Read',
+      title: '调用 Read',
+      input: { path: `${agentCorePath}/skills/write.md` },
+      createdAt: occurredAt,
+    })
+    await sink.publish({
+      type: 'tool.failed',
+      runId: 'run-engine',
+      toolCallId: 'tool-engine',
+      error: 'ENOENT: no such file or directory',
+      createdAt: occurredAt,
+    })
+
+    const durable = await allJsonText(root)
+    expect(durable).toContain('<引擎>/skills/write.md')
+    expect(durable).not.toContain('/Users/somebody')
   })
 })

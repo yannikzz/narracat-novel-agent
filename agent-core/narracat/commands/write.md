@@ -1,14 +1,14 @@
 ---
 description: 写章节 — 核心创作循环（上下文聚合 → 正文生成 → 审校 → 入库收尾）
 argument-hint: <章节号>
-allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestion, mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack, mcp__plugin_narracat_novelmemory__novel_get_review, mcp__plugin_narracat_novelmemory__novel_get_arc, mcp__plugin_narracat_novelmemory__novel_check_manuscript_contract, mcp__plugin_narracat_novelmemory__novel_check_prose_hygiene, mcp__plugin_narracat_novelmemory__novel_check_state_delivery, mcp__plugin_narracat_novelmemory__novel_query, mcp__plugin_narracat_novelmemory__novel_character_state, mcp__plugin_narracat_novelmemory__novel_update_progress, mcp__plugin_narracat_novelmemory__novel_checkpoint, mcp__plugin_narracat_novelmemory__novel_mint_character_uid, mcp__plugin_narracat_novelmemory__novel_list_candidate_characters, mcp__plugin_narracat_novelmemory__novel_register_candidate_character, mcp__plugin_narracat_novelmemory__novel_stage_extraction, mcp__plugin_narracat_novelmemory__novel_commit_extraction_union, mcp__plugin_narracat_novelmemory__novel_detect_conflicts]
+allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestion, mcp__narracat_memory__novel_build_writing_context_pack, mcp__narracat_memory__novel_get_review, mcp__narracat_memory__novel_get_arc, mcp__narracat_memory__novel_check_manuscript_contract, mcp__narracat_memory__novel_check_prose_hygiene, mcp__narracat_memory__novel_check_state_delivery, mcp__narracat_memory__novel_query, mcp__narracat_memory__novel_character_state, mcp__narracat_memory__novel_update_progress, mcp__narracat_memory__novel_checkpoint, mcp__narracat_memory__novel_mint_character_uid, mcp__narracat_memory__novel_list_candidate_characters, mcp__narracat_memory__novel_register_candidate_character, mcp__narracat_memory__novel_stage_extraction, mcp__narracat_memory__novel_commit_extraction_union, mcp__narracat_memory__novel_detect_conflicts]
 ---
 
 完成一个章节的完整写作流程。
 
 通用约定：
 
-- 每个步骤完成时调用 `mcp__plugin_narracat_novelmemory__novel_checkpoint(command="write", step=步骤号, chapter=chapter_num)`，下文简写为 novel_checkpoint(step=N)。
+- 每个步骤完成时调用 `mcp__narracat_memory__novel_checkpoint(command="write", step=步骤号, chapter=chapter_num)`，下文简写为 novel_checkpoint(step=N)。
 - 派发 subagent 只传章号、路径与参数，不复述 agent 内部规则。
 - 不要直接编辑 state.yaml：断点经 novel_checkpoint 写入，进度经 novel_update_progress 写入。
 - 上下文包、正文、细纲的路径一律使用步骤 1 工具返回的 pack_path / manuscript_path / outline_path，不自行拼路径。
@@ -33,12 +33,12 @@ allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestio
 若 checkpoint.last_command == "write {chapter_num}"：
 
 - AskUserQuestion：「检测到第 {chapter_num} 章中断于步骤 {last_step}。继续，还是从头开始？」
-- 继续 → 先执行步骤 1（builder 幂等，重建上下文包并取回各路径），再跳到步骤 {last_step} 的下一个步骤继续；last_step == 3 时不直接进步骤 4，先重新调一次 `mcp__plugin_narracat_novelmemory__novel_check_manuscript_contract(chapter=chapter_num)`：`ok == true` 才进步骤 4，`ok == false` 按 3c 的补写流程处理（复检上限 2 轮，仍不过则终止并报人工处理）；last_step == 6 时直接执行步骤 6 第 4 点完成收尾。
+- 继续 → 先执行步骤 1（builder 幂等，重建上下文包并取回各路径），再跳到步骤 {last_step} 的下一个步骤继续；last_step == 3 时不直接进步骤 4，先重新调一次 `mcp__narracat_memory__novel_check_manuscript_contract(chapter=chapter_num)`：`ok == true` 才进步骤 4，`ok == false` 按 3c 的补写流程处理（复检上限 2 轮，仍不过则终止并报人工处理）；last_step == 6 时直接执行步骤 6 第 4 点完成收尾。
 - 从头 → 从步骤 1 开始。
 
 ## 步骤 1：上下文聚合
 
-1. 调 `mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack(chapter=chapter_num)`。
+1. 调 `mcp__narracat_memory__novel_build_writing_context_pack(chapter=chapter_num)`。
 2. 返回 ok → 上下文包已由工具落盘。记下返回的 pack_path、manuscript_path、outline_path 与 word_count_range，后续步骤直接引用。
 3. 返回错误 → 原样输出 errors，终止。
 4. novel_checkpoint(step=1)。
@@ -47,7 +47,7 @@ allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestio
 
 ## 步骤 2：确认（仅协作模式）
 
-automation_level == "collaborative" 时：向用户摘要本章细纲要点与上下文准备时的提醒，AskUserQuestion「开始写作」/「取消」；取消 → 终止。automation_level == "auto" 时跳过。完成后 novel_checkpoint(step=2)。
+automation_level == "auto" 时跳过本步骤；**其余情况一律走确认门**（含 `.narracat/config.yaml` 里没有这个字段——缺省即协作，与 plan.md 同向）：向用户摘要本章细纲要点与上下文准备时的提醒，AskUserQuestion「开始写作」/「取消」；取消 → 终止。完成后 novel_checkpoint(step=2)。
 
 ## 步骤 3：正文生成
 
@@ -56,8 +56,10 @@ automation_level == "collaborative" 时：向用户摘要本章细纲要点与�
 主会话亲自执行（不派发）：
 
 1. Read {pack_path}。再 Read `${CLAUDE_PLUGIN_ROOT}/skills/novel-web-craft/SKILL.md`（写法素材库）；包里有 `craft_pack_hints` 时逐个 Read 其 reference_path，与本章故事线或场景意图不符的 pack 丢弃，并记一行丢弃理由留到完成输出。
-2. 发现包内信息有缺口（关键角色细节缺失、场景涉及的旧事件只有一句摘要）时，用 novel_query / novel_character_state 补查；补查结果只写进任务书，不回写包。
-3. 按下面的五段结构，把包与素材翻译成一份自然语言任务书，Write 到 `.narracat/staging/ch-{三位章号}.brief.md`（三位补零，如 ch-004，与正文文件的章号段一致）。铁律：
+2. 补齐包内缺口。补查结果只写进任务书，不回写包：
+   - 包里有 `characters_without_cards` 时**逐个**按条目上的 `character_uid` 调 novel_character_state 补查，把状态翻成人话补进任务书第三段。这些是本章出场、但状态卡没随包给出的角色（预算裁掉或尚无记录）——写手只读任务书，这一步不补，第三段就少人，写手只能自己编。
+   - 其余缺口（场景涉及的旧事件只有一句摘要等）用 novel_query / novel_character_state 补查。
+3. 按下面的五段结构，把包与素材翻译成一份自然语言任务书，Write 到 `.narracat/staging/ch-{三位章号}.brief.md`（三位补零，完整文件名形如 `ch-004.brief.md`——章号段与正文一致，后缀不同，别写成正文的 `ch-004.md`）。铁律：
    - 任务书是写手唯一的剧情输入，细纲信息如实全量承载——翻译成人话，不减料、不降级。
    - 不减料指事件、因果与信息点。细纲里预写的演法（比喻、生理反应、感官描写的具体写法）不搬运——把它还原成事件和这一拍要打出的效果，怎么演由写手定。两分判据：删掉后这场戏仍成立的是演法；删掉戏就断的（承载功能的动作、道具、关键台词）是必须落地的细节，原样保留。
    - 任务书里不得出现字段名、工具名、pack 名、伏笔编号、英文确定度枚举等系统词——写手读到的必须是纯人话（机械检查会拦下命中项：被打回就按提示改写后重新 Write 一次；第二次仍命中会放行，把警示留到完成输出）。
@@ -113,7 +115,7 @@ Task(chapter-writer): "撰写第 {chapter_num} 章。
 
 ### 3c 机械门
 
-1. 调 `mcp__plugin_narracat_novelmemory__novel_check_manuscript_contract(chapter=chapter_num)`（工具会顺手把 ASCII 引号包中文机械归一为弯引号，主会话无需处理）。
+1. 调 `mcp__narracat_memory__novel_check_manuscript_contract(chapter=chapter_num)`（工具会顺手把 ASCII 引号包中文机械归一为弯引号，主会话无需处理）。
 2. `ok == false` → 派写手按 errors 补写/清理（下面模板），复检上限 2 轮；2 轮仍不过 → novel_checkpoint(step=3)，输出 errors 并报告「第 {chapter_num} 章正文未达交付合同，请人工处理后重新执行 /narracat:write {chapter_num}」，终止。
 
 ```
@@ -124,14 +126,14 @@ Task(chapter-writer): "第 {chapter_num} 章正文有下列交付问题，逐条
 {errors 逐条 field + hint}"
 ```
 
-3. 合同过后调 `mcp__plugin_narracat_novelmemory__novel_check_prose_hygiene(chapter=chapter_num)`，把返回的 errors（若有）、fingerprint_findings 与 shape_findings 全量留给 3d——不派发擦除、不在本步处置。
+3. 合同过后调 `mcp__narracat_memory__novel_check_prose_hygiene(chapter=chapter_num)`，把返回的 errors（若有）、fingerprint_findings 与 shape_findings 全量留给 3d——不派发擦除、不在本步处置。
 
 ### 3d 冷 pass（唯一改稿位）
 
-派发：
+派发（**必须带 `thinking="off"`**：冷改是低自由度任务——输入是完整正文、只做打磨，模型的"思考"在这里不产生价值。真机 A/B 实测两臂产出相似度 98.7%、54 处差异全是采样抖动，而思考白烧掉单次约 87% 的输出预算。热写那一遍相反，不要加这个参数）：
 
 ```
-Task(chapter-writer): "对第 {chapter_num} 章成稿做一遍冷改打磨，按下面四遍依次处理，改完把整章覆写回正文路径。
+Task(chapter-writer, thinking="off"): "对第 {chapter_num} 章成稿做一遍冷改打磨，按下面四遍依次处理，改完把整章覆写回正文路径。
 正文路径: {manuscript_path}
 任务书路径: {brief 路径}（第四段是本书语感基准）
 第一遍·擦机器腔：下面的机械扫描结果是排序线索，不是要归零的指标——按命中密度从高到低处置，读上下文，是机器腔就换成这本书的说法，是正常人话就保留：
@@ -159,7 +161,7 @@ Task(continuity-editor): "审校第 {chapter_num} 章。
 WritingContextPack 路径: {pack_path}"
 ```
 
-审校 agent 完成后，主会话调 `mcp__plugin_narracat_novelmemory__novel_get_review(chapter=chapter_num)` 取 `{verdict, blockers}`，然后 novel_checkpoint(step=4)。审校报告文件由工具渲染，主会话不读、不解析报告文本。
+审校 agent 完成后，主会话调 `mcp__narracat_memory__novel_get_review(chapter=chapter_num)` 取 `{verdict, blockers}`，然后 novel_checkpoint(step=4)。审校报告文件由工具渲染，主会话不读、不解析报告文本。
 
 ## 步骤 5：审校路由
 
@@ -176,12 +178,12 @@ Task(chapter-writer): "修复第 {chapter_num} 章的下列问题。只修改问
 
   修复完成后重新执行步骤 4，复审派发末尾追加一句：「只复验下列已修复问题: {blockers 原样逐条列出}」。
 
-- 复审后 verdict == "pass" → 修复动作已改过正文，进入步骤 6 前重新调一次 `mcp__plugin_narracat_novelmemory__novel_check_manuscript_contract(chapter=chapter_num)`：`ok == true` → novel_checkpoint(step=5)，进入步骤 6；`ok == false` → 按 3c 的补写流程处理（复检上限 2 轮；仍不过 → novel_checkpoint(step=3)，输出 errors 并报告「第 {chapter_num} 章正文未达交付合同，请人工处理后重新执行 /narracat:write {chapter_num}」，终止）。
+- 复审后 verdict == "pass" → 修复动作已改过正文，进入步骤 6 前重新调一次 `mcp__narracat_memory__novel_check_manuscript_contract(chapter=chapter_num)`：`ok == true` → novel_checkpoint(step=5)，进入步骤 6；`ok == false` → 按 3c 的补写流程处理（复检上限 2 轮；仍不过 → novel_checkpoint(step=3)，输出 errors 并报告「第 {chapter_num} 章正文未达交付合同，请人工处理后重新执行 /narracat:write {chapter_num}」，终止）。
 - 复审后 verdict 仍 == "fail"（修复轮上限 1，已用完）→ 调 novel_checkpoint(step=3)（把断点退回「正文已生成」，下次恢复将从步骤 4 重新审校），输出 blockers 清单并报告：「第 {chapter_num} 章经一轮定向修复仍未通过审校，请人工处理后重新执行 /narracat:write {chapter_num}」，终止。
 
 ## 步骤 6：入库收尾
 
-1. 调 `mcp__plugin_narracat_novelmemory__novel_get_arc(chapter=chapter_num)`，取返回的 is_arc_end / is_volume_end 与 arc、volume 信息（found == false 时按非边界处理）。
+1. 调 `mcp__narracat_memory__novel_get_arc(chapter=chapter_num)`，取返回的 is_arc_end / is_volume_end 与 arc、volume 信息（found == false 时按非边界处理）。
 2. 并行派发（四个任务可同时执行，互不依赖）：
 
 ```
@@ -200,19 +202,19 @@ run_id: 3
 正文路径: {manuscript_path}
 细纲路径: {outline_path}"
 
-Task B（memory-keeper）: "第 {chapter_num} 章收尾入库。
+Task B（memory-keeper）: "第 {chapter_num} 章收尾入库。本任务不做事实抽取——本章的事实由并行的三个暂存任务负责，不要调抽取脚手架、不要暂存事实。
 正文路径: {manuscript_path}
 细纲路径: {outline_path}
 {is_arc_end == true 时追加: 本章为 arc {arc_id}（第 {chapter_start}-{chapter_end} 章）末章，入库后需提交该 arc 的压缩摘要。}
 {is_volume_end == true 时追加: 本章为第 {volume_no} 卷末章，入库后需提交该卷的压缩摘要。}"
 ```
 
-3. 四个任务全部完成后，主会话调 `mcp__plugin_narracat_novelmemory__novel_commit_extraction_union(chapter=chapter_num)`，把各轮暂存的事实合并落库。看返回的 `staged_runs`：
+3. 四个任务全部完成后，主会话调 `mcp__narracat_memory__novel_commit_extraction_union(chapter=chapter_num)`，把各轮暂存的事实合并落库。看返回的 `staged_runs`：
    - `staged_runs == 0`（三轮抽取均未暂存，疑似全部失败）→ **不进入第 4 点**：调 novel_checkpoint(step=3)（退回正文已生成），向用户报告「第 {chapter_num} 章事实抽取全部失败、本章未沉淀事实，请重试 /narracat:write {chapter_num}」，终止。
    - `1 ≤ staged_runs < 3` → 正常落库，向用户附一句「本章仅 {staged_runs} 轮抽取成功，事实样本偏少」提示后继续。
    - `staged_runs == 3` → 正常继续。
-4. （staged_runs ≥ 1 时）调 `mcp__plugin_narracat_novelmemory__novel_check_state_delivery(chapter=chapter_num)` 做计划状态变更兑现比对（机械匹配，命中项自动落账）：若返回的 `undelivered` 非空，保留待「完成输出」呈现，不阻断收尾、不自动顺延（处置交用户）。
-5. 调 `mcp__plugin_narracat_novelmemory__novel_detect_conflicts(chapter=chapter_num)` 对刚落库的事实做生成后时序 / 状态冲突体检（只读、只标不改）：若 `conflict_count > 0`，保留返回的 `report` 待「完成输出」呈现，不阻断收尾、不自动改记忆（修订交用户）。然后 novel_checkpoint(step=6)，再调 `mcp__plugin_narracat_novelmemory__novel_update_progress(chapter=chapter_num)` 更新进度并清除断点。
+4. （staged_runs ≥ 1 时）调 `mcp__narracat_memory__novel_check_state_delivery(chapter=chapter_num)` 做计划状态变更兑现比对（机械匹配，命中项自动落账）：若返回的 `undelivered` 非空，保留待「完成输出」呈现，不阻断收尾、不自动顺延（处置交用户）。
+5. 调 `mcp__narracat_memory__novel_detect_conflicts(chapter=chapter_num)` 对刚落库的事实做生成后时序 / 状态冲突体检（只读、只标不改）：若 `conflict_count > 0`，保留返回的 `report` 待「完成输出」呈现，不阻断收尾、不自动改记忆（修订交用户）。然后 novel_checkpoint(step=6)，再调 `mcp__narracat_memory__novel_update_progress(chapter=chapter_num)` 更新进度并清除断点。
 
 novel_update_progress 会先核对交付合同并把草稿区正文原子搬进正式路径；返回 manuscript_contract 类错误时退回步骤 3 处理。
 
@@ -232,7 +234,7 @@ novel_update_progress 会先核对交付合同并把草稿区正文原子搬进�
 
 若任务书自检时曾提示需要改写的用词、放行时仍有残留，另起一行用作者能懂的话提醒一句本章任务书已内部检查处理过，不影响正文。
 
-收尾后调 `mcp__plugin_narracat_novelmemory__novel_list_candidate_characters(status="candidate", importance="major")`；若有影响剧情的重要候选角色待建档，另起一行提醒：「影响剧情的重要角色待建档：{名字列表}。需要时可在「小说角色」目录里为 ta 建档，或执行 /narracat:world create {名字}。」无重要候选则不输出此行（次要候选静默在目录里，不提醒）。
+收尾后调 `mcp__narracat_memory__novel_list_candidate_characters(status="candidate", importance="major")`；若有影响剧情的重要候选角色待建档，另起一行提醒：「影响剧情的重要角色待建档：{名字列表}。需要时可在「小说角色」目录里为 ta 建档，或执行 /narracat:world create {名字}。」无重要候选则不输出此行（次要候选静默在目录里，不提醒）。
 
 ## 错误处理
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { resolveClientBuildVersion } from './client-build-version.mjs'
+import { resolveClientBuildVersion, resolveOverridableClientVersion } from './client-build-version.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -313,6 +314,71 @@ export function createPackageRcSteps({
   throw new Error(`不支持的打包目标平台：${platform}（当前只发 darwin/arm64 与 win32/x64）`)
 }
 
+/**
+ * 打包入口的客户端版本号：直接复用 SSOT（见 client-build-version.mjs 的
+ * resolveOverridableClientVersion——版本号在打包链上有两条独立取值路径，必须同源）。
+ */
+export function resolvePackageClientVersion({ cwd = repoRoot, env = process.env } = {}) {
+  return resolveOverridableClientVersion({ root: cwd, env })
+}
+
+/**
+ * 源 package.json 被打包工具改写的看门狗。
+ *
+ * 实锤过一次：一轮 `bun run package` 之后仓库根 package.json 从 145 行被截断成 42 行——
+ * scripts / devDependencies / build（electron-builder 配置）全没了，只剩 runtime
+ * dependencies。electron-builder 为产物合成精简 metadata（`extraMetadata.version` 走的
+ * 就是这条路）时会落到源目录，正常情况下事后还原，异常情况下就留在那儿。
+ *
+ * 危害不在打包本身（产物是好的），在于**它是静默的**：文件照常存在、`bun run package`
+ * 退出码 0，下一次 `git add -A` 就把「删掉全部 scripts」当成正常改动提交进去。
+ *
+ * 处置分两档，取决于打包前它是否干净——打包前就有未提交改动时绝不动它（那是作者自己的
+ * 编辑，自动 checkout 会吃掉），只告警。
+ */
+function readSourceManifest(cwd) {
+  try {
+    return readFileSync(join(cwd, 'package.json'), 'utf8')
+  } catch {
+    return null
+  }
+}
+
+function isSourceManifestGitClean(cwd) {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain', '--', 'package.json'], {
+      cwd,
+      encoding: 'utf8',
+    })
+    return out.trim() === ''
+  } catch {
+    // 非 git 环境 / git 不可用 → 当作「脏」，只告警不自动恢复（安全方向）
+    return false
+  }
+}
+
+export function captureSourceManifest(cwd = repoRoot) {
+  return { content: readSourceManifest(cwd), wasGitClean: isSourceManifestGitClean(cwd) }
+}
+
+/** 返回 'untouched' | 'restored' | 'warned'（供测试断言分档，不吞掉行为差异） */
+export function restoreSourceManifestIfClobbered(before, cwd = repoRoot, log = console.error) {
+  const after = readSourceManifest(cwd)
+  if (before?.content == null || after == null || after === before.content) return 'untouched'
+
+  if (!before.wasGitClean) {
+    log(
+      '⚠️  打包过程改写了仓库根 package.json，但它打包前就有未提交改动，故不自动恢复。\n' +
+        '   请自行核对 `git diff package.json`（打包工具通常只会留下一份精简 metadata）。',
+    )
+    return 'warned'
+  }
+
+  execFileSync('git', ['checkout', '--', 'package.json'], { cwd })
+  log('⚠️  打包过程改写了仓库根 package.json，已自动 `git checkout` 还原（产物不受影响）。')
+  return 'restored'
+}
+
 export function runPackageRc({
   cwd = repoRoot,
   stdio = 'inherit',
@@ -327,12 +393,20 @@ export function runPackageRc({
     assertNotarizeCredentials(env)
     assertCorpusCredentials(env)
   }
-  const clientVersion = resolveClientBuildVersion({ root: cwd })
-  for (const step of createPackageRcSteps({ clientVersion, notarize, platform })) {
-    // resolveStepEnv 是叠加层：丢了它，smoke packaged app 拿不到 NARRACAT_SMOKE_ELECTRON_BIN，
-    // 会静默回落 dev 态且输出与真产物逐字相同（PR #6 修的正是这类假绿）。
-    const stepEnv = resolveStepEnv(step, env)
-    execFileSync(step.command, step.args, { cwd, stdio, ...(stepEnv ? { env: stepEnv } : {}) })
+  // 版本号走可被 NARRACAT_CLIENT_VERSION 覆盖的 SSOT（打包链上两条取值路径必须同源）。
+  const clientVersion = resolvePackageClientVersion({ cwd, env })
+  const manifestBefore = captureSourceManifest(cwd)
+  try {
+    for (const step of createPackageRcSteps({ clientVersion, notarize, platform })) {
+      // resolveStepEnv 是叠加层：丢了它，smoke packaged app 拿不到 NARRACAT_SMOKE_ELECTRON_BIN，
+      // 会静默回落 dev 态且输出与真产物逐字相同（PR #6 修的正是这类假绿）。
+      // 命名成 stepEnv 而非 env：后者会遮蔽 runPackageRc 的 env 形参，win 的凭证检查就读不到调用方传的环境。
+      const stepEnv = resolveStepEnv(step, env)
+      execFileSync(step.command, step.args, { cwd, stdio, ...(stepEnv ? { env: stepEnv } : {}) })
+    }
+  } finally {
+    // 放 finally：打包中途失败时源文件同样可能已被改写，那时更需要还原
+    restoreSourceManifestIfClobbered(manifestBefore, cwd)
   }
 }
 

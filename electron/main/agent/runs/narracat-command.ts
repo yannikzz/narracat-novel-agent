@@ -44,7 +44,7 @@ const INTERACTIVE_COMMAND_GUARD = [
   '如果 command source 写了“追问”“收集回答”“用户认可后进入下一步”“确认”“需要调整”，都视为需要通过 AskUserQuestion 等待用户输入。',
 ].join('\n')
 const MEMORY_MCP_GUARD = [
-  'NovelMemory 边界约束：所有记忆查询、提交和回滚都必须通过 NarraCat Agent Core 暴露的 NovelMemory MCP 工具（mcp__plugin_narracat_novelmemory__*）完成。',
+  'NovelMemory 边界约束：所有记忆查询、提交和回滚都必须通过 NarraCat Agent Core 暴露的 NovelMemory MCP 工具（mcp__narracat_memory__*）完成。',
   '结构化数据按提交工具入库：章节收尾由 Task(narracat:memory-keeper) 经 novel_commit_chapter / novel_submit_extraction / novel_consolidate 提交；审校报告由 narracat:continuity-editor 经 novel_submit_review 提交；大纲由 narracat:outline-architect 经 novel_submit_outline / novel_submit_chapter_outline 提交。',
   '不要直接编辑 state.yaml 的 progress 与 checkpoint：进度用 novel_update_progress、检查点用 novel_checkpoint 写入。',
   '禁止生成、写入或执行任何直接访问 .narracat/memory.db 的脚本；禁止 import better-sqlite3、sqlite、sqlite-vec 或手写 SQL 修改 memory.db。',

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type FormEventHandler, type ImgHTMLAttributes } from 'react'
 import { Link } from 'react-router'
+import { canRemoveFromLibrary } from '@shared/lib/library-project'
 import { toast } from 'sonner'
 import {
   Archive,
@@ -14,6 +15,7 @@ import {
   Search,
   Settings as SettingsIcon,
   Trash2,
+  Wand2,
   X,
 } from 'lucide-react'
 import { BrandIllustration, BrandLockup } from '@/components/brand'
@@ -33,12 +35,23 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { AppShell } from '@/components/AppShell'
-import { CreateNovelDialog } from '@/components/library/CreateNovelDialog'
+import {
+  CREATE_NOVEL_AUTOMATION_AUTO_HELP,
+  CREATE_NOVEL_AUTOMATION_AUTO_LABEL,
+  CREATE_NOVEL_AUTOMATION_COLLABORATIVE_HELP,
+  CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL,
+  CreateNovelDialog,
+} from '@/components/library/CreateNovelDialog'
 import { UpdateReadyBanner } from '@/components/settings/UpdateReadyBanner'
 import {
   DESTRUCTIVE_INLINE_CLASS,
@@ -72,7 +85,7 @@ import {
   saveLibraryProjectMetadata,
   useLibraryProjects,
 } from '@/lib/use-novel-project'
-import type { NovelProjectSummary } from '@shared/types/novel'
+import type { NovelAutomationLevel, NovelProjectSummary } from '@shared/types/novel'
 
 type LibrarySummary = {
   total: number
@@ -97,6 +110,25 @@ export const LIBRARY_PROJECT_METADATA_DIALOG_CONTENT_CLASS =
 
 export const LIBRARY_PROJECT_DELETE_DIALOG_CONTENT_CLASS = 'bg-workspace sm:max-w-[520px]'
 export const LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS = 'bg-workspace sm:max-w-[520px]'
+
+const LIBRARY_AUTOMATION_LEVEL_LABELS: Record<NovelAutomationLevel, string> = {
+  auto: CREATE_NOVEL_AUTOMATION_AUTO_LABEL,
+  collaborative: CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL,
+}
+
+/**
+ * 切换入口的后果说明与新建对话框同源（同一份文案常量）：改档改的是 Agent 之后怎么跑，
+ * 光给两个单选项等于让作者盲选，这里必须把「换来什么、代价是什么」摆在选项里。
+ */
+const LIBRARY_AUTOMATION_LEVEL_HELP: Record<NovelAutomationLevel, string> = {
+  auto: CREATE_NOVEL_AUTOMATION_AUTO_HELP,
+  collaborative: CREATE_NOVEL_AUTOMATION_COLLABORATIVE_HELP,
+}
+
+/** 「更多」菜单里的自动化入口文案：常态显示当前档，Agent 运行中改成说明原因（与备份/删除一致）。 */
+export function libraryAutomationMenuLabel(automationLevel: NovelAutomationLevel, blocked: boolean): string {
+  return blocked ? 'Agent 运行中，不能切换模式' : `自动化：${LIBRARY_AUTOMATION_LEVEL_LABELS[automationLevel]}`
+}
 
 export function statusLabel(status: NovelProjectSummary['status']): string {
   if (status === 'ready') return '可写作'
@@ -838,6 +870,18 @@ export function LibraryProjectManagementMenu({ project }: { project: NovelProjec
 
     return Object.values(state.threadsById).some((thread) => thread.activeRun?.projectPath === project.path)
   })
+  const automationLevel = project.automationLevel
+
+  async function switchAutomationLevel(nextLevel: NovelAutomationLevel) {
+    if (nextLevel === automationLevel) return
+
+    try {
+      await saveLibraryProjectMetadata({ projectPath: project.path, automationLevel: nextLevel })
+      toast.success(`已切换到${LIBRARY_AUTOMATION_LEVEL_LABELS[nextLevel]}，下一次规划大纲或写作时生效。`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '切换自动化模式失败，请重试。')
+    }
+  }
 
   return (
     <>
@@ -863,6 +907,41 @@ export function LibraryProjectManagementMenu({ project }: { project: NovelProjec
             <ImageIcon className="size-4" />
             更换封面
           </DropdownMenuItem>
+          {automationLevel && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger
+                disabled={deleteBlocked}
+                data-library-project-automation-menu-item="true"
+                className="data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+              >
+                <Wand2 className="size-4" />
+                {libraryAutomationMenuLabel(automationLevel, deleteBlocked)}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-72">
+                <DropdownMenuRadioGroup
+                  value={automationLevel}
+                  onValueChange={(value) => void switchAutomationLevel(value as NovelAutomationLevel)}
+                >
+                  <DropdownMenuRadioItem value="auto" className="items-start">
+                    <span className="grid gap-0.5">
+                      <span>{LIBRARY_AUTOMATION_LEVEL_LABELS.auto}</span>
+                      <span className="text-xs font-normal leading-5 text-hint-foreground">
+                        {LIBRARY_AUTOMATION_LEVEL_HELP.auto}
+                      </span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="collaborative" className="items-start">
+                    <span className="grid gap-0.5">
+                      <span>{LIBRARY_AUTOMATION_LEVEL_LABELS.collaborative}</span>
+                      <span className="text-xs font-normal leading-5 text-hint-foreground">
+                        {LIBRARY_AUTOMATION_LEVEL_HELP.collaborative}
+                      </span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={deleteBlocked}
@@ -909,6 +988,135 @@ export function LibraryProjectManagementMenu({ project }: { project: NovelProjec
   )
 }
 
+
+export const LIBRARY_INVALID_PROJECT_DIALOG_CONTENT_CLASS = 'sm:max-w-[440px]'
+
+/**
+ * 损坏项目说明浮层（#38）。
+ *
+ * invalid 很可能是误判——文件夹被移动/重命名、外置盘没插、config.yaml 被误删而正文还在。
+ * 所以主动作是「打开所在文件夹」让作者自己看一眼，而不是引导他先删东西。
+ */
+export function LibraryInvalidProjectPanel({
+  canRemove,
+  onCancel,
+  onRemove,
+  onReveal,
+  project,
+  removing,
+}: {
+  canRemove: boolean
+  onCancel: () => void
+  onRemove: () => void
+  onReveal: () => void
+  project: NovelProjectSummary
+  removing: boolean
+}) {
+  return (
+    <div data-library-invalid-project-panel="true" className="grid gap-5">
+      <DialogHeader className="pr-8 text-left">
+        <DialogTitle className="text-lg leading-tight">这本书暂时打不开</DialogTitle>
+        <DialogDescription>
+          “{project.title}”的项目文件不完整，NarraCat 读不出它的进度和正文。常见原因是文件夹被移动或重命名，也可能是它所在的磁盘没有连接。
+        </DialogDescription>
+      </DialogHeader>
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        建议先打开文件夹看一眼：文件还在的话，放回原处就能恢复。
+        {canRemove
+          ? '确认不需要了，可以只把它从书架上移除——不会删掉任何文件。'
+          : '这本书就放在你的小说文件夹里，确认不要了请用卡片右上角「更多」里的删除。'}
+      </p>
+
+      <DialogFooter className="gap-2 sm:justify-between">
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          知道了
+        </Button>
+        <div className="flex gap-2">
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="outline"
+              data-library-invalid-remove="true"
+              disabled={removing}
+              onClick={onRemove}
+            >
+              {removing ? '移除中…' : '从书架移除'}
+            </Button>
+          ) : null}
+          <Button type="button" data-library-invalid-reveal="true" onClick={onReveal}>
+            打开所在文件夹
+          </Button>
+        </div>
+      </DialogFooter>
+    </div>
+  )
+}
+
+export function LibraryInvalidProjectDialog({
+  open,
+  onOpenChange,
+  project,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  project: NovelProjectSummary
+}) {
+  const [novelRootDir, setNovelRootDir] = useState<string | null>(null)
+  const [removing, setRemoving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void window.electron
+      ?.getConfig?.()
+      .then((payload) => {
+        if (!cancelled) setNovelRootDir(payload?.config?.novelRootDir ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setNovelRootDir(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  // 读不到 novelRootDir 时按「不能移除」处理：宁可少给一个按钮，也不给点了不生效的。
+  const canRemove = novelRootDir ? canRemoveFromLibrary(project.path, novelRootDir) : false
+
+  async function remove() {
+    setRemoving(true)
+    try {
+      // 对 invalid 项目，删除流程本就只摘书架条目、不动任何文件（novel-delete.ts）。
+      await deleteLibraryProject({
+        projectPath: project.path,
+        title: project.title,
+        confirmationTitle: project.title,
+      })
+      onOpenChange(false)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={LIBRARY_INVALID_PROJECT_DIALOG_CONTENT_CLASS}>
+        <LibraryInvalidProjectPanel
+          canRemove={canRemove}
+          project={project}
+          removing={removing}
+          onCancel={() => onOpenChange(false)}
+          onRemove={() => void remove()}
+          onReveal={() => void window.electron?.revealProjectFolder?.(project.path)}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function LibraryProjectCard({
   coverLoading = 'lazy',
   project,
@@ -917,7 +1125,11 @@ export function LibraryProjectCard({
   project: NovelProjectSummary
 }) {
   const cover = getLibraryCoverPreset(project.coverPreset)
-  const problem = project.problem ?? (project.status === 'invalid' ? '项目文件需要检查' : null)
+  const isInvalid = project.status === 'invalid'
+  const [noticeOpen, setNoticeOpen] = useState(false)
+  // 损坏项目不把 `.narracat/config.yaml` 这类文件名糊到作者脸上，卡上只留一句人话，
+  // 详情与出路放进点击后的说明浮层（#38）。
+  const problem = isInvalid ? '项目文件不完整，点开看看能怎么办' : (project.problem ?? null)
   const displayGenre = normalizeLibraryGenre(project.genre)
   const chapterProgress = formatCardProgress(project.chapterProgress)
   const wordCount = formatCardWordCount(project.wordCountLabel)
@@ -933,11 +1145,27 @@ export function LibraryProjectCard({
         project.status === 'invalid' && 'bg-destructive/5 hover:bg-destructive/10'
       )}
     >
-      <Link
-        to={`/workbench?project=${encodeURIComponent(project.path)}`}
-        aria-label={`打开 ${project.title} 工作台`}
-        className="absolute inset-0 z-0 rounded-[16px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      />
+      {isInvalid ? (
+        // 进到一个什么都读不出来的工作台对作者零价值，入口先拦住。
+        <button
+          type="button"
+          data-library-invalid-trigger="true"
+          aria-label={`${project.title} 项目文件不完整，查看怎么办`}
+          onClick={() => setNoticeOpen(true)}
+          className="absolute inset-0 z-0 rounded-[16px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      ) : (
+        <Link
+          to={`/workbench?project=${encodeURIComponent(project.path)}`}
+          aria-label={`打开 ${project.title} 工作台`}
+          className="absolute inset-0 z-0 rounded-[16px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      )}
+
+      {isInvalid ? (
+        <LibraryInvalidProjectDialog open={noticeOpen} onOpenChange={setNoticeOpen} project={project} />
+      ) : null}
+
 
       <div
         data-library-book-cover="true"

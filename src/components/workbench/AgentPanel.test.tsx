@@ -69,6 +69,15 @@ describe('AgentPanel', () => {
     expect(html).toContain('[-webkit-app-region:no-drag]')
   })
 
+  test('pins the header actions to the card edge now that the caption band sits above the card', () => {
+    // 方案 A（上下分区）后 Agent 面板头部在 caption 带下方，右缘不再需要
+    // --titlebar-inset-right 让位——保留会把「新对话」按钮推离卡片右缘 145px（排版 bug）。
+    const source = readFileSync(fileURLToPath(new URL('./AgentPanel.tsx', import.meta.url)), 'utf-8')
+
+    expect(source).toContain('pl-[0.875rem] pr-[0.875rem]')
+    expect(source).not.toContain('pr-[max(0.875rem,var(--titlebar-inset-right))]')
+  })
+
   test('does not show the task plan expansion control for ordinary tool activity', () => {
     const thread = ([
       {

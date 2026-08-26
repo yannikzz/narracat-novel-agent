@@ -309,8 +309,8 @@ export function FirstRunIntro({ onDone }: FirstRunIntroProps) {
         </motion.div>
       )}
 
-      {/* 跳过（终幕不显示，那里只剩“开始创作”） */}
-      <div className="relative z-10 flex h-14 shrink-0 items-center justify-end px-5">
+      {/* 跳过（终幕不显示，那里只剩“开始创作”）。右侧预留 Windows caption 按钮区。 */}
+      <div className="relative z-10 flex h-14 shrink-0 items-center justify-end pl-[1.25rem] pr-[max(1.25rem,var(--titlebar-inset-right))]">
         {!isFinale && (
           <Button
             variant="ghost"

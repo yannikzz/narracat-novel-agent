@@ -1,3 +1,12 @@
+import { TOOL_PATH_INPUT_KEYS } from '@shared/lib/agent-path-scrub'
+import { NOVEL_MEMORY_MCP_SERVER_NAME } from '@shared/lib/novel-memory-tool-names'
+
+/**
+ * 工具名有两代：当前 pi runtime 用小写内置名（read/write/edit/bash/grep/find/ls，
+ * 权威映射见 electron/main/agent/runtime/adapters/pi/pi-tool-guard.ts 的
+ * SDK_TO_PI_TOOL_NAME——注意 Glob 已改名为 find），claude-sdk 时代的大写名仍保留，
+ * 因为用户机器上的历史会话事件里存的是旧名，重看旧对话时要能正确渲染。
+ */
 export interface ToolPhrase {
   label: string
   loadingLabel: string
@@ -17,7 +26,7 @@ export const NARRACAT_AGENT_LABELS: Record<string, string> = {
 /**
  * NovelMemory MCP 工具 → 面向用户的人读动作名（CONTEXT「User-facing Agent action label」）。
  * 工具名定义权威在 agent-core mcp-server/src/tools.ts；本表持人读中文名，落实 ADR-0016 通道二
- * ——对话流不裸露 mcp__plugin_narracat_novelmemory__ / novel_* 技术标识。
+ * ——对话流不裸露 mcp__narracat_memory__ / novel_* 技术标识。
  * 新增/删除工具时与 tool-phrase.test.ts 对照测试同步（工具有而 App 缺 → 失败）。
  */
 export const NARRACAT_TOOL_LABELS: Record<string, string> = {
@@ -79,8 +88,8 @@ export const NARRACAT_TOOL_LABELS: Record<string, string> = {
   novel_list_style_anchors: '查阅本书样章锚',
 }
 
-/** SDK 工具全名 `mcp__<server>__<tool>` 里 NovelMemory MCP 的 server 段。 */
-const NARRACAT_NOVELMEMORY_SERVER = 'plugin_narracat_novelmemory'
+/** 工具全名 `mcp__<server>__<tool>` 里 NovelMemory 的 server 段——与主进程同源，见 shared 常量。 */
+const NARRACAT_NOVELMEMORY_SERVER = NOVEL_MEMORY_MCP_SERVER_NAME
 /** 未登记的 NovelMemory 工具的友好降级名——不裸露技术标识。 */
 const NARRACAT_MEMORY_FALLBACK_LABEL = '记忆引擎操作'
 
@@ -177,8 +186,9 @@ export function getToolPhrase(toolName: string, rawInput?: ToolInput): ToolPhras
   const input = asRecord(rawInput)
 
   switch (toolName) {
-    case 'Read': {
-      const path = firstString(input, ['file_path', 'filePath'])
+    case 'Read':
+    case 'read': {
+      const path = firstString(input, [...TOOL_PATH_INPUT_KEYS])
       if (!path) return phrase('读取文件')
 
       const offset = typeof input.offset === 'number' ? input.offset : undefined
@@ -190,8 +200,9 @@ export function getToolPhrase(toolName: string, rawInput?: ToolInput): ToolPhras
       return phrase(`读取 ${filename(path)}`)
     }
 
-    case 'Edit': {
-      const path = firstString(input, ['file_path', 'filePath'])
+    case 'Edit':
+    case 'edit': {
+      const path = firstString(input, [...TOOL_PATH_INPUT_KEYS])
       const name = path ? filename(path) : '文件'
       const diff = diffStats(input)
       if (!diff) return phrase(`编辑 ${name}`)
@@ -202,8 +213,9 @@ export function getToolPhrase(toolName: string, rawInput?: ToolInput): ToolPhras
       return phrase(`编辑 ${parts.join(' ')}`)
     }
 
-    case 'Write': {
-      const path = firstString(input, ['file_path', 'filePath'])
+    case 'Write':
+    case 'write': {
+      const path = firstString(input, [...TOOL_PATH_INPUT_KEYS])
       const name = path ? filename(path) : '文件'
       const content = input.content
       if (typeof content === 'string' && content.length > 0) {
@@ -212,23 +224,35 @@ export function getToolPhrase(toolName: string, rawInput?: ToolInput): ToolPhras
       return phrase(`写入 ${name}`)
     }
 
-    case 'Bash': {
+    case 'Bash':
+    case 'bash': {
       const command = firstString(input, ['command'])
       return phrase(command ? `执行 ${compactInlineText(command, 80)}` : '执行命令')
     }
 
-    case 'Grep': {
+    case 'Grep':
+    case 'grep': {
       const pattern = firstString(input, ['pattern'])
       if (!pattern) return phrase('搜索内容')
       const scope = firstString(input, ['glob', 'path'])
       return phrase(scope ? `搜索内容 /${pattern}/ in ${scope}` : `搜索内容 /${pattern}/`)
     }
 
-    case 'Glob': {
+    case 'Glob':
+    case 'find': {
       const pattern = firstString(input, ['pattern'])
       if (!pattern) return phrase('搜索文件')
       const path = firstString(input, ['path'])
       return phrase(path ? `搜索文件 ${pattern} in ${path}` : `搜索文件 ${pattern}`)
+    }
+
+    case 'ls': {
+      const path = firstString(input, ['path'])
+      return phrase(path ? `查看目录 ${filename(path)}` : '查看目录')
+    }
+
+    case 'AskUserQuestion': {
+      return phrase('向你提问')
     }
 
     case 'WebFetch': {
@@ -268,7 +292,7 @@ export function getToolPhrase(toolName: string, rawInput?: ToolInput): ToolPhras
         const server = mcpParts[1]
         const tool = mcpParts.slice(2).join('_')
 
-        // NarraCat NovelMemory MCP：映射为人读动作名，绝不裸露 plugin_narracat_novelmemory / novel_* 技术标识
+        // NarraCat NovelMemory MCP：映射为人读动作名，绝不裸露 narracat_memory / novel_* 技术标识
         if (server === NARRACAT_NOVELMEMORY_SERVER) {
           return phrase(NARRACAT_TOOL_LABELS[tool] ?? NARRACAT_MEMORY_FALLBACK_LABEL)
         }

@@ -7,10 +7,10 @@ import {
   configPath,
   readCurrentConfig,
   readInputRecord,
-  readOptionalString,
   readRequiredString,
   userDataPath,
 } from './inputs.ts'
+import { readAutomationLevel, readUpdateNovelProjectMetadataInput } from './novel-metadata-input.ts'
 import { getAgentRuntimeCoordinator, runProjectMutation } from './agent.ts'
 import { pruneMissingRecentNovelPaths, scanNovelProjects } from '../novel/novel-index.ts'
 import {
@@ -95,7 +95,6 @@ import type {
   DeleteNovelProjectInput,
   PasteReferenceSourceInput,
   RemoveReferenceSourceInput,
-  UpdateNovelProjectMetadataInput,
 } from '@shared/types/novel'
 import type {
   CreateNovelProjectBackupDialogResult,
@@ -246,28 +245,11 @@ function readCreateNovelInput(input: unknown): CreateNovelProjectInput {
   const value = readInputRecord(input, '新建小说参数非法。')
   const title = readRequiredString(value, 'title', '缺少小说标题。')
   const genre = readRequiredString(value, 'genre', '缺少小说类型。')
-  const { automationLevel } = value
-
-  if (automationLevel !== 'collaborative' && automationLevel !== 'auto') throw new Error('自动化级别非法。')
 
   return {
     title,
     genre,
-    automationLevel,
-  }
-}
-
-function readUpdateNovelProjectMetadataInput(input: unknown): UpdateNovelProjectMetadataInput {
-  const value = readInputRecord(input, '小说信息参数非法。')
-  const title = readOptionalString(value, 'title', '小说标题参数非法。')
-  const coverPreset = readOptionalString(value, 'coverPreset', '封面预设参数非法。')
-
-  if (title === undefined && coverPreset === undefined) throw new Error('没有可更新的小说信息。')
-
-  return {
-    projectPath: readRequiredString(value, 'projectPath', '缺少项目路径。'),
-    ...(title !== undefined ? { title } : {}),
-    ...(coverPreset !== undefined ? { coverPreset } : {}),
+    automationLevel: readAutomationLevel(value.automationLevel),
   }
 }
 
@@ -492,6 +474,14 @@ export function registerNovelIpcHandlers(): void {
   ipcMain.handle('novel:update-project-metadata', async (_event, input: unknown) => {
     const request = readUpdateNovelProjectMetadataInput(input)
     return runProjectMutation(request.projectPath, () => updateNovelProjectMetadata(request))
+  })
+
+  // 损坏项目的自救入口（#38）：invalid 多半是文件被移动/重命名或磁盘没连接，
+  // 让作者自己打开文件夹看一眼，比引导他删东西安全得多。
+  ipcMain.handle('novel:reveal-folder', async (_event, input: unknown) => {
+    const projectPath = typeof input === 'string' ? input.trim() : ''
+    if (!projectPath) throw new Error('缺少项目路径。')
+    shell.showItemInFolder(projectPath)
   })
 
   ipcMain.handle('novel:delete-project', async (_event, input: unknown) => {

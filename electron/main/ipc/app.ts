@@ -17,6 +17,8 @@ import { deleteApiKey, getApiKey, hasApiKey, setApiKey } from '../secrets.ts'
 import { testProviderConnection, type ConnectionTestResult } from '../provider-test.ts'
 import { fetchProviderModels } from '../provider-models.ts'
 import type { ProviderModelListResult } from '@shared/types/ipc'
+import type { ProcessHealthReport } from '@shared/types/process-health'
+import type { ProcessHealthStore } from '../process-health.ts'
 import {
   listResultNotifications,
   markAllResultNotificationsRead,
@@ -100,10 +102,39 @@ function sessionConfigBasis(config: AppConfig): string {
   })
 }
 
+/**
+ * 进程健康取证 store（#39）。由 index.ts 在 app ready 后注入——handler 注册早于 store 创建，
+ * 未注入时诊断页拿到空记录而不是报错（取证缺失不该让设置页打不开）。
+ */
+let processHealthStore: ProcessHealthStore | null = null
+
+export function setProcessHealthStore(store: ProcessHealthStore): void {
+  processHealthStore = store
+}
+
 export function registerAppIpcHandlers(): void {
   // 测试端点：渲染端调用 window.electron.ping() 应该拿到 'pong-{timestamp}'
   ipcMain.handle('ping', () => {
     return `pong-${Date.now()}`
+  })
+
+  // Windows 标题栏 overlay 符号颜色跟随主题（浅色 UI 用深符号，深色 UI 用白符号）。
+  // 仅 win32 有效：mac 红绿灯由系统绘制、Linux 无 overlay，调用会抛错故先判平台。
+  ipcMain.handle('window:set-titlebar-overlay-symbol-color', (_event, symbolColor: unknown) => {
+    if (process.platform !== 'win32' || typeof symbolColor !== 'string') return
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        win.setTitleBarOverlay({ symbolColor })
+      } catch {
+        // 窗口销毁竞态等边缘情况静默忽略，不影响主流程。
+      }
+    }
+  })
+
+  // 进程健康记录（#39）：设置-关于的诊断折叠读它，作者截图即可求助。
+  ipcMain.handle('app:get-process-health', async (): Promise<ProcessHealthReport> => {
+    if (!processHealthStore) return { events: [], logPath: '' }
+    return processHealthStore.read()
   })
 
   // 内测软过期 + 远程急刹车（#354）：渲染端启动时查一次，命中则显示拦截页。

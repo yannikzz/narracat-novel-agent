@@ -18,6 +18,8 @@ import { Type } from 'typebox'
 import { NARRACAT_ENGINE_AGENT_IDS } from '../../../../engine/agent-core-contract.ts'
 import type { EngineAgentDefinition } from '../../../../engine/engine-agent-registry.ts'
 import { PI_MAX_TURNS_MESSAGE_TYPE, PI_SUBAGENT_EVENT_MESSAGE_TYPE } from './pi-event-mapper.ts'
+import type { PiSubagentAbnormalStop, PiSubagentAbnormalStopDetails } from './pi-event-mapper.ts'
+import type { PiThinkingMode } from './pi-model.ts'
 import { runPiSession } from './pi-session.ts'
 import type { PiRunOptions } from './pi-session.ts'
 
@@ -30,6 +32,15 @@ export { PI_SUBAGENT_EVENT_MESSAGE_TYPE }
 /** 进程内并发派发上限（照 pi 官方 subagent 示例的编排常数）：超出的 execute 排 FIFO 队列。 */
 const DEFAULT_MAX_CONCURRENCY = 4
 const MAX_TURNS_RESULT_PREFIX = '⚠️ 子 agent 达到回合上限，以下为已完成部分：'
+/**
+ * 子会话异常终止的结果前缀（与 MAX_TURNS_RESULT_PREFIX 同构）：不加这层，异常终止与「正常结束但
+ * 没产出 text 块」在主会话看来完全一样，都是下面那句 EMPTY_RESULT_TEXT——真机上跑满四分钟、烧掉
+ * 整章 token 却什么都没干成的派发就这么被当成「干完了不爱说话」放行（#29）。
+ */
+const ABNORMAL_STOP_RESULT_PREFIX: Record<PiSubagentAbnormalStop, string> = {
+  length: '⚠️ 子 agent 单次回复达到输出上限被截断，本次派发未完成，交付不可信：请核实产物，按需重新派发或把任务拆小。以下为已产出部分：',
+  error: '⚠️ 子 agent 因模型或服务端错误异常终止，本次派发未完成，交付不可信：请核实产物后重新派发。以下为已产出部分：',
+}
 const EMPTY_RESULT_TEXT = '（子 agent 未产出文本）'
 const ABORTED_ERROR_TEXT = '子 agent 任务已随主任务中止'
 /** `Task(narracat:x)` 与 `Task(x)` 两种写法都认（命令文本里的命名空间前缀零改动）。 */
@@ -70,7 +81,11 @@ export function createSubagentEventChannel(): PiSubagentEventChannel {
 
 export interface CreateTaskToolArgs {
   loadDefinitions: () => Promise<Record<string, EngineAgentDefinition>>
-  buildChildRunOptions: (definition: EngineAgentDefinition, childAbort: AbortController) => PiRunOptions
+  buildChildRunOptions: (
+    definition: EngineAgentDefinition,
+    childAbort: AbortController,
+    thinking: PiThinkingMode,
+  ) => PiRunOptions
   channel: PiSubagentEventChannel
   parentSignal: AbortSignal
   /** 出稿/回执质量门（Task 6 runSubagentGate）：返回追加进结果的反馈行；恒不阻断，异常吞掉。 */
@@ -97,6 +112,17 @@ function readAssistantText(message: UnknownRecord): string | undefined {
   return text || undefined
 }
 
+/**
+ * assistant `message_end` 的异常终态（'length' 输出截断 / 'error' 模型或服务端报错）。
+ * 'aborted' 不算异常终态：中止由 childAbort 分支报错收口，与父会话映射器口径一致。
+ */
+function readAbnormalStop(message: UnknownRecord): PiSubagentAbnormalStop | undefined {
+  const inner = message.message
+  if (!isRecord(inner) || inner.role !== 'assistant') return undefined
+  const stopReason = inner.stopReason
+  return stopReason === 'length' || stopReason === 'error' ? stopReason : undefined
+}
+
 /** 并发闸：计数器 + FIFO 唤醒队列。while 复检而非唤醒即占位，避免唤醒与新 acquire 抢同一个名额。 */
 function createConcurrencyGate(limit: number) {
   let running = 0
@@ -118,6 +144,12 @@ function createConcurrencyGate(limit: number) {
 const taskToolSchema = Type.Object({
   subagent_type: Type.String({ description: '子 agent 名，如 chapter-writer（narracat: 前缀可带可不带）' }),
   prompt: Type.String({ description: '交给子 agent 的完整任务描述（子会话不共享主会话上下文，须自足）' }),
+  thinking: Type.Optional(
+    Type.String({
+      description:
+        "子会话思考档：'off' = 关闭思考，只给低自由度任务用（输入已给定完整素材、只做打磨或按清单定点修改）；省略或其它值 = 保持模型默认。拿不准就省略。",
+    }),
+  ),
 })
 
 export function createTaskTool({
@@ -147,6 +179,9 @@ export function createTaskTool({
     parameters: taskToolSchema,
     async execute(toolCallId, params, signal) {
       const agentId = String(params.subagent_type ?? '').replace(NAMESPACE_PREFIX, '')
+      // 只认 'off' 这一个值，其余（省略、拼错、模型自由发挥）一律回落 provider 默认——失败方向
+      // 朝着「维持现状」，漏传/传错最多是没省下 token，不会把某个环节的思考悄悄关掉。
+      const thinking: PiThinkingMode = params.thinking === 'off' ? 'off' : 'provider-default'
       try {
         const definitions = await load()
         const definition = definitions[agentId]
@@ -167,10 +202,13 @@ export function createTaskTool({
         await gateConcurrency.acquire()
         let finalText = ''
         let maxTurnsTripped = false
+        // 与 maxTurnsTripped 同为「一旦命中就粘住」：任何一轮撞上截断/报错，这一遍交付就已不可信，
+        // 后续正常收笔不该把它洗回成功。
+        let abnormalStop: PiSubagentAbnormalStop | undefined
         try {
           for await (const message of runSession({
             prompt: String(params.prompt ?? ''),
-            options: buildChildRunOptions(definition, childAbort),
+            options: buildChildRunOptions(definition, childAbort, thinking),
           })) {
             channel.push({ type: PI_SUBAGENT_EVENT_MESSAGE_TYPE, parentToolCallId: toolCallId, agentId, message })
             if (!isRecord(message)) continue
@@ -178,6 +216,9 @@ export function createTaskTool({
               // 多轮会有多条 assistant message_end，最后一条非空的才是子 agent 的交付文本。
               const text = readAssistantText(message)
               if (text) finalText = text
+              // 子会话终态只在这里可见：pi-session 的桥虽已判出 sawErrorStop，那是它的 run 级私有
+              // 状态，而映射器服务的是父 run 的事件流——子会话路径上没人接这层信号。
+              abnormalStop ??= readAbnormalStop(message)
               continue
             }
             if (message.type === PI_MAX_TURNS_MESSAGE_TYPE) maxTurnsTripped = true
@@ -190,6 +231,12 @@ export function createTaskTool({
         if (childAbort.signal.aborted) throw new Error(ABORTED_ERROR_TEXT)
 
         const parts: string[] = []
+        if (abnormalStop) {
+          // 这个信号此前不落任何地方（#29「未确认项」正是因此无从复盘）：主进程日志留一条，
+          // 事后能查出是 length 还是 error。
+          console.warn(`[narracat] pi 子 agent 异常终止（stopReason=${abnormalStop}）：${agentId}`)
+          parts.push(ABNORMAL_STOP_RESULT_PREFIX[abnormalStop])
+        }
         if (maxTurnsTripped) parts.push(MAX_TURNS_RESULT_PREFIX)
         parts.push(finalText || EMPTY_RESULT_TEXT)
         if (gate) {
@@ -202,7 +249,13 @@ export function createTaskTool({
           }
           if (feedback.length > 0) parts.push(feedback.join('\n'))
         }
-        return { content: [{ type: 'text', text: parts.join('\n\n') }], details: undefined }
+        // details 是给 UI 的侧信道（见 PiSubagentAbnormalStopDetails，那里记着 UI 上的确切口径）：
+        // 模型收到的是带 ⚠️ 前缀的成功结果（保住已产出部分与质量门反馈），任务卡则据此收口成
+        // tool.failed——逐项呈现从「完成」变「失败」+ 失败原因，不再一声不吭地放行。
+        const details: PiSubagentAbnormalStopDetails | undefined = abnormalStop
+          ? { narracatSubagentAbnormalStop: abnormalStop }
+          : undefined
+        return { content: [{ type: 'text', text: parts.join('\n\n') }], details }
       } catch (error) {
         // agent-loop 把 throw 转成 isError 工具结果，主会话可改派/补救，run 不崩（spec §2.2 故障隔离）。
         console.warn(`[narracat] pi 子 agent 派发失败：${agentId}`, error)

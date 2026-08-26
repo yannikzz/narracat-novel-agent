@@ -4,13 +4,185 @@
 
 ## Current Branch
 
-`main`（= `4699fb2`，**已 push**）。社区第三批：PR #13（#5 刀 1，custom 渠道 OpenAI 协议）合并。此前社区第二批三个 PR（#18/#19/#20）合并，对应 issue #14/#16/#17 全部关闭、#15 拆分归位后 close。引擎 **4.0.172**（本次未动引擎）。仓库已合一，「公开镜像仓 + 定向同步」的说法自 2026-08-16 起作废——本仓即唯一开发仓。
+`main`（= `db5db0d`，已 push）。**2026-08-25 发布 `v0.2.65` 到线上**（距上一个正式版 `v0.1.1930` 11 天、27 个提交），feed 已切换、真机验收通过。
+
+**2026-08-25 追加**：PR #52 已合入 main（= `938abe7`）——#24 设计系统守卫在 Windows 恒红已修，`design-guard-windows` CI job 上线，#24 已关闭。
+
+**2026-08-25 三追加（#39 取证半边）**：main = `be5ba05`。PR #56 合入——渲染进程崩溃 / 子进程退出 / 主线程卡死三类事件不再静默，记录落 `userData/process-health.json`，设置-关于诊断折叠可见。**端到端未验证**（Electron 事件的真实触发形状只能真机验），已并入 #25 Windows 走查。#39 保持 open，跟踪剩余的 Electron 41.2.1 → 41.10.x 升级（有意押后：先用 CI 出过包的基线把 Windows 走通，再升级双平台回归，变量才干净）。
+
+**2026-08-25 再追加（issue 清扫轮）**：main = `84522b5`。合入 PR #26（Windows 顶栏 caption 让位，社区 @yuki-czf，关 #11）、PR #53（顶栏让位契约进 `docs/design.md` §4.4）、PR #54（NovelMemory 工具名缩到 64 以内，关 #12，引擎 **4.0.180**）；关闭 #28（墙钟优化收官）。**GitHub 上零 open PR，只剩 #25 / #39 / #42 / #5 四条**；分支从 11 条清到 3 条（`main` / `signatures` / `feat/windows-port`）。下一步回到 Windows 适配（#25）。
 
 ## Current Phase
 
 主线 `main`。产品北极星 = ADR-0030「账房归我们 / 花归用户 / 尺归读者」；产品方向 2026-07-11 定案两大模块「用户编辑 + 可配置底座」。**正文编辑器主战役已收官**（PR #443 合并 main，ADR-0031，引擎 4.0.91，产品主人真机验收通过）；写作质量「脱胎换骨」主线阶段性收刀（arc 速度靶 PR #441 / 获得引擎四刀 PR #442 均已合并）。ADR 已扩至 **0035**。
 
 产品路线以下方 **Next（产品路线图 · 2026-07-12 统筹版）** 为准：四条泳道 = A 花的所有权（用户编辑）/ B 花的表达权（可配置底座）/ C 尺（评价与验证）/ D 账房（记忆与资产底座）。战略层以 `docs/COMPASS.md` 为准，执行入口 `/next-issue`。
+
+**2026-08-25（#39 取证半边：三类静默故障开始留痕）**：全仓 `electron/` 下此前搜不到任何一处 `render-process-gone` / `child-process-gone` / `unresponsive`——渲染进程崩溃、被系统杀掉、主线程挂死时 App 完全静默，作者只看到白屏或点不动，我们拿不到一行日志。这个缺口有前科：#1（Windows 打包版渲染原生 `<details>` 挂死主线程）是贡献者靠 9 轮打包二分才定位的，有 `unresponsive` 事件第一轮就能看出是主线程同步阻塞。**NovelMemory 跑在 utilityProcess 上**，它挂了此前只会让下次工具调用报错、进程本身怎么没的毫无记录——记忆库是命根，这条留痕价值高于 GPU 那条。
+
+落地三件事：①事件落 `userData/process-health.json`（原子写、最近 50 条，重启后仍在——崩溃诊断最需要的恰恰是「上次崩的那条」）②渲染进程真没了时弹原生 dialog（UI 已死，唯一还能工作的通道）给一句人话 + 「重新加载」/「稍后」③设置-关于诊断折叠新增「稳定性事件」行 + 记录文件路径，作者截图即可求助。
+
+**边界（都有测试钉住）**：`clean-exit` 不记录也不提示（正常关窗口就会触发，记录等于灌噪声、提示等于每次关窗弹「崩溃了」）；`unresponsive` 只留痕不弹框（主线程阻塞几秒就触发，写作中偶发一次不值得打断作者），配对 `responsive` 才落带时长的记录；崩溃循环 60s 内只提示一次但**每次都留痕**（提示被抑制不等于事件被丢弃，否则崩溃循环反而看不出来）；不自动重载、不上报服务端、**没碰 `disableHardwareAcceleration`**（#39 明确列为不建议做的事：拿全量用户的滚动/字体渲染体验去赌一个连症状都没记下来的个案）。
+
+**单测抓出一个真实缺陷**：`lastPromptAt` 初始写 `0` 时首次崩溃会落进冷却窗口被误抑制——真实环境 `Date.now()` 数值巨大所以碰巧不触发，**那是靠运气**。注入时钟的测试一撞就出来，已改 `null` 表示「从未提示过」。教训：**凡是「因为真实值总是很大/很小所以没事」的隐式假设，注入式测试都能撞出来**。
+
+分层：纯函数下沉 `shared/lib/process-health.ts`（渲染端要把记录渲染成人话），主进程只留 store 与 watcher，fs 与时钟可注入；三处建窗口收口到 `spawnMainWindow()`（漏挂一个窗口，那个窗口的崩溃就是静默的）。验证：typecheck / check:design / check:architecture / build 全过，全量 3205 pass 0 fail（新增 26 条断言）。**端到端未验证**——「Electron 真的以这个形状触发这三个事件」只能真机验，事件签名照 `electron.d.ts` 核对过但那证明的是类型不是行为，已并入 #25 走查。
+
+**2026-08-25（issue 清扫轮：社区 PR 合入 + 工具名长度硬下限收口）**：清空积压，为 Windows 适配腾出场地。
+
+- **PR #26 合入（关 #11，社区 @yuki-czf）**：Windows 顶栏 caption 让位——方案是「上下分区 + WCO 运行时实测」，与 mac「红绿灯悬于侧边栏」视觉语言对等（caption 悬于 canvas gutter，卡片从 caption 带下方开始），而不是加大 padding 绕过去。新增 `--titlebar-inset-left/right` 与 `--titlebar-gutter-top` 三个平台感知变量；`150px` 只是 100% 缩放下的回退值，真值由 `navigator.windowControlsOverlay.getTitlebarAreaRect()` 实测覆盖（125%/150% DPI 下 caption 更宽，硬编码必漏）。**审核时特意验了 CSS 产物**——本仓有过 Tailwind 任意值里 `max()`/`calc()`/`var()` 被静默丢弃的先例，逐条 grep `out/renderer/assets/*.css` 确认全部落盘。合到当时 main 后本地实测：typecheck / 3169 tests / check:design / check:architecture / build 全过。125%/150% DPI 待真机走查（并入 #25 Task 12）。
+- **PR #53（配套契约件）**：把上面这套机制写进 `docs/design.md` §4.4 成为全局布局契约——顶栏是每个新页面都要碰的地方，机制不上文档等于机制不存在（#11 已经发生过一次）。含两套策略的选择依据（通栏 header 走水平让位 / canvas 浮卡走上下分区），**选错的代价是 Windows 上按钮打架而 mac 上看不出来**。原稿「必须 `max()` 保底」的无条件规则与三处既有实现冲突，已改成按职责判断（纯让位型 padding 归零正是期望行为）。
+- **PR #54（关 #12，引擎 4.0.180）**：NovelMemory 工具全限定名的 server 段 `plugin_narracat_novelmemory`(27) → `narracat_memory`(15)，前缀 34 → 22，引擎 52 个工具全部落到 64 字符以内（最长 58）。**这不是第三方网关的怪癖，是我们自己开的门没量门框**——各家上限核实为 Anthropic Messages 128 / OpenAI Chat Completions **64** / 部分兼容网关自行按 64 截断改写成 hash 短名；自 #5 刀 1（PR #13）起 custom 渠道可选 openai wire，那条路径上 7 个工具本来必炸，只因 dogfood 一直走 deepseek（不校验长度）没暴露。**没采纳 issue 提的「按网关算法注册 hash 短名别名」**：把第三方私有实现细节焊进主干，网关改算法即静默失配，且对 openai wire 无效。改名安全的依据是 claude-sdk 退役后 NovelMemory 全部走 pi 自定义工具注册 + memory-host RPC，**没有按此名 spawn 的 MCP 进程**（`mcpServers` 只剩测试 fixture 在用，`mcp-server/dist` 里不含 server 名故无需重建）。顺手收口了 server 名的两份硬编码副本（主进程 `allowed-tools.ts` + 渲染端 `tool-phrase.ts`，漏改一侧不报错、只让工具卡悄悄退回兜底文案）到 `shared/lib/novel-memory-tool-names.ts`。新增三条守卫断言（已实测把名字改回旧值会全部转红并逐条报出「谁超了多少」），其中一条覆盖**引擎 SSOT 全部工具**而非仅当前工具面——白名单外那批 App 直调工具随时可能被加进来。
+- **#28 关闭（墙钟优化收官）**：刀 D 已由 PR #33 的只读脚本交付、主刀①（消灭 chapter-writer 白跑重试）已由 #29/PR #30 完成，刀 A/B/C 维持降级（天花板分别 ≈29%/≈11.5%/<3%，且刀 A 那 29% 里大头是四路并发挂钟）。**关闭时补了一条归因更正**：该 issue 收官评论把 26.7→14.0 分钟的下降归给「#35 的 max_tokens 修复」，而该结论 2026-08-21 已被抓包推翻（实发恒为 `Math.min(model.maxTokens, 32000)`，#35 与 #46 两刀都是空转）——#35/#46 各自补过更正，唯独 #28 这个主 issue 没有，而它才是查墙钟时最先被读到的。观测值真实，归因不可引用。剩余两项去向已写明：热写字数一次做对归创作质量层（改 prompt 必须走真稿 A/B，不能凭墙钟拍板）、刀 E 体感归产品层保留。
+- **仓库卫生**：本地+远程死分支清理（对应 PR 均已合并或关闭），从 11 条收敛到 3 条；`feat/28-write-timing-instrumentation` 的陈旧 worktree 一并 prune。
+
+**这一轮踩到并已进记忆的两个坑**：①机械全仓替换只匹配了带 `mcp__` 前缀的全限定名，漏掉 `run-manager.test.ts` 里两处裸 server 名做对象 key 的写法，全量测试才炸出来（已改成引用常量）；②替换范围没圈定，误改了 `docs/report/ab-runs/` 的 A/B 实验原始物料与 `docs/superpowers/plans/` 历史计划——它们是 untracked 私产，git 回滚不了，只能手工反向还原。**批量替换前先按目录白名单圈范围，历史记录与实验归档一律排除**（`progress.md` 里 2026-06 那条历史条目同理，保留原样未改）。
+
+**2026-08-25（发布 v0.2.65：跨版本号体系的一跳 + 公证超时救场）**：线上从 `v0.1.1930`（2026-08-14，引擎 4.0.170）跳到 **`v0.2.65`**（引擎 4.0.179），feed 已切换，真机验收通过。
+
+**版本线 `0.1` → `0.2`（ADR-0006 修订）**：本仓 2026-08-04 干净历史重建，提交数从 0 重数，而线上 `v0.1.1930` 的数字来自旧主仓——两套计数撞在同一条 `0.1.x` 线上，从这里切版是 `0.1.63`，semver 下**小于**用户机器上已装的版本，`electron-updater` 只在 feed 版本更高时才更新，**发出去一个用户都收不到**。开源准备期判断过「首发版本号变小属预期，同仓内单调递增即可」——对内部构建成立，**漏的是存量用户的自动更新路径**。抬 minor 而非给计数加偏移量：semver 下 `0.2.x` 恒大于任何 `0.1.x`，一次了结。前缀是单点常量，同时新增 `CLIENT_BUILD_VERSION_RE` 让校验方引用（`ops-check.mjs` 原先自己硬编码 `/^0\.1\.\d+$/`），并加了「哪怕提交数只有 1 也必须压过 0.1.1930」的不变量测试 + 一条反向用例证明它有牙。
+
+**公证轮询超时 ≠ 公证失败**：`notarytool submit --wait` 在 `Current status: In Progress` 时撞上 `NSURLErrorDomain -1001 The request timed out`，整条发布链退出码 1。事后 `xcrun notarytool info <submission-id>` 查真实状态是 **`Accepted`**——Apple 早审完了，只是我们没接到结果。产物只差一个 `xcrun stapler staple`。**救场手法**：查状态 → 若 Accepted 则补装订 → 验 `stapler validate` + `spctl -a -vv` → 直接发布，不必重打二十分钟、不必再耗一次公证配额。
+
+**顺带补上主流程一个盲区**：`notarize-dmg.mjs` 自己的注释就写着「本脚本没有『只补装订』这一步」，而**默认发布路径里从来没有任何一步校验过票据是否真的装订上**——这次正是靠手工 `stapler validate` 才发现 dmg 是裸的，而流程全程 exit 0、确认闸照常打印版本号。新增 `--use-existing-artifacts`（`bun run release:use-existing`）复用现成产物发版，并给这条路配三道比默认更严的闸：票据（dmg + app 均须 validate 通过）/ zip sha512 与清单一致（自动更新命脉，dmg 有意不校验——公证首步 `codesign --force` 重签必然改它）/ 产物不早于 HEAD。三道闸各有正反两向测试。
+
+**已知缺陷（后续改）**：`--use-existing-artifacts` 的版本号仍从 git 算，而它应当从产物自带的 `latest-mac.yml` 读——修发布链的 PR 一合并，版本号就漂走，恰好把这个开关自己挡在门外。本次即因此改走完整重打。
+
+**2026-08-25（第 27 章终验：read 失败率 22.4% → 10.3% → **0%**，补救链路实证接通）**：两刀全部真机通过。
+
+| 指标 | 基线 ch-024 | ch-025（#48 后） | ch-027（刀③ 后） |
+|---|---|---|---|
+| read 失败 | 50/195 = 22.4% | 3/29 = 10.3% | **0/20 = 0%** |
+| 事实暂存 | — | 3 次 + 0 失败 | 3 次 + 0 失败 ✅ |
+| 章节收尾 | — | 1 次 + 0 失败 | 1 次 + 0 失败 ✅ |
+
+**补救链路实证接通（这是 #48 那一刀的全部目的）**：ch-027 包里 `characters_without_cards` 点名 4 人带 uid（阿九 / 镇岳堂伤者 / 陆亭舟 / 纪文渊，全部 `状态卡超预算未随包给出`），主会话随即**并发调 4 次 `novel_character_state`，uid 与名单逐一对应**，补查结果全部落进任务书第三段。
+
+**一条验收判据的教训**：初查时按 canonical 角色名机械匹配任务书，判成「4 人里 2 人缺席」——实为误判。任务书里 `镇岳堂伤者` 写作「老野路（服役兵）」、`纪文渊` 写作「老纪」，因为 `write.md` 本就要求把系统词翻成作者词汇。**任务书是人话产物，不能用 canonical 名做机械判据**，只能读语义。
+
+**顺带修掉的打包链两处**（见 4.0.179 那批提交）：① 版本号在打包链上有两条独立取值路径（electron-builder `extraMetadata` → `app.getVersion()`；electron.vite 构建期 define → 设置页「关于」），首刀只覆盖了前者，导致装了 0.1.9999 的包设置页显示 0.1.64——已收敛为 `resolveOverridableClientVersion` 单一入口，`release.mjs` 正式链路仍走无覆盖那支并有测试钉住边界。② 打包会静默把仓库根 `package.json` 从 145 行截断成 42 行（scripts/devDependencies/build 全丢），退出码仍是 0——已加看门狗（打包前干净则自动 `git checkout` 还原，打包前就有改动则只告警不动）。
+
+**真机验收本身也踩了一刀**：ch-026 那轮日志整份作废——`autoDownload` + `autoInstallOnAppQuit` 把测试包静默换成了线上正式版 0.1.1930（引擎 4.0.170，比 main 还老），报告里的「事实暂存 5 次 + run_id 校验失败」其实是 #44 修复前的老行为。识破线索是「read 的 target 全为 None」这个刀①修复前的特征。**内测包版本号必须压过线上，否则测的是什么完全不受控。**
+
+**2026-08-24（#48 真机验收通过 + #37 刀③：写手不再翻项目文件，引擎 4.0.179）**：0.1.62 包跑完第 25 章。**#48 确认真机生效**——包里 `characters_without_cards` 点名「阿九 + uid + 状态卡超预算未随包给出」，基线那 4 条「找角色档案」的猜路径失败（`novel.json` / `project.json` / `.narracat/characters.json` / `bible/characters.json`）**全部消失**，read 失败率 22.4% → **10.3%**；主判据事实暂存 3 次 + 0 失败、章节收尾 1 次 + 0 失败均达标。
+
+**剩余 3 次 read 失败全归热写写手，且是开工头 4 秒内连做的**（durable 事件时间轴：11:12:26.291 派发热写 → 11:12:28 read `.narracat/staging` EISDIR → 11:12:29 read `.narracat` EISDIR → 11:12:30 read `.narracat/staging/ch-024.md` ENOENT → 11:14:20 Task 完成）。交叉验证：**主会话自己 8 次 read 全部命中**，其中最后一次读的正是 `manuscript/vol-01/ch-024.md`——**正确路径主会话是知道的**。
+
+**根因是同一个病的第三种变体**：写手只有 Read/Write 两个工具，手上唯一的路径样本是派发给它的输出路径 `.narracat/staging/ch-025.md`。它要接住上一章的气（`chapter-writer.md` 第 2 条明确要求），就照同一命名模式推上一章 = `staging/ch-024.md`——**而已收尾的章早被 `novel_update_progress` 搬到 `manuscript/vol-01/` 了**。先列目录再猜文件，三次全空。而它**根本不需要去找**：任务书第二段本就有「上一章结尾原文」逐字引用；写手绕过任务书直接读项目文件，本身就违反 `write.md` 的「任务书是写手唯一的剧情输入」。
+
+**改法**：`chapter-writer.md` 加一节「只读任务给你的路径」——减法句式（实测服从度远高于加法），点明「不要照文件名的规律去推别的路径」并给出替代（结尾原文任务书里已有），消除动机而不只是禁止。措辞对 `/rewrite`（写手直接读包）同样成立，故写成「任务书 / 正文 / 上下文包」。这就是 #37 悬着的刀③——原结论是「不能凭猜改 prompt，需攒样本」，现在有了精确归属，不再是猜。
+
+**未做**：`previous_chapter_briefs` 本章并未超预算（1515/2600，一条不缺），故这 3 次与 brief 裁剪无关，未动前情区块。**本刀真机未验**——下次跑章看那 3 条是否消失、成稿有无副作用（动写手 prompt 属质量层）。
+
+**2026-08-24（#48 上下文包出场名单：从「静默丢人」改成「点名到人 + 带 uid」，引擎 4.0.178）**：真机第 24 章 read 失败 7 次全是猜出来的不存在路径（`<项目>/.narracat/characters.json` 之类），审校占 5 次。查下来根因不在「预算太小」这一层。
+
+**先纠正一个前提：写手根本不读上下文包。** 链路是 包 → 主会话读 → 翻成任务书 → 写手只读任务书（`chapter-writer.md` 通篇没提角色卡，它的第一条指令就是「任务书是本章唯一的剧情与设定来源」）。包的真实消费者是**主会话**（写任务书的人）与**审校**（直接读包文件）。所以「角色卡该多厚」这个问题的正确问法是：任务书第三段「这章的人物」需要什么——现在的状态、TA 想要什么、说话的样子，**三样都是短的、跨章持续有效的特征**。
+
+**真正的断点是一个数字没写成名字。** `write.md` 步骤 2 早就写着「发现包内信息有缺口（关键角色细节缺失）时用 novel_query / novel_character_state 补查」，工具也在主会话手上——但 `buildNotes` 报的是「已丢弃排序靠后的 **2 个**角色」，**不点名**。它知道少了人，不知道少了谁，于是这条设计完好的补救链路整条空转。审校那边更彻底：`buildNotes` 压根不进包，它连「少了人」都不知道，只能猜文件路径。
+
+**改法**：包内新增可选区块 `characters_without_cards`（`{character, character_uid, reason}`），把「本章出场但卡没随包给出」的角色点名到人，两类成因分开——`尚无状态记录`（折叠不出卡，此前在 `getCharacterCardsForPack` 里直接 `continue`，从来不在裁剪计数里）与 `状态卡超预算未随包给出`。**必须带 `character_uid`**：`novel_character_state` 只认 uid，只给名字等于让消费者自己去翻角色档案——真机实测审校就是在这一步开始猜路径的。同步把 `buildNotes` 从报个数改成报名字，并在三处 prompt 挂钩：`write.md` 步骤 2（主会话逐个补查 → 写进任务书第三段）、`continuity-editor.md`（uid 直接取自条目，并明写「不要去猜项目里的文件路径找角色资料」）、`rewrite.md`（该命令的写手**直接读包**且手上没有查询工具，故由主会话补查后随派发文本给它，同时给 allowed-tools 补上 `novel_character_state`——不堵这一处，新字段反而成了新的猜路径诱因）。
+
+**真机数据（4 本 dogfood 书）**：卡随写作进程单调膨胀，苏见那本 ch-017→ch-024 从 1078 涨到 2249 token，`character_cards` 区块预算 1500，三本书都走出「早期 2-4 张卡 → 后期恒 1 张」的同一条轨迹（林栀那本**第 4 章**就掉到 1 张）。**两条折叠路径各漏各的**：无 `bible/state-vocabulary.json` 的项目（4 本里占 3 本）走 v1 扁平卡，`renderCardHumanMap` 对 v1 是 `return {...card}` 整份直通，`dedupeCardExtras` 的 8 条上限**一次都没被调用过**（苏见卡 27 条 `x-`）；有词表的 v2 路径 extras 上限确实生效，但 `dimensions` 的 many 维度**没有条数上限**（林栀的 `ability` 单字段 787 token）。另有一条诚实限定：拿真卡跑那两条字面去重规则（norm 相等 / 互为子串）**27 条一条都没去掉**，重复是语义级的（「不吃鱼——阿九夹鱼给他」vs「不吃鱼——阿九追问时」），**有牙的只有条数上限**。
+
+**本刀有意不做的**：① 不抬 `character_cards` 预算——包总量已 9410/12000，抬了只会让包更胖、掩盖真问题；② 不动裁剪粒度（整卡 → 按字段），那会改变写手实际吃到的东西，按本仓规矩得跑真稿盲评；③ **单卡上界没做**（v1 整条 + v2 的 dimensions 都缺），它只影响补查次数多少（卡越胖被挤出去的人越多），不再是关键路径——留作 #48 的后续一刀。
+
+**验证**：mcp-server **929 pass 0 fail across 38 files**（走 vitest 不是 bun），新增 3 条用例并做了反向验证（打断点名逻辑后「诊断给名字」那条立刻变红，确认不是假绿）；App 侧 typecheck / **3131 pass 0 fail across 311 files** / check:architecture 全绿；`verify:narracat-agent-core` 版本一致 4.0.178；dist 已随 src 重建。**真机未验**——下次跑章看 `characters_without_cards` 是否点到人、审校那 5 次猜路径是否消失。
+
+**2026-08-21（真机验收 + 第五刀：未建档角色从「整单驳回」改成「跳过并点名」，引擎 4.0.177）**：用 0.1.64 包跑完第 23 章。**前三刀确认真机生效**：grep 0 失败（基线 1 次 `rg is not available`）、find 0 失败（基线 1 次 `fd is not available`）、输出上限截断 0 次（基线 3 次），派发原文里冷改那一遍带着 `thinking='off'`，产品主人反馈「确实变快了」。
+
+**但我给的验收判据是错的，差点误判成串档。** 判据数的是 `novel_stage_extraction` 的**原始工具调用次数**（目标 3），实测 7 次（6 成功 + 1 失败）、`novel_commit_chapter` 2 次，看着像串档。查下来完全不是：`novel_commit_extraction_union` 返回 **`staged_runs: 3` / `facts_committed: 44` / `warnings: []`**，三轮暂存各自成功、并集正常落库；主会话派发原文也完全照 write.md（三个任务各带 run_id 1/2/3、收尾任务带「不做事实抽取」禁令），收尾 agent 自己也回报「未调用抽取脚手架与事实暂存工具」。**多出来的 4 次全是被整单驳回后的重发。** 这与上次「脚手架次数不可作判据」是同一类错误——**原始调用次数区分不了「串档」与「合法重试」，权威判据是 `staged_runs`**。
+
+**根因**：`writers.ts` 里 `relationship_updates` 只要有一端角色未建档，整个调用返回 errors、**19 条事实一条都不落**；`novel_commit_chapter` 的 `characters_appeared` 同款。第 23 章新登场巡检、张福、清河剑派、镇岳堂、茶棚客商五个未建档角色，于是三个暂存 agent + 一个收尾 agent 各吃一次驳回、各把整份清单重新生成并重发一遍。**那次 `run_id` 缺失的校验失败就是重发时模型漏了字段**（它下一次立刻补上，零数据损失）。而驳回的 hint 写的是「确认角色名与档案一致」，假设的是名字写错——对真·新登场角色完全没用；memory-keeper 也没有建档权限，**驳回换来的唯一结果就是多跑一轮**。
+
+**改法**：两处都改成「跳过该条 + 在返回里点名」，facts / 章摘要照常落库。理由是同一个函数里本来就有两套标准——`resolveExtractionFacts` 下方「非关系事实主体未建档」一直是只 warning、照常入库；`novelCommitChapter` 里 `checkChapterWordCount` 也是「finding-only，只标不阻断」。顺带把 `relationships_updated` 从「入参条数」改成「实际折算条数」（跳过了却报「已更新」是骗调用方），`characters_appeared` 计数同理只计真正入库的。
+
+**光改工具还不够**：工具不驳回了，agent 看到 warning 仍可能自己重发。故 `memory-keeper.md` 两处补明「被跳过是正常处置，**不要为此重发整份清单**」。
+
+**验证**：先按 TDD 把两条钉住驳回的旧用例改成钉住新行为（先红 2 条），实现后 mcp-server **926 pass / 0 fail across 38 files**（走 vitest 不是 bun）；App 侧 typecheck / **3131 pass 0 fail across 311 files** / check:architecture 全绿；`verify:narracat-agent-core` 版本一致 4.0.177；dist 已随 src 重建并提交。**本刀真机未验**——下次跑章看那 4 次重发是否消失。
+
+**顺带记两个盲区**（这次靠 pi 主会话 JSONL + 数据库 + 并集返回值三处拼才查出来）：durable 事件里子 agent 的工具调用 `parentToolCallId` / `agentId` 全是 None、`summary` 全空，**无法从事件流回答「这个调用是哪个子 agent 发的」**。另外 read 仍有 5 次失败（16.1%）：2 次 EISDIR（把目录当文件读）+ 3 次 ENOENT（猜文件名 `novel.md` / `ch-023.md` / 上一章的 `ch-022.md`），即 #37 ③ 那条线索。
+
+**2026-08-21（输出上限按模型兑现：`before_provider_request` 改写请求体，未提交）**：接上一条撞出的「实发 max_tokens 恒为 32000」。生产恒走 `streamSimple`，`sdk.js` 不接受外部 streamFn，唯一改得到真实请求体的官方口子是扩展事件 `before_provider_request`（`sdk.js:215` 的 `onPayload` → `anthropic.js:318` / `openai-completions.js:78` 用返回值整份替换 params）。新增 `pi-max-output-tokens.ts` 挂在这里。
+
+**这一刀的风险不在「抬不上去」而在「抬过头」**：发一个超过模型上限的 `max_tokens` 是**硬 400**，整条链当场断。所以做成白名单，**只对查得到第一手文档依据的模型抬**，其余一个字都不改、照旧 32000。查证结果：DeepSeek 官方文档（api-docs.deepseek.com/quick_start/pricing）——`deepseek-v4-pro` / `deepseek-v4-flash` 均为 context 1M / **max output 384K**；Anthropic 官方——Fable 5 / Opus 5 / Opus 4.8 / 4.7 / 4.6 / Sonnet 5 / Sonnet 4.6 输出上限均为 **128K**。**GLM 与 MiniMax 只搜到聚合站的二手数字，够不上门槛，整家不收**；更老的 Claude（Sonnet 4.5 / Haiku 4.5 / Opus 4.1…）各自不同且普遍更低，也不收。加新条目的门槛写进文件头：必须附第一手出处与核对日期。
+
+**失败方向一律朝「维持现状」**：白名单漏了某模型 → 它还是 32000，不会被打挂；请求体里没有该字段 → 原样放行（凭空加字段是在猜 provider 契约）；已经比目标大 → 只抬不降。键是 `provider/模型id` 限定的——custom 渠道挂个同名 `deepseek-v4-pro` 不蹭 deepseek 的依据，因为它的 baseUrl 指向哪儿我们不知道。`[1m]` 后缀归一到基础模型（同一个模型，输出上限相同）。两条 wire 的字段名不同（anthropic 恒 `max_tokens`，openai 视 compat 可能是 `max_completion_tokens`），两个都认。
+
+**抓包实测三组**（真跑 `runPiSession` + 本机假端点）：`deepseek-v4-pro` → **实发 64000**；同上 + 冷改档 → 64000 且 `thinking:{"type":"disabled"}`；未收录的 `deepseek-chat` → **32000（未被改动）**。父/子两条装配路径各自按自己的模型解析（子会话可能走轻量槽的另一个 id），有源码守卫用例数注入点个数。
+
+**打包后翻 durable 事件拿到了改动前的基线**（0.1.59 测试包，2026-08-21 03:50 那次写章），两条推翻了动手时的估计：
+
+- **`grep → ripgrep (rg) is not available and could not be downloaded`，target `.narracat/staging/ch-022.md`**——grep 确实在 `/write` 主链上炸了。动手时按 `write.md` 的 allowed-tools 判断「主链不用 grep」是错的：写手子会话自己的工具面里有 grep，它去搜任务书时撞上了。
+- **3 次「子 agent 单次回复达到输出上限被截断」**——32000 是真被撞穿的，不是「余量而已」。原先写的「输出上限这刀收益接近零」不成立，删掉。
+
+同批基线还有 `find → fd is not available`（#45 未进该测试包）、事实暂存 6 次 / 章节收尾 2 次（串档特征，#44 未进该包），四刀本就是冲这些去的。**验收就是拿新包再跑一章、把这几项逐条对掉。**
+
+**2026-08-21（#42 thinking 分档：冷改关、热写开 + 撞出「max_tokens 两刀都是空转」，引擎 4.0.176，未提交）**：DeepSeek V4 默认开着 thinking，而 thinking 计入 `output_tokens`，真机实测冷改与热写两个环节 thinking 都占输出的 **87%**。冷改是低自由度任务（输入是完整正文、只做打磨），A/B 两臂产出相似度 **98.7%**、54 处差异全是采样抖动——那 87% 白烧。热写反过来（盲读偏好开 thinking 那份，n=1），所以只能分档不能全局关。
+
+**机制比想象的简单，但字段名会骗人**：让 pi 发出 `thinking:{type:"disabled"}` 要两个条件同时成立——`model.reasoning` 为真 + `options.thinkingEnabled === false`。后者 `pi-session.ts` 恒传 `thinkingLevel:'off'` 早就给到了，**所以只差把 `reasoning` 置 true**。注意 `reasoning:false` 的语义不是「关思考」而是「一个字都不发、听 provider 的」，`true` 才是「显式关掉」——两者差在「不发」与「发 disabled」，代码里钉了长注释。落地为 `PiThinkingMode`（`provider-default` / `off`）+ Task 派发新增可选 `thinking` 字段，`buildChildRunOptions` 逐次接收；**只认 `'off'` 一个值**，省略/拼错/模型自由发挥一律回落 provider 默认——失败方向朝着「维持现状」，漏传最多是没省下 token，绝不会把某个环节的思考悄悄关掉。引擎侧 `write.md` 3d 冷改派发改为 `Task(chapter-writer, thinking="off")`，并写明热写那一遍不要加。
+
+**取证走本机假 Anthropic 端点抓真实请求体**（与 #35 同一手法，真跑 `runPiSession` 而不是复刻算式）：`provider-default` → 请求体**无** thinking 字段；`off` → `{"type":"disabled"}`。
+
+**顺带撞出一个更大的问题：#35 的 ×3 补偿与 #46 的 32000→64000，两刀都是空转。** 同一次抓包发现实发 `max_tokens` 恒为 **32000**，与我们配的值无关。根因在 `pi-ai@0.73.1` 的 `simple-options.js:1`：
+
+    maxTokens: options?.maxTokens ?? (model.maxTokens > 0 ? Math.min(model.maxTokens, 32000) : undefined)
+
+而 `pi-agent-core/dist/agent.js:114` 是 `streamFn = options.streamFn ?? streamSimple`、`pi-coding-agent/dist/core/sdk.js:190` 构造 Agent 时**不接受外部 streamFn**——生产恒走 `streamSimple` → `streamSimpleAnthropic` → 上面这行把 `options.maxTokens` 填成正数，于是 `anthropic.js:663` 那条 `|| (model.maxTokens / 3) | 0` **永远到不了**。#35 当时断言的「除 3」在生产路径上不可达。实测四组：`20000 → 20000`（除 3 的话应是 6666）、`60000 → 32000`、`192000 → 32000`、`300000 → 32000`，判据干净。
+
+**本批只做「把代码改成说实话」**：删掉空转的 ×3 补偿（`model.maxTokens` 192000 → 64000，实发不变仍是 32000，抓包复验过零行为变化），新增 `PI_UPSTREAM_MAX_OUTPUT_CAP` 并把 `effectivePiMaxTokens` 改成复刻真实算式；测试断言从「实发 == TARGET」改成「**实发 == 32000 且 < TARGET**」——前后两刀都因为断言落在配置值上而误判成已生效，这条把事实钉死。
+
+**真要突破 32000 的唯一口子是 `before_provider_request`**（`sdk.js:215` 的 `onPayload` → `anthropic.js:318` 用返回值整份替换 params），可直接改写请求体。**但不能盲抬**：Anthropic 官方各模型输出上限不同（部分只有 32000），一律发 64000 会让这些模型直接 400，要做得按模型分档，属独立一刀。**眼下不急**——thinking 分档把冷改输出从 21561 压到 2775、热写也只有 16520，32000 够用；截断的真凶本来就是 thinking 占了 87% 的预算，不是这个数太小。
+
+**未做**：3c 机械门的补写派发同属低自由度（按 errors 逐条补写、保留其余正文），大概率也不需要 thinking，但**没有 A/B 证据，故不动**。热写那一票仍是 n=1，issue #42 原本就建议先补样本——本次只落了证据硬的那半边（冷改），热写维持现状。
+
+**2026-08-21（grep 去 ripgrep 依赖 + `/write` 确认门缺省语义，引擎 4.0.175，未提交）**：接 #45（find 去 fd）那刀的同源缺口。pi 的 grep 走 ripgrep，坏法与 find 完全一样——查系统 PATH → 查不到就去 GitHub 下载，而 Finder 启动的 App 继承 launchd 窄 PATH（`/usr/bin:/bin:/usr/sbin:/sbin`）、作者机器不装这类开发者工具、GitHub 下载对国内用户不可达。影响面是 `/world`、`/rewrite`、`/sync-chapter-memory`、`/revise-premise` 四条命令（`/write` 与 `/plan` 主链不用 grep）。
+
+**修法与 find 那刀不同，因为 grep 换不掉搜索实现**：`GrepOperations` 只暴露 isDirectory/readFile，`ensureTool("rg")` 是无条件的。故只继承 pi 的**工具定义**（name/label/description/schema/渲染函数原样复用，模型看到的那一面零漂移，有断言逐字比对 `createGrepToolDefinition`），单独重写 execute 用纯 JS 扫描。两条装配路径都注入（父会话 + `buildChildRunOptions`），并留了一条源码守卫用例数注入点个数——上一刀差点漏掉子会话那条。
+
+**拿真 ripgrep 逐项对拍过**（真实 dogfood 项目 novel-367c9d08，9 组查询，按行集合比对以分离顺序与格式）：**8 组行集合逐字一致**。两处有意分歧：①遍历顺序——rg 并行遍历顺序不定，本实现按字典序，撞匹配上限时截到的是同一批（顺序会进模型上下文，稳定比「跟 rg 一样」更重要）；②**带路径的 glob 是 pi 的真 bug**——rg 的 `--glob` 按**进程 cwd** 匹配而 pi 的 spawn 从不传 cwd，本机实测 cwd=仓库时 `glob:'manuscript/**/*.md'` 零命中、cwd=小说目录时 4 命中，打包版主进程 cwd 不是小说目录 ⇒ 生产上这类 glob 恒零命中。本实现按搜索根解析，这条是修 bug 不是漂移。
+
+**验证特意在 Node 下跑，不只在 bun**（`node --experimental-strip-types` 对真实项目冒烟，全项目扫 39ms）——单测跑 bun、生产跑 Node，只有 bun 绿证明不了生产绿，这是 find 那刀留下的教训。另有两条守卫：pi 未导出的 `GREP_MAX_LINE_LENGTH`（500）只在截断提示文案里用到，故拿 pi 自己的 `truncateLine` 反测这个边界，它一改就红；二进制文件按 NUL 跳过、单文件 >2MB 不搜（rg 是流式的，我们要整份读进主进程内存，撞上打包 embedding 模型就是实打实的卡顿）。
+
+**#34（`/write` 确认门）一并修掉**：`write.md` 步骤 2 原本判 `== "collaborative"` 才确认、`== "auto"` 才跳过，两个分支都不命中时（config.yaml 缺 `automation_level` 的历史项目）确认门静默消失，与 `plan.md` 的 `== "auto"` 才跳过正好相反。App 侧读出路径已统一按「缺省 = collaborative」处理，所以工作台显示「协作模式」而 `/write` 实际不确认——**显示与行为对不上**。改成与 plan.md 同向。全仓复查了 `automation_level` 的其它判定点（`plan.md:18`、`new-character-intake.md:45`）方向都对，只有这一处反。
+
+**顺带发现未处理**：`write.md` 的断点恢复段（第 35 行）那个 AskUserQuestion 是无条件的，auto 模式下也会问——与 plan.md「auto 时跳过本命令所有 AskUserQuestion」不一致。只在有 checkpoint 中断时触发，属异常路径，问一下也合理，故未动，待产品主人定。
+
+**验证**：typecheck / 全量 **3112 pass 0 fail across 310 files**（对 main 基线 +21 tests）/ check:design / check:architecture / build 全绿；`verify:narracat-agent-core` 版本一致 4.0.175。**真机验收未做**——与已合入的四刀合并成一次打包 + 一次跑章验收。
+
+**2026-08-20（#37 刀①：durable 事件路径取证 + 换 pi 遗留契约清理，PR #41）**：Agent 过程流频繁「已跳过 调用 read」，取证发现 read 失败率 **25.6%（50/195）**，但错误里的路径被我们自己的脱敏（`agent-durable-events.ts` 的 `ABSOLUTE_PATH`）整段抹成 `[本机路径]`——**根因不可查这件事本身是第一层问题**。改法：脱敏**之前**先把已知根相对化成 `<项目>/…` / `<引擎>/…`，根以上不落盘、根以外照旧整段抹。
+
+**issue 原方案只做脱敏，实测会留 1/3 盲区**：50 次失败里 33 次 ENOENT 的错误串自带路径，另外 **17 次 EISDIR 的错误串根本不含路径**（`EISDIR: illegal operation on a directory, read`，到此为止），唯一带路径的是 `tool.started` 的 `input`，而 sink 的 `tools` Map 只存 `{messageId,toolName,title}`、input 被丢弃。故落盘事件新增可选 `target`：在 started 时取出路径、相对化后存进 live 投影，收尾事件再写出。**只改脱敏对 EISDIR 那一类无效**，会再来一轮。
+
+**已知根经装配层注入**（`ipc/agent.ts` → coordinator → sink），与 run-manager / pi adapter 共用同一份 `resolveNarraCatAgentCorePath({appRoot, resourcesPath})`（均不传 `envPath`），避免两处算出不同引擎根。**根为空时功能不报错、不失败，只是落盘里照旧 `[本机路径]` 而单测全绿**——这类静默失效只能在装配处拦，故加了装配层源码断言。
+
+**测试覆盖的边界**：兄弟目录前缀误伤（`/novel-x` 不得吃掉 `/novel-x-backup`，最初实现真踩了，落盘会变成 `<项目>-backup`）、Windows 两侧分隔符不一致（配置里 `/`、Node 错误串里 `\`，按字面匹配整条漏掉 = Windows 上取证等于没做）、项目外路径仍被抹、存量事件缺 `target` 字段仍可读。验证：typecheck / 全量 **3053 pass 0 fail**（对 main 基线 3043/301 为 **+10 tests +2 files**，核对过文件数不是静默跳过）/ check:design / check:architecture / build 全绿；启动烟测正常，dev 下引擎根解析为真实存在目录并验证相对化生效。
+
+**真机 dogfood 打脸（2026-08-20）：跑完一章，target 字段一个都没有，而全部单测照样绿。** 根因是字段名搞错——最初照搬 `tool-phrase.ts` 的 `['file_path','filePath']`，那是 claude-sdk 时代的契约（工具名还是大写 `Read`）；换 pi 后工具名变小写、参数名变 `path`，`extractToolTargetPath` 于是永远返回 undefined。取证走 pi 的 `sessions/*.jsonl`（工具调用的完整入参本来就落在那里）：`read {path,offset}` / `write {path,content}` / `find {path,pattern}` / `grep {pattern,path,context}`，四个工具一律 `path`，无一使用 `file_path`。
+
+**最刺眼的一点**：`pi-tool-guard.ts` 第 45 行注释早就写着「路径字段受圈禁的 pi 内置工具（**字段全叫 path**）」，同文件的 `SDK_TO_PI_TOOL_NAME` 就是权威映射表（含 `Glob → find` 这个改名）。**先读那个文件，这个 bug 一个都不会有。**「复用同仓已有常量」看起来是对的工程直觉，实际是从一份过期契约里抄答案；而测试与实现共用同一个错误假设（用例全用 `{file_path}` 构造），所以全绿也挡不住。修复同时把 sink 测试的 input 改成 `{path}`——原来的形态在真实系统里根本不存在，测试等于在验证虚构场景。
+
+**同源副产品（已一并修）**：`tool-phrase.ts` 的 `Read`/`Write`/`Grep`/`Glob` 四个 case 在 pi 下全是死代码，工具卡文案静默退化——作者看到的不是「读取 config.yaml」而是 default 分支兜底吐的 **`read config.yaml`**（英文工具标识直接糊脸）。旧的大写 case 保留（fall-through），因为存量会话事件里存的是 SDK 名，重看旧对话仍要正确渲染；另补 `ls` 与 `AskUserQuestion`。守卫测试第一版只挡「调用 <name>」，**漏掉了「<name> <值>」这种形态，红一次才发现**——退化不止一种长相。
+
+**最终真机验证通过**：`find → <项目>`、`read → <项目>/manuscript/vol-01/ch-001.md`、`read → <项目>/outline/vol-01/ch-001.md`、`find → <项目>/.narracat/manuscript-drafts`；`bash → 无 target`（正确，它用 command 不用 path）。相对化同批验证：`ENOENT ... access '<项目>/.narracat/staging/ch-019.md'`。
+
+**给 ③ 的第一条线索**：本次跑章 read 失败 5 次 = 3 次 EISDIR（错误串不带路径）+ 2 次 ENOENT 指向 `<项目>/.narracat/staging/ch-0XX.md`，**agent 在读还没生成的 staging 文件**。注意本批 read 失败率 10.4%（43/5）与历史 25.6%（145/50）不可直接对比——本次改动没有触碰 read 行为，差异不能归因于它。
+
+**待办**：#37 的 ②（过程流区分「跳过」与「失败」）与 ③（系统性打空的根因）。③ 现在有了带路径的取证数据，但仍**不能凭猜改 prompt**——需要更多样本确认 staging 那条线索是不是主因。
+**2026-08-20（#38：损坏项目给作者出路而不是 IPC 黑话，PR #40 已合 main）**：作者录入角色后撞到红条 `Error invoking remote method 'novel:refresh-status': Error: 缺少 .narracat/config.yaml 或 .narracat/state.yaml`。排查结论是**文件并没丢**（复现机四个项目文件全在，也排除了写入竞态——`state-sync.ts` 全程原地覆盖、不存在句柄短暂消失的窗口），真正的问题是三条不需要复现就能修的确定性缺陷。
+
+**① 入口没拦**：书架明知这本书坏了、卡上都标了红，`<Link>` 仍覆盖整卡照常可点，进去必撞 `aggregateNovelStatusSnapshot` 第一行。改成点击弹说明浮层。**主动作定为「打开所在文件夹」而不是删除**——invalid 很可能是误判（文件夹被移动/重命名、外置盘没插、config.yaml 被误删而正文还在），这种时候引导作者删东西是灾难。
+
+**②「从书架移除」只在真能生效时才给**：书架 = `novelRootDir` 直接子目录 + 配置里的最近路径，两者合并。root 下的项目摘掉最近路径**下次扫描照样回来**，给一个点了不生效的按钮比不给更糟；这类项目改为把删除入口指回卡片「更多」。移除本身复用既有 `deleteNovelProject`——查下来它对 invalid 项目本就只摘书架条目、不 trash 任何文件，语义正合适，无需新造 IPC。
+
+**③ 黑话与可观测性**：新增 `stripIpcErrorPrefix` 剥掉 `Error invoking remote method '…'` 外壳（这段实现细节还把唯一有用的信息挤到了后面）；项目文件不完整时给人话 +「返回书架」，不再给一个重试一万次都是同一个错的按钮；主进程抛错前补 `projectPath` 与两个文件各自的存在性到日志——**只有一句静态文案、不带路径，正是本次无法从现场倒推的直接原因**，面向作者的文案保持不变。
+
+**两条防静默失配的守卫**：判据文案收成 `shared/lib/ipc-error.ts` 常量三处共用（原先主进程里重复写了两份），各写各的字符串会在改动一侧时静默失配、损坏态退回老样子且无测试会红；渲染端用 `window.electron?.revealProjectFolder?.()` 调 IPC，**preload 漏登记会完全静默**（可选链吞掉，typecheck 也拦不住，因为 ipc.d.ts 声明是齐的），故补 preload 三处登记守卫。验证：typecheck / 全量 **3055 pass 0 fail**（对 main 基线 +12 tests +3 files）/ check:design / check:architecture / build 全绿。
+
+**dogfood 校正了 issue 的一个前提（2026-08-20 验收通过）**：issue 说「书架放行 invalid 项目」，实际更精确——`scanRootChildren` 只放行 `isNarraCatProject` 为真的目录，所以 `novelRootDir` 下**缺文件**的坏目录压根不会进书架。invalid 卡片有两个来源，行为不同：①**缺 config/state**（`isNarraCatProject` 假）→ 被 root 扫描过滤 → 只可能来自 `recentNovelPaths` → 移除有效；②**文件在但读不出**（yaml 损坏，`loadSummarySafely` catch 分支同样吐 `status:'invalid'`）→ `isNarraCatProject` 真 → **会被 root 扫描列出** → 在 root 下时移除确实无效。四种组合逐个核过，`canRemoveFromLibrary` 的判据都对——**第②类正是 `canRemove=false` 分支存在的理由**，不能因为「invalid 项目总能移除」的直觉把它删掉。
+
+**造 dogfood 数据的教训**：第一次把测试用的坏项目建在 `novelRootDir` 下，结果它被上面那条过滤规则挡住、根本不显示，白让产品主人找了一轮。**造完测试数据必须先离线跑一遍消费方**（这里是 `scanNovelProjects`）证明它真会出现，再叫人去看——否则就是把未经验证的东西当成已完成交付。
+
+**dogfood 结果**：五步验收全过（卡片人话文案 / 点击不跳工作台而弹浮层 / 「打开所在文件夹」/ 「从书架移除」后卡片消失且文件夹仍在 / 原始文件名不外露）。原报告里「刚录入一个角色之后」那条链仍未复现——等 ③ 的日志上线后，下次再撞就能一眼看出是哪一步把非项目根的路径当 projectPath 传了下去。
 
 **2026-08-18（社区第三批：custom 渠道支持 OpenAI 协议，PR #13 = #5 刀 1，`4699fb2`）**：@zfengChen 的提案 #5 拆三刀后的第一刀落地。custom 渠道新增 `wire` 字段（`anthropic` 默认 / `openai`），主链走 pi-ai 原生 `openai-completions`（零新依赖），模型清单双头拉取（`Bearer {base}/models` vs `x-api-key {base}/v1/models`），wire 贯通配置归一化 / 验证快照 / 会话指纹。**默认行为零变化**——`normalizeWire` 把 openai 锁死在 custom 渠道，内置四家含手改配置文件一律回落 anthropic，错配拦在入口而非事后补救。
 
@@ -453,6 +625,15 @@ P1A-1 完成门已闭合。分支仍未推送、未创建 PR、未合并，继�
   真机 bug 欢迎社区。已在 #11（顶栏适配，@yuki-czf 认领）与 #24（`check:design` 恒红）回链。
 - 阶段一「渲染层止血」已由社区 PR #2 / #7 完成；阶段二起（打包链跨平台化）为维护者本轮工作。
 - 执行顺序被 SignPath 条款锁死：①发未签名 Windows beta → ②申请 SignPath 免费 OV 签名 → ③发签名正式版。
+
+**2026-08-25 · #24 `check:design` 在 Windows 恒红已修（PR #52 已合入 main = `938abe7`，#24 已关闭）**
+
+- **根因是路径分隔符，不是 issue 正文猜的行尾**（社区贡献者 @zfengChen 在 Windows 10 实机诊断并给出证据链）：`listFiles()` 的 `relative('.', path)` 在 Windows 返回反斜杠，而品牌资产白名单存正斜杠 → `Set.has()` 恒 false → 三个合规包装器（`BrandMark` / `BrandStoryBanner` / `brand-illustrations`）被误扫，它们本来就该引用资产目录 → 守卫恒红；mac 恒绿，永远看不见。
+- 修复：扫描结果统一走 `toPosixPath()`；读文件统一 LF 归一化（行尾非本次根因，但跨行子串契约在 `core.autocrlf=true` 下同样假红）；新增 `allowlistCoverageFailure()` 让白名单落空 fail loud 并点名；品牌违规一次报全；待读文件清单由 `requiredContracts` 推导，删掉需人工同步的第二份清单。
+- 补 `scripts/check-design-system.test.mjs`——本仓守卫脚本此前唯一没有测试的一个，喂反斜杠 / CRLF 输入，让这类「mac 上永远看不见」的缺陷在 mac 上就能拦；退化副本（`toPosixPath` 恒等）实测 4 fail，证明测试真拦得住。
+- **CI 接线两处**：`app-ci` 增跑 `check:design`（issue 说它「最容易漏跑」，而 CI 此前从未跑过它）；新增 `design-guard-windows` job（windows-latest + 强制 `core.autocrlf=true` 检出，不装依赖，只跑守卫与其单测）——ubuntu / mac 都是正斜杠 + LF，Windows 那一半只有真 runner 能证，这条也让跨平台守卫缺陷以后不再靠人工真机复现。
+- 验证：全量 `bun --no-cache run test` 3159 pass / 0 fail、`typecheck`、`check:design` 均绿；ubuntu CI 已确认新步骤真跑到（日志有 `Design-system contracts present.`）。
+- 收尾：三条 CI 全绿（verify 3163 pass / design-guard-windows 21s / cla）后 squash 合并，Windows 证据已贴 PR，贡献者 @zfengChen 已在 #24 下回复致谢并说明多做的三件事。**外审抓到一条真问题**：`typography-governance.test.ts` 曾用 `toContain('for (const file of productionSourceFiles)')` 断言「守卫只扫生产代码」，钉的是循环写法不是语义，一次内部重构就假红——已改为导出 `isProductionSource()` / `collectOffScaleFontSizeViolations()`，治理测试只认语义命名，行为验证下沉到守卫单测。遗留小债两笔：`scripts/check-no-native-details.mjs` 的主模块判断仍是文件名后缀式（本仓惯例是 `pathToFileURL`）；`ops:check` 对 ADR-0036/0037 与本文件存量文案报 trailing whitespace / placeholder / bare `bun run`（main 上早已如此，非本次引入）。
 
 **上一轮（2026-07-30）· 模型上限实验闭环 + 成稿句法根因已修（4.0.150，未 push）**
 

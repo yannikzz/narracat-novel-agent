@@ -33,7 +33,8 @@ import { onCharacterChatEvent, readCharacterChatProfiles, saveCharacterChatProfi
 import type { CharacterChatMessage, CharacterContact } from '@shared/types/character-chat'
 
 const BOARD_HEADER_CLASS = 'flex shrink-0 items-center gap-2 border-b border-border px-5 py-4'
-const CHAT_PANEL_HEADER_CLASS = 'min-h-[61px] justify-between bg-workspace px-[18px] py-2'
+// 方案 A（上下分区）后聊天卡在 caption 带下方，右缘不再需要 --titlebar-inset-right 让位。
+const CHAT_PANEL_HEADER_CLASS = 'min-h-[61px] justify-between bg-workspace pl-[18px] pr-[18px] py-2'
 const PROFILE_DRAWER_TRANSITION: Transition = { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
 // 右侧滑出抽屉容器（「角色资料」与「关于你」共用，统一宽度/阴影/动画，避免重复造轮子）。
 const DRAWER_BACKDROP_CLASS = 'absolute inset-0 z-10 cursor-default bg-transparent'

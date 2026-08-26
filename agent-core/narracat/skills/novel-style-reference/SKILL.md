@@ -21,7 +21,7 @@ description: A real-novel writing style reference library backed by the novel_qu
 
 ## MCP 工具调用
 
-工具全名：`mcp__plugin_narracat_novelmemory__novel_query_style_reference`
+工具全名：`mcp__narracat_memory__novel_query_style_reference`
 
 **入参：**
 

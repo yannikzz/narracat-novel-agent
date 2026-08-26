@@ -89,6 +89,34 @@
 
 @custom-variant dark (&:is([data-theme="dark"] *));
 
+/*
+ * 平台感知顶栏预留（main.tsx 把主进程平台写到 <html data-platform>）：
+ * - darwin：左上角红绿灯按钮区，顶栏左内容需让位（约 112px，与 trafficLightPosition x:18 匹配）
+ * - win32：右上角系统 caption 按钮（最小化/最大化/关闭）。
+ *   注意 150px 是 100% 缩放下的回退值；main.tsx 会用 Window Controls Overlay API
+ *   实测 caption 宽度写内联变量覆盖它（125%/150% 缩放下按钮更宽，硬编码会漏）。
+ * 其余平台无自绘按钮，两侧均为 0。顶栏组件用 pl/pr-[var(--titlebar-inset-left/right)] 消费。
+ *
+ * 上下分区（win32 专属，2026-08-16 方案 A）：caption 按钮与内容分带——舞台卡片顶部
+ * padding 消费 --titlebar-gutter-top，卡片从 caption 带下方开始，caption 悬于 canvas
+ * gutter 上（与 mac「红绿灯悬于侧边栏」的视觉语言对等）。侧边栏/左栏保持通顶。
+ * 取值 56px = TITLE_BAR_HEIGHT（window.ts 的 titleBarOverlay.height）。
+ */
+:root {
+  --titlebar-inset-left: 0px;
+  --titlebar-inset-right: 0px;
+  --titlebar-gutter-top: 0px;
+}
+
+[data-platform="darwin"] {
+  --titlebar-inset-left: 112px;
+}
+
+[data-platform="win32"] {
+  --titlebar-inset-right: 150px;
+  --titlebar-gutter-top: 56px;
+}
+
 :root,
 [data-theme="light"] {
   color-scheme: light;

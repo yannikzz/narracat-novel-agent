@@ -66,7 +66,7 @@ export function SettingsPrimarySidebar({
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col bg-canvas" data-settings-sidebar="true">
       <div
-        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[112px] pr-3 [-webkit-app-region:drag]"
+        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[var(--titlebar-inset-left)] pr-3 [-webkit-app-region:drag]"
         data-settings-sidebar-headbar="true"
       >
         <IconTooltip label="返回">

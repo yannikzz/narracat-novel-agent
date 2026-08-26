@@ -1,7 +1,7 @@
 ---
 description: 用户手改正文后同步本章记忆 — 影响评估 → 作者确认 → 回滚重抽 → 矛盾提示
 argument-hint: <章节号>
-allowed-tools: [Agent, Read, Grep, Glob, AskUserQuestion, "mcp__plugin_narracat_novelmemory__novel_chapter_summary", "mcp__plugin_narracat_novelmemory__novel_query", "mcp__plugin_narracat_novelmemory__novel_foreshadowing_status", "mcp__plugin_narracat_novelmemory__novel_rollback_chapter", "mcp__plugin_narracat_novelmemory__novel_detect_conflicts", "mcp__plugin_narracat_novelmemory__novel_get_arc", "mcp__plugin_narracat_novelmemory__novel_restore_progress", "mcp__plugin_narracat_novelmemory__novel_checkpoint"]
+allowed-tools: [Agent, Read, Grep, Glob, AskUserQuestion, "mcp__narracat_memory__novel_chapter_summary", "mcp__narracat_memory__novel_query", "mcp__narracat_memory__novel_foreshadowing_status", "mcp__narracat_memory__novel_rollback_chapter", "mcp__narracat_memory__novel_detect_conflicts", "mcp__narracat_memory__novel_get_arc", "mcp__narracat_memory__novel_restore_progress", "mcp__narracat_memory__novel_checkpoint"]
 ---
 
 作者手动修改了某章正文（改动已保存到正文文件）。你的任务：评估这次改动对记忆库的影响，

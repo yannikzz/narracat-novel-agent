@@ -25,8 +25,11 @@ describe('typography drift governance', () => {
     const checkScript = readFileSync('scripts/check-design-system.mjs', 'utf8')
     expect(checkScript).toContain('offScaleFontSizeGuards')
     expect(checkScript).toContain('typography scale guard')
-    // 守卫只扫生产代码，避免误伤测试里对 text-[13px] 的负向断言
-    expect(checkScript).toContain('for (const file of productionSourceFiles)')
+    // 守卫只扫生产代码，避免误伤测试里对 text-[13px] 的负向断言。这里只认语义命名，
+    // 不再钉具体循环写法（原来钉的是 `for (const file of productionSourceFiles)`，
+    // 一次内部重构就假红）；真正的行为验证在 scripts/check-design-system.test.mjs
+    // ——那边直接喂 .test.tsx 与生产文件断言豁免与命中。
+    expect(checkScript).toContain('isProductionSource')
   })
 
   test('design.md documents drift rules, visual verification and accepted debt', () => {

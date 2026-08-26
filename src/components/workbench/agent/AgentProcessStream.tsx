@@ -53,13 +53,14 @@ function summarizeProcessStream(parts: AgentProcessPart[]): ProcessSummary {
     }
   }
 
-  // 工具级失败是 LLM 自愈型瞬时噪声（换工具/重试后继续），不把整组执行过程标红——
-  // 红色保留给 run 级终态失败（由独立的 error part 渲染）。这里只如实标注跳过次数。
-  const skippedCount = parts.filter((part) => part.status === 'failed').length
+  // 工具级失败多数能自愈（换工具/重试后继续），所以不把整组执行过程标红——红色保留给 run 级
+  // 终态失败（由独立的 error part 渲染）。但计次要如实说「失败」：原措辞「自动调整 N 次」把
+  // 报错读成了 agent 的主动优化，作者据此以为一切正常，实际那 N 次可能正是成稿缺料的原因（#37）。
+  const failedCount = parts.filter((part) => part.status === 'failed').length
   return {
     title:
-      skippedCount > 0
-        ? `执行过程已完成 · ${completedCount} 项（自动调整 ${skippedCount} 次）`
+      failedCount > 0
+        ? `执行过程已完成 · ${completedCount} 项（${failedCount} 次失败）`
         : `执行过程已完成 · ${completedCount} 项`,
     status: 'complete',
   }
@@ -69,8 +70,8 @@ function ProcessDetail({ parts }: { parts: AgentProcessPart[] }) {
   return (
     <ol className="space-y-1">
       {parts.map((part) => {
-        const skipped = part.status === 'failed'
-        const detail = getSkippedDetail(part)
+        const failed = part.status === 'failed'
+        const detail = getFailureDetail(part)
 
         return (
           <li key={part.id} className="min-w-0">
@@ -78,7 +79,7 @@ function ProcessDetail({ parts }: { parts: AgentProcessPart[] }) {
               <span
                 className={cn(
                   'mt-0.5 shrink-0 rounded-sm px-1.5 py-0.5 text-[11px] leading-none',
-                  skipped ? 'bg-warning/10 text-warning' : 'bg-active text-hint-foreground'
+                  failed ? 'bg-warning/10 text-warning' : 'bg-active text-hint-foreground'
                 )}
               >
                 {getStatusLabel(part.status)}
@@ -115,7 +116,7 @@ function getRunningSummary(part: AgentProcessPart): string {
   return `正在${part.title}...`
 }
 
-function getSkippedDetail(part: AgentProcessPart): string | undefined {
+function getFailureDetail(part: AgentProcessPart): string | undefined {
   if (part.type === 'tool-call' && part.status === 'failed') return compactProcessText(part.error ?? '')
   return undefined
 }
@@ -131,8 +132,10 @@ function getProcessTitle(part: AgentProcessPart): string {
 
 function getStatusLabel(status: AgentPartStatus): string {
   if (status === 'running') return '进行中'
-  // 工具级错误在执行过程中是可自愈的瞬时事件，标「已跳过」而非「失败」。
-  if (status === 'failed') return '已跳过'
+  // 报错就说失败。AgentPartStatus 里没有「主动跳过」这一档——agent 判断无需执行的工具压根不会
+  // 产生事件，所以 failed 唯一的含义就是失败，标成「已跳过」是把失败说成主动省略（#37 刀②）。
+  // 中性色（warning，非 destructive）已足够表达「可自愈、不必惊慌」，不需要靠措辞去柔化。
+  if (status === 'failed') return '失败'
   return '完成'
 }
 

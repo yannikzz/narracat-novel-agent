@@ -31,6 +31,10 @@ function getSystemTheme(): EffectiveTheme {
 
 function applyTheme(effective: EffectiveTheme): void {
   document.documentElement.dataset.theme = effective
+  // Windows 标题栏 overlay 符号颜色跟主题（浅色 UI 深符号 / 深色 UI 白符号）。
+  // 非 Electron 环境（单测/纯 web）无 window.electron，可选链静默跳过；主进程侧仅 win32 生效。
+  // catch：invoke 返回 Promise，handler 缺失/窗口竞态时避免 unhandled rejection（PR #26 review ⑤）。
+  window.electron?.setTitleBarOverlaySymbolColor?.(effective === 'dark' ? '#ffffff' : '#3f3f46').catch(() => {})
 }
 
 /**

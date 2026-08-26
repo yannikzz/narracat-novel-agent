@@ -19,6 +19,11 @@ import {
   sanitizeDurableSummary,
   sanitizeDurableText,
 } from '@shared/lib/agent-durable-events'
+import {
+  extractToolTargetPath,
+  relativizeKnownRoots,
+  type ScrubRoot,
+} from '@shared/lib/agent-path-scrub'
 import { applyTaskToolCall } from './task-plan-from-tools.ts'
 
 interface SegmentLiveState {
@@ -31,7 +36,7 @@ interface LiveRunProjection {
   threadId: string
   assistantText: string
   taskPlan: AgentTaskPlanItem[]
-  tools: Map<string, { messageId: string; toolName: string; title: string }>
+  tools: Map<string, { messageId: string; toolName: string; title: string; target?: string }>
   status: 'accepted' | 'running' | 'waiting-user' | 'cancelling' | 'durability-failed'
   lastEventAt: string
   stalledAt?: string
@@ -68,6 +73,11 @@ export interface AgentEventSinkOptions {
   onSideEffectError?: (error: unknown, event: AgentEventEnvelopeV1) => void
   now?: () => string
   ringSize?: number
+  /**
+   * Agent Core 根路径。用于把引擎侧的读写路径相对化成 `<引擎>/…`（#37 取证）——
+   * 开发机上引擎目录同样在用户目录下，不给根就会被脱敏整段抹掉。
+   */
+  agentCorePath?: string
 }
 
 function visiblePrompt(event: Extract<AgentEvent, { type: 'run.started' }>): string {
@@ -199,12 +209,27 @@ export function createAgentEventSink(options: AgentEventSinkOptions): AgentEvent
     return envelope
   }
 
+  /**
+   * 取证时允许保留相对路径的已知根（#37）。根以上的部分（用户名、本机目录结构）不落盘，
+   * 根以下的部分保留——既不泄露隐私，又能看出 agent 读的是哪一类文件。
+   */
+  function scrubRootsFor(run: LiveRunProjection): ScrubRoot[] {
+    const roots: ScrubRoot[] = []
+    if (run.projectPath) roots.push({ label: '项目', path: run.projectPath })
+    if (options.agentCorePath) roots.push({ label: '引擎', path: options.agentCorePath })
+    return roots
+  }
+
   function durableToolEvent(
     event: Extract<AgentEvent, { type: 'tool.completed' | 'tool.failed' }>,
     run: LiveRunProjection,
   ): AgentDurableEventV1 | null {
     const tool = run.tools.get(event.toolCallId)
     if (!tool) return null
+    const target = tool.target === undefined ? {} : { target: tool.target }
+    // 错误串里的路径先相对化再脱敏：否则 `access '/Users/…'` 会被整段抹成 `[本机路径]`，
+    // 连我们也查不出 agent 读的是哪个文件（#37）。
+    const roots = scrubRootsFor(run)
     if (event.type === 'tool.completed') {
       return {
         type: 'run.tool-summarized',
@@ -214,7 +239,8 @@ export function createAgentEventSink(options: AgentEventSinkOptions): AgentEvent
         toolName: tool.toolName,
         title: sanitizeDurableText(tool.title, '工具执行完成', 500),
         status: 'complete',
-        summary: sanitizeDurableSummary(event.summary, '工具执行完成'),
+        summary: sanitizeDurableSummary(relativizeKnownRoots(event.summary ?? '', roots), '工具执行完成'),
+        ...target,
         createdAt: event.createdAt,
       }
     }
@@ -226,7 +252,8 @@ export function createAgentEventSink(options: AgentEventSinkOptions): AgentEvent
       toolName: tool.toolName,
       title: sanitizeDurableText(tool.title, '工具执行失败', 500),
       status: 'failed',
-      error: sanitizeDurableSummary(event.error, '工具执行失败'),
+      error: sanitizeDurableSummary(relativizeKnownRoots(event.error, roots), '工具执行失败'),
+      ...target,
       createdAt: event.createdAt,
     }
   }
@@ -359,7 +386,15 @@ export function createAgentEventSink(options: AgentEventSinkOptions): AgentEvent
           // assistantText 只保留最后一段（工具/问答全部结束后的总结），否则问答完成或用户手动
           // 终止时全程过程文本会平铺成一个巨型气泡。子会话事件带 parentToolCallId 不算主会话边界。
           if (!event.parentToolCallId) run.assistantText = ''
+          // 目标路径只在 tool.started 的 input 里，收尾事件（tool.completed/failed）拿不到，
+          // 所以在这里就取出并相对化存起来，供落盘取证使用（#37）。
+          const rawTarget = extractToolTargetPath(event.input)
+          const target =
+            rawTarget === undefined
+              ? undefined
+              : sanitizeDurableText(relativizeKnownRoots(rawTarget, scrubRootsFor(run)), '', 500)
           run.tools.set(event.toolCallId, {
+            ...(target ? { target } : {}),
             messageId: event.messageId,
             toolName: event.toolName,
             title: event.title,

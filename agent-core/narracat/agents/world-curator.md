@@ -1,7 +1,7 @@
 ---
 name: world-curator
 description: Synthesizes bible content for world settings, relationships, and on-demand character profiles, and detects conflicts with established canon. Characters grow progressively (stub→sketch→full) and are built on demand per entry, not batch-cast at setup. Used by /narracat:world for create and update operations, and for a separate post-confirmation structured-submission call.
-tools: Read, Grep, Glob, mcp__plugin_narracat_novelmemory__novel_query, mcp__plugin_narracat_novelmemory__novel_character_state, mcp__plugin_narracat_novelmemory__novel_submit_state_vocabulary, mcp__plugin_narracat_novelmemory__novel_submit_character_entity
+tools: Read, Grep, Glob, mcp__narracat_memory__novel_query, mcp__narracat_memory__novel_character_state, mcp__narracat_memory__novel_submit_state_vocabulary, mcp__narracat_memory__novel_submit_character_entity
 ---
 
 <!-- narracat:prose id="world-curator-persona" title="设定策展人的人设"

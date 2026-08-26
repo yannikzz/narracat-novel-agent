@@ -209,6 +209,11 @@ export type AgentDurableEventV1 =
       status: 'complete' | 'failed'
       summary?: string
       error?: string
+      /**
+       * 工具操作的目标路径，已相对化为 `<项目>/…` / `<引擎>/…`（#37 取证）。
+       * 无路径的工具（MCP 查询等）缺省；存量事件没有此字段，读取端按可选处理。
+       */
+      target?: string
       createdAt: string
     }
   | {

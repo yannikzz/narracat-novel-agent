@@ -17,6 +17,7 @@ import {
 import { createAgentSessionCompatibilityFingerprint } from '../agent/runs/session-fingerprint.ts'
 import { createAgentMainSideEffects } from '../agent/events/agent-main-side-effects.ts'
 import { NARRACAT_AGENT_CORE_VERSION_LOCK } from '../engine/agent-core-contract.ts'
+import { resolveNarraCatAgentCorePath } from '../engine/engine.ts'
 import type {
   AgentEventsAfterResultV1,
   AgentHistorySegmentSummaryV1,
@@ -89,6 +90,12 @@ export function getAgentRuntimeCoordinator(): AgentRuntimeCoordinator {
         }),
       onSideEffectError: (error) => console.error(error),
       beforeBroadcast: mainSideEffects,
+      // 路径取证的已知根之一（#37）：引擎目录在开发机上同样落在用户目录下，
+      // 不传根就会被脱敏整段抹成 `[本机路径]`，引擎侧的读取失败照样查不了。
+      agentCorePath: resolveNarraCatAgentCorePath({
+        appRoot: app.getAppPath(),
+        resourcesPath: process.resourcesPath,
+      }),
     })
   }
   return _agentRuntimeCoordinator

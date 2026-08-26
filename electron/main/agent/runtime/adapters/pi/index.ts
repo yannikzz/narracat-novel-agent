@@ -18,6 +18,7 @@
  */
 import { join } from 'node:path'
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
+import { createPortableFindTool, createPortableGrepTool } from './pi-fs-tools.ts'
 import { resolveNarraCatEngine } from '../../../../engine/engine.ts'
 import { resolveEngineAgentDefinitions } from '../../../../engine/engine-agent-registry.ts'
 import type { EngineAgentDefinition } from '../../../../engine/engine-agent-registry.ts'
@@ -33,6 +34,8 @@ import type {
 } from '../../types.ts'
 import { resolveNovelAgentsGuide } from '../../novel-agents-guide.ts'
 import { createPiModel, resolvePiModelAlias } from './pi-model.ts'
+import type { PiThinkingMode } from './pi-model.ts'
+import { createPiMaxOutputTokensPatch, resolvePiMaxOutputTokens } from './pi-max-output-tokens.ts'
 import { createMemoryTools, productionPiMemoryBridge } from './pi-memory-tools.ts'
 import type { MemoryToolChannel, PiMemoryBridge } from './pi-memory-tools.ts'
 import { runPiSession } from './pi-session.ts'
@@ -98,15 +101,27 @@ async function buildPiRunOptions(
   const customTools: ToolDefinition[] = includeAskUserQuestion
     ? [createAskUserQuestionTool({ canUseTool: canUseTool!, signal: args.abortController.signal })]
     : []
+  // pi 内置 find/grep 走 fd/ripgrep 二进制（查 PATH → 查不到就去 GitHub 下载），两条路在打包版上
+  // 都不通：Finder 启动的 App 继承 launchd 窄 PATH，作者机器也不会装这类开发者工具。同名
+  // customTool 覆盖内置那个。只在工具面本来就有它时注入——不给没这个面的会话凭空多一个工具。
+  if (face.tools.includes('find')) customTools.push(createPortableFindTool(cwd))
+  if (face.tools.includes('grep')) customTools.push(createPortableGrepTool(cwd))
   // 引擎钩子（字数提示/任务书系统词硬门）只在 loadNarraCatRuntime 时挂：学习/向导等沙盒会话
   // 本就不跑引擎契约，与 SDK 侧同条件不装载 plugin 对齐（brief 见 Task 5 任务书）。
   const agentDir = join(args.userDataPath ?? args.appRoot, 'pi-agent')
   // eager 工具参数救回（issue #16）修的是 pi 传输层的参数丢失，与引擎契约无关：任何会话都可能
   // 中招（学习/向导沙盒、direct-chat 一样打 Anthropic wire），故不受 loadNarraCatRuntime 门控。
   // 排在最前：它把被抹空的参数补回后，后续扩展看到的才是模型真正发出的那份。
-  const extensions = args.loadNarraCatRuntime
-    ? [createPiEagerToolArgsRestorer(), guard, createPiEngineHooksExtension({ cwd })]
-    : [createPiEagerToolArgsRestorer(), guard]
+  const model = createPiModel(args.config)
+  // 输出上限兑现：pi 把实发 max_tokens 封在 32000，只有 before_provider_request 改得到请求体。
+  // 只对查得到第一手文档依据的模型抬，其余不装配这个扩展（详见 pi-max-output-tokens.ts）。
+  const maxOutputTokens = resolvePiMaxOutputTokens(model.provider, model.id)
+  const extensions = [
+    createPiEagerToolArgsRestorer(),
+    guard,
+    ...(args.loadNarraCatRuntime ? [createPiEngineHooksExtension({ cwd })] : []),
+    ...(maxOutputTokens === undefined ? [] : [createPiMaxOutputTokensPatch(maxOutputTokens)]),
+  ]
 
   // NovelMemory 工具（切片⑥）：与 SDK createNovelMemoryMcpServers 同门条件（跑引擎契约 + 有项目），
   // face 无记忆名（如 direct-chat 默认面）时零装载。
@@ -137,28 +152,46 @@ async function buildPiRunOptions(
    * AskUserQuestion——childFace 的三个旗标一律不读，子 agent 不能再派子 agent、不驱动主会话任务卡、
    * 不直接打断用户）。父会话未开记忆面（memoryContext 缺席）时子会话也拿不到——与父门条件一致。
    */
-  const buildChildRunOptions = (definition: EngineAgentDefinition, childAbort: AbortController): PiRunOptions => {
+  const buildChildRunOptions = (
+    definition: EngineAgentDefinition,
+    childAbort: AbortController,
+    thinking: PiThinkingMode = 'provider-default',
+  ): PiRunOptions => {
     const childFace = mapSdkToolFaceToPi(definition.tools ?? ['Read'], args.disallowedTools)
     const childGuard = createPiToolGuard({ allowedRoots, cwd, signal: childAbort.signal, canUseTool })
     const childMemoryTools = memoryContext
       ? createMemoryTools({ definitions: memoryContext.definitions, allowedNames: childFace.memoryTools, channel: memoryContext.channel })
       : []
+    // 与父会话同一条纪律：写手/审校都跑在子会话里，漏了这条它们的 find/grep 照样是坏的。
+    const childCustomTools = [
+      ...childMemoryTools,
+      ...(childFace.tools.includes('find') ? [createPortableFindTool(cwd)] : []),
+      ...(childFace.tools.includes('grep') ? [createPortableGrepTool(cwd)] : []),
+    ]
     // model 别名映射（生产接线门前项②）：frontmatter 三别名走模型池槽位，其余继承 run 模型。
-    const childModel = createPiModel(args.config, resolvePiModelAlias(args.config, definition.model))
+    // thinking 档位（issue #42）由派发方逐次给：默认听 provider 的，冷改这类低自由度任务显式关掉。
+    const childModel = createPiModel(args.config, resolvePiModelAlias(args.config, definition.model), thinking)
+    const childMaxOutputTokens = resolvePiMaxOutputTokens(childModel.provider, childModel.id)
     return {
       model: childModel,
       provider: childModel.provider,
       apiKey: args.apiKey,
       cwd,
       agentDir,
-      tools: [...childFace.tools, ...childMemoryTools.map((tool) => tool.name)],
+      tools: [...new Set([...childFace.tools, ...childCustomTools.map((tool) => tool.name)])],
       maxTurns: SUBAGENT_MAX_TURNS,
       systemPrompt: definition.prompt,
       abortController: childAbort,
       // 各子会话新起一个实例：救回逻辑的 eager 快照是扩展闭包内的 run 级状态，共用实例会让
       // 并发子会话互相串参数。
-      extensions: [createPiEagerToolArgsRestorer(), childGuard, createPiEngineHooksExtension({ cwd })],
-      customTools: childMemoryTools,
+      extensions: [
+        createPiEagerToolArgsRestorer(),
+        childGuard,
+        createPiEngineHooksExtension({ cwd }),
+        // 子会话可能走轻量槽的另一个模型 id，故按 childModel 重新解析，不继承父会话的值。
+        ...(childMaxOutputTokens === undefined ? [] : [createPiMaxOutputTokensPatch(childMaxOutputTokens)]),
+      ],
+      customTools: childCustomTools,
     }
   }
 
@@ -182,8 +215,6 @@ async function buildPiRunOptions(
   }
   if (face.includeTaskCards) customTools.push(...createTaskCardTools())
 
-  const model = createPiModel(args.config)
-
   // 小说 AGENTS.md/CLAUDE.md 精准注入（ADR-0028 隔离纪律的单文件版）：只主会话读，且只在跑引擎
   // 契约时读——沙盒会话（学习/向导/连通性测试，loadNarraCatRuntime:false）零注入，与引擎钩子/记忆
   // 工具同门条件。子会话（buildChildRunOptions）不读，appendix 不透传。
@@ -197,7 +228,9 @@ async function buildPiRunOptions(
     agentDir,
     // pi 的 isAllowedTool 会把不在 tools 白名单里的 custom tool 过滤掉（切片③已踩），故自定义工具
     // 名必须同步登记进白名单。
-    tools: [...face.tools, ...customTools.map((tool) => tool.name)],
+    // 去重：portable find 与内置同名，两边都列会让工具面出现重复项（pi 侧无害，但工具面是
+    // 对外可观测的契约，保持它等于「这个会话真正能用的工具集合」）。
+    tools: [...new Set([...face.tools, ...customTools.map((tool) => tool.name)])],
     maxTurns: args.maxTurns ?? DEFAULT_PI_MAX_TURNS,
     systemPrompt: typeof args.systemPrompt === 'string' ? args.systemPrompt : undefined,
     systemPromptAppendix: agentsGuide ?? undefined,

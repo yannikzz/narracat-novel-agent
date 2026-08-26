@@ -416,7 +416,9 @@ export function WorkbenchStage({
 
   return (
     <main
-      className="h-full min-h-0 min-w-0 flex-1 py-3 pl-0 pr-3"
+      // 顶部 padding 平台感知（方案 A 上下分区）：win32 下舞台卡片从 caption 带（56px）下方
+      // 开始，caption 按钮悬于 canvas gutter，不再压在 Agent 面板头部白底上（视觉混排根因）。
+      className="h-full min-h-0 min-w-0 flex-1 pt-[max(0.75rem,var(--titlebar-gutter-top))] pb-3 pl-0 pr-3"
       data-workbench-stage="true"
       data-section-id={selectedSectionId}
       data-tab-id={activeTab?.id ?? undefined}

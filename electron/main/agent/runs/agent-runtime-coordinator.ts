@@ -46,6 +46,8 @@ export interface AgentRuntimeCoordinatorDeps {
   resolveProjectIdentity: (projectPath: string) => Promise<AgentProjectIdentity>
   beforeBroadcast?: (event: AgentEventEnvelopeV1) => void | Promise<void>
   onSideEffectError?: (error: unknown, event: AgentEventEnvelopeV1) => void
+  /** Agent Core 根路径，透传给 sink 做路径取证的已知根（#37）。 */
+  agentCorePath?: string
 }
 
 export interface AgentRuntimeCoordinator {
@@ -158,6 +160,7 @@ export function createAgentRuntimeCoordinator(deps: AgentRuntimeCoordinatorDeps)
   const sink = createAgentEventSink({
     store: deps.store,
     broadcast,
+    ...(deps.agentCorePath ? { agentCorePath: deps.agentCorePath } : {}),
     beforeBroadcast: async (envelope) => {
       try {
         await deps.beforeBroadcast?.(envelope)

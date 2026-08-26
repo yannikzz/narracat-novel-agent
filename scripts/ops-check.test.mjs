@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { CLIENT_BUILD_VERSION_PREFIX } from './client-build-version.mjs'
 import { checkOpsDocs } from './ops-check.mjs'
 
 describe('ops check', () => {
@@ -24,7 +25,7 @@ describe('ops check', () => {
           },
         }),
       },
-      clientBuildVersion: '0.1.12',
+      clientBuildVersion: `${CLIENT_BUILD_VERSION_PREFIX}.12`,
     })
 
     expect(result.ok).toBe(true)
@@ -72,7 +73,7 @@ describe('ops check', () => {
           },
         }),
       },
-      clientBuildVersion: '0.1.227',
+      clientBuildVersion: `${CLIENT_BUILD_VERSION_PREFIX}.227`,
     })
 
     expect(result.ok).toBe(false)
@@ -80,7 +81,7 @@ describe('ops check', () => {
       'scripts/client-build-version.mjs must export formatClientBuildVersion and resolveClientBuildVersion.',
     )
     expect(result.failures).not.toContain(
-      'package.json version must be 0.1.227 for the current OPS client version rule.',
+      `package.json version must be ${CLIENT_BUILD_VERSION_PREFIX}.227 for the current OPS client version rule.`,
     )
   })
 })

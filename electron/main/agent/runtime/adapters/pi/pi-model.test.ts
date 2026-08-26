@@ -5,7 +5,13 @@
 import { describe, expect, test } from 'bun:test'
 import type { AppConfig, ModelPoolEntry } from '@shared/types/config'
 import { DEFAULT_PROVIDER_SETTINGS, POOL_DEFAULT_FIELDS } from '@shared/types/config'
-import { createPiModel, resolvePiModelAlias } from './pi-model.ts'
+import {
+  PI_UPSTREAM_MAX_OUTPUT_CAP,
+  TARGET_MAX_OUTPUT_TOKENS,
+  createPiModel,
+  effectivePiMaxTokens,
+  resolvePiModelAlias,
+} from './pi-model.ts'
 
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -41,8 +47,38 @@ describe('createPiModel', () => {
     expect(model.api).toBe('anthropic-messages')
     expect(model.baseUrl).toBe('https://api.deepseek.com/anthropic')
     expect(model.contextWindow).toBe(200_000)
-    // 对齐 SDK 路径实际输出上限（CLI 默认 32000）：8192 会截断章节长输出（生产接线门前项①）
-    expect(model.maxTokens).toBe(32_000)
+    // 断言**实发值**而不是 Model 上的存值。注意实发不等于 TARGET：上游把它封在 32000
+    // （见 pi-model.ts 的 PI_UPSTREAM_MAX_OUTPUT_CAP，假端点抓包实测）。
+    expect(effectivePiMaxTokens(model.maxTokens)).toBe(PI_UPSTREAM_MAX_OUTPUT_CAP)
+    // TARGET 是我们想要的值，不是实际发出去的值——两者当前不等，别再把它当成已生效。
+    expect(TARGET_MAX_OUTPUT_TOKENS).toBe(64_000)
+    expect(model.maxTokens).toBe(TARGET_MAX_OUTPUT_TOKENS)
+  })
+
+  test('实发 max_tokens 被上游封在 32000——配置值不是实发值（假端点抓包实测）', () => {
+    const model = createPiModel(makeConfig())
+    // 复刻 pi-ai@0.73.1 dist/providers/simple-options.js:1 的算式（生产恒走 streamSimple）：
+    //   maxTokens: options?.maxTokens ?? Math.min(model.maxTokens, 32000)
+    // 它把 options.maxTokens 填成正数，anthropic.js:663 那条「除 3」的分支永远到不了。
+    expect(effectivePiMaxTokens(model.maxTokens)).toBe(PI_UPSTREAM_MAX_OUTPUT_CAP)
+    // ⚠️ 这条断言就是重点：我们配 64000，实际发出去 32000。它不是 bug 被容忍，是事实被钉住——
+    // 前后两刀（#35 的 ×3 补偿、#46 的 32000→64000）都因为断言落在配置值上而误判为「已生效」。
+    expect(effectivePiMaxTokens(model.maxTokens)).toBeLessThan(TARGET_MAX_OUTPUT_TOKENS)
+    // 上游哪天撤掉 32000 硬顶，这条会红——那时才轮到 TARGET 真正生效。
+    expect(PI_UPSTREAM_MAX_OUTPUT_CAP).toBe(32_000)
+  })
+
+  test('thinking 档位：缺省不接管（reasoning=false → 请求不带 thinking 字段，听 provider 的）', () => {
+    expect(createPiModel(makeConfig()).reasoning).toBe(false)
+    expect(createPiModel(makeConfig(), undefined, 'provider-default').reasoning).toBe(false)
+  })
+
+  test("thinking 档位：'off' 才置 reasoning=true——这不是「开思考」而是「由我们发 disabled」", () => {
+    // 上游两个条件必须同时成立才会写出 thinking:{type:"disabled"}：
+    //   ① model.reasoning 为真（否则 anthropic.js:702 整段跳过，连 disabled 都不发）
+    //   ② options.thinkingEnabled === false（pi-session 恒传 thinkingLevel:'off' 已经给到）
+    // 假端点抓包实测：provider-default → 请求体无 thinking 字段；off → {"type":"disabled"}。
+    expect(createPiModel(makeConfig(), undefined, 'off').reasoning).toBe(true)
   })
 
   test('createPiModel 从主力槽解析 id/provider/baseUrl', () => {

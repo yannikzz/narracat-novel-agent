@@ -1,6 +1,6 @@
 ---
 description: 查看项目进度 — 章节完成度、字数统计、当前 arc、伏笔追踪
-allowed-tools: [Read, Glob, mcp__plugin_narracat_novelmemory__novel_get_arc, mcp__plugin_narracat_novelmemory__novel_foreshadowing_status, mcp__plugin_narracat_novelmemory__novel_failed_reviews]
+allowed-tools: [Read, Glob, mcp__narracat_memory__novel_get_arc, mcp__narracat_memory__novel_foreshadowing_status, mcp__narracat_memory__novel_failed_reviews]
 ---
 
 读取项目状态，向用户展示进度报告。
@@ -13,11 +13,11 @@ allowed-tools: [Read, Glob, mcp__plugin_narracat_novelmemory__novel_get_arc, mcp
 
 - `.narracat/config.yaml` → 书名、题材、语言
 - `.narracat/state.yaml` → progress / structure / word_count / checkpoint
-- `mcp__plugin_narracat_novelmemory__novel_get_arc(chapter=最新完成章)` → 当前 arc 信息（无大纲或工具报错时本节显示「未规划」）
-- `mcp__plugin_narracat_novelmemory__novel_foreshadowing_status()` → 伏笔清单与最新状态（工具报错时本节显示 N/A）
+- `mcp__narracat_memory__novel_get_arc(chapter=最新完成章)` → 当前 arc 信息（无大纲或工具报错时本节显示「未规划」）
+- `mcp__narracat_memory__novel_foreshadowing_status()` → 伏笔清单与最新状态（工具报错时本节显示 N/A）
 - `bible/references/` 目录 → 用 Glob 列出 .md/.txt 文件清单（不读内容）
 - `bible/reference-guidance/index.md` 存在性检查（不读内容）
-- `mcp__plugin_narracat_novelmemory__novel_failed_reviews()` → 未通过审校的章节清单（`failed_chapters`）
+- `mcp__narracat_memory__novel_failed_reviews()` → 未通过审校的章节清单（`failed_chapters`）
 
 ### 步骤 2: 生成报告
 

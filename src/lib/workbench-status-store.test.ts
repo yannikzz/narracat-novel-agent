@@ -129,6 +129,27 @@ describe('useWorkbenchStatusStore', () => {
     expect(useWorkbenchStatusStore.getState().snapshot).toEqual(previous)
   })
 
+
+  test('strips the Electron IPC wrapper from the stored error message (#38)', async () => {
+    // 作者看到的是 store 里这个字符串。带着 `Error invoking remote method 'novel:refresh-status'`
+    // 直接渲染，等于把实现细节糊在脸上，还把唯一有用的信息挤到后面。
+    useWorkbenchStatusStore.setState({ projectPath: '/novels/stars', phase: 'loaded' })
+    mockElectron({
+      refreshNovelStatus: () =>
+        Promise.reject(
+          new Error(
+            "Error invoking remote method 'novel:refresh-status': Error: 缺少 .narracat/config.yaml 或 .narracat/state.yaml",
+          ),
+        ),
+    })
+
+    await useWorkbenchStatusStore.getState().refresh('/novels/stars')
+
+    expect(useWorkbenchStatusStore.getState().error).toBe(
+      '缺少 .narracat/config.yaml 或 .narracat/state.yaml',
+    )
+  })
+
   test('enter hydrates the persisted snapshot then background-refreshes when one exists', async () => {
     const persisted = snapshotFixture()
     const fresh = snapshotFixture({ generatedAt: '2026-06-17T00:00:00.000Z' })

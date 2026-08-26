@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -13,10 +13,14 @@ import {
   createPackageRcSteps,
   findMissingCorpusEnv,
   findMissingNotarizeEnv,
+  captureSourceManifest,
   packagedAppBinaryPath,
+  resolvePackageClientVersion,
+  restoreSourceManifestIfClobbered,
   resolveStepEnv,
   runPackageRc,
 } from './package-rc.mjs'
+import { CLIENT_BUILD_VERSION_RE } from './client-build-version.mjs'
 import { DEFAULT_APP_PATH } from './verify-signed-artifact.mjs'
 
 const packageRcModuleUrl = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'package-rc.mjs')).href
@@ -549,6 +553,91 @@ describe('CLI 入口守卫：node scripts/package-rc.mjs 必须先加载 .env �
       const output = runCliExpectingFailure(cliPath, dir)
       expect(output).toMatch(/公证凭证缺失/)
       expect(output).toMatch(/APPLE_API_KEY/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('resolvePackageClientVersion — 内测包版本号覆盖', () => {
+  test('未设环境变量时走 git 计数（与正式链路同源）', () => {
+    const version = resolvePackageClientVersion({ env: {} })
+    expect(version).toMatch(CLIENT_BUILD_VERSION_RE)
+  })
+
+  test('设了就用它——测试包要能压过线上版本，否则 electron-updater 会静默换掉它', () => {
+    expect(resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: '0.1.9999' } })).toBe('0.1.9999')
+  })
+
+  test('空白值视同未设，不产出空版本号', () => {
+    const version = resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: '   ' } })
+    expect(version).toMatch(CLIENT_BUILD_VERSION_RE)
+  })
+
+  test('非法值 fail-loud，不静默打出坏版本号的包', () => {
+    for (const bad of ['abc', '0.1', '0.1.2.3', 'v0.1.2']) {
+      expect(() => resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: bad } })).toThrow(
+        /NARRACAT_CLIENT_VERSION/,
+      )
+    }
+  })
+
+  test('覆盖只在打包入口生效：release.mjs 不得引用它', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const releaseSource = await readFile(
+      join(dirname(fileURLToPath(import.meta.url)), 'release.mjs'),
+      'utf8',
+    )
+    expect(releaseSource).not.toContain('NARRACAT_CLIENT_VERSION')
+    expect(releaseSource).not.toContain('resolvePackageClientVersion')
+  })
+})
+
+describe('源 package.json 看门狗 — 打包工具改写它是静默的', () => {
+  async function makeRepo(manifest = '{\n  "name": "x",\n  "scripts": {}\n}\n') {
+    const dir = realpathSync(await mkdtemp(join(tmpdir(), 'pkgjson-')))
+    await writeFile(join(dir, 'package.json'), manifest)
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir })
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: dir })
+    execFileSync('git', ['add', 'package.json'], { cwd: dir })
+    execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir })
+    return dir
+  }
+
+  test('没被改写时什么都不做', async () => {
+    const dir = await makeRepo()
+    try {
+      const before = captureSourceManifest(dir)
+      expect(restoreSourceManifestIfClobbered(before, dir, () => {})).toBe('untouched')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('打包前干净、事后被截断 → 自动还原，scripts 段不会被静默删掉', async () => {
+    const dir = await makeRepo()
+    try {
+      const before = captureSourceManifest(dir)
+      await writeFile(join(dir, 'package.json'), '{"name":"x"}\n') // 模拟 electron-builder 落下的精简 metadata
+      const logs = []
+      expect(restoreSourceManifestIfClobbered(before, dir, (m) => logs.push(m))).toBe('restored')
+      expect(await readFile(join(dir, 'package.json'), 'utf8')).toContain('scripts')
+      expect(logs.join('')).toContain('package.json')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('打包前就有未提交改动 → 只告警不还原（绝不吃掉作者自己的编辑）', async () => {
+    const dir = await makeRepo()
+    try {
+      await writeFile(join(dir, 'package.json'), '{\n  "name": "x",\n  "scripts": {},\n  "mine": 1\n}\n')
+      const before = captureSourceManifest(dir)
+      expect(before.wasGitClean).toBe(false)
+      await writeFile(join(dir, 'package.json'), '{"name":"x"}\n')
+      expect(restoreSourceManifestIfClobbered(before, dir, () => {})).toBe('warned')
+      expect(await readFile(join(dir, 'package.json'), 'utf8')).not.toContain('scripts')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

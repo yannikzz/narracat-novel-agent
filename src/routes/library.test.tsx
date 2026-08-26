@@ -10,6 +10,7 @@ import {
   LibraryFilterBar,
   LibraryFilteredEmptyState,
   LibraryHomeHero,
+  LibraryInvalidProjectPanel,
   LibraryProjectDeletePanel,
   LIBRARY_PROJECT_METADATA_DIALOG_CONTENT_CLASS,
   LibraryNavBrand,
@@ -18,6 +19,7 @@ import {
   LibraryProjectGrid,
   LibraryRoute,
   isLibraryProjectDeleteConfirmationValid,
+  libraryAutomationMenuLabel,
   summarizeLibraryProjects,
 } from './library'
 import { getLibraryCoverPreset } from '@/lib/library-covers'
@@ -230,6 +232,73 @@ describe('LibraryRoute presentation', () => {
     ])
   })
 
+
+  test('an invalid project card no longer links into a workbench that must fail (#38)', () => {
+    // 书架明知这本书坏了、卡上都标了红，仍旧让作者点进去，然后用一句开发黑话糊他脸上。
+    // 入口必须先拦住：进到一个什么都读不出来的工作台对作者零价值。
+    const invalid = { ...baseProject, status: 'invalid' as const, problem: '缺少 .narracat/config.yaml 或 .narracat/state.yaml' }
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <LibraryProjectCard project={invalid} />
+      </MemoryRouter>,
+    )
+
+    expect(html).not.toContain('/workbench?project=')
+    expect(html).toContain('data-library-invalid-trigger="true"')
+    // 原始文件名不糊到作者脸上。
+    expect(html).not.toContain('.narracat/config.yaml')
+  })
+
+
+  test('the broken-project notice leads with opening the folder, not with deleting', () => {
+    // invalid 多半是误判——文件夹被移动、外置盘没插、config.yaml 被误删而正文还在。
+    // 主动作必须是「去看一眼」，不能引导作者先删东西。
+    const invalid = { ...baseProject, status: 'invalid' as const }
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <Dialog open>
+        <LibraryInvalidProjectPanel
+          canRemove
+          project={invalid}
+          removing={false}
+          onCancel={() => {}}
+          onRemove={() => {}}
+          onReveal={() => {}}
+        />
+        </Dialog>
+      </MemoryRouter>,
+    )
+
+    expect(html).toContain('data-library-invalid-reveal="true"')
+    expect(html).toContain('打开所在文件夹')
+    expect(html).toContain('data-library-invalid-remove="true"')
+    expect(html).not.toContain('.narracat/config.yaml')
+  })
+
+  test('hides removal when the project sits inside the novel root, where removing cannot work', () => {
+    // root 下的项目摘掉最近路径也没用，下次扫描照样出现。这时改为把删除入口指回「更多」，
+    // 而不是给一个点了不生效的按钮。
+    const invalid = { ...baseProject, status: 'invalid' as const }
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <Dialog open>
+        <LibraryInvalidProjectPanel
+          canRemove={false}
+          project={invalid}
+          removing={false}
+          onCancel={() => {}}
+          onRemove={() => {}}
+          onReveal={() => {}}
+        />
+        </Dialog>
+      </MemoryRouter>,
+    )
+
+    expect(html).not.toContain('data-library-invalid-remove="true"')
+    expect(html).toContain('更多')
+    expect(html).toContain('data-library-invalid-reveal="true"')
+  })
+
   test('renders project cards in the desktop book-cover layout without redundant open copy', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
@@ -352,6 +421,32 @@ describe('LibraryRoute presentation', () => {
     expect(html).not.toContain('未完成')
   })
 
+  test('shows the current automation mode in the card menu and explains why it can be locked (#27)', () => {
+    expect(libraryAutomationMenuLabel('auto', false)).toBe('自动化：全自动')
+    expect(libraryAutomationMenuLabel('collaborative', false)).toBe('自动化：协作模式')
+    expect(libraryAutomationMenuLabel('auto', true)).toBe('Agent 运行中，不能切换模式')
+  })
+
+  // 菜单本身渲染在 portal 里，静态渲染的卡片 HTML 抓不到——照删除菜单项的先例读源码锁住。
+  test('wires the automation switch as a run-guarded card menu entry that spells out each mode (#27)', () => {
+    const source = readFileSync('src/routes/library.tsx', 'utf8')
+    const anchor = source.indexOf('data-library-project-automation-menu-item="true"')
+
+    expect(anchor).toBeGreaterThan(-1)
+
+    // 取该属性所在的那个 SubTrigger 元素，不认「文件里第一个 SubTrigger」，免得日后加了别的子菜单就测错块。
+    const trigger = source.slice(
+      source.lastIndexOf('<DropdownMenuSubTrigger', anchor),
+      source.indexOf('</DropdownMenuSubTrigger>', anchor),
+    )
+
+    // 与备份/删除同一道闸：Agent 正在跑就不让改档。
+    expect(trigger).toContain('disabled={deleteBlocked}')
+    // 两档各自的后果说明必须挂进选项，不能只给光秃秃的单选项让作者盲选。
+    expect(source).toContain('{LIBRARY_AUTOMATION_LEVEL_HELP.auto}')
+    expect(source).toContain('{LIBRARY_AUTOMATION_LEVEL_HELP.collaborative}')
+  })
+
   test('requires the visible title before deleting a project', () => {
     expect(isLibraryProjectDeleteConfirmationValid('星辰大海', ' 星辰大海 ')).toBe(true)
     expect(isLibraryProjectDeleteConfirmationValid('星辰大海', '星辰')).toBe(false)
@@ -464,7 +559,10 @@ describe('LibraryRoute presentation', () => {
       </MemoryRouter>,
     )
 
-    expect(html).toContain('缺少 config.yaml')
+    // #38：invalid 仍然可见且仍排在最后，但卡上不再露 `缺少 config.yaml` 这类文件名，
+    // 只留一句人话；缺什么、能怎么办放进点击后的说明浮层。
+    expect(html).not.toContain('缺少 config.yaml')
+    expect(html).toContain('项目文件不完整')
     expect(html.match(/loading="eager"/g) ?? []).toHaveLength(3)
     expect(html).not.toContain('loading="lazy"')
     expect(html.indexOf('断点')).toBeLessThan(html.indexOf('可写'))

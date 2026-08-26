@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { NOVEL_PROJECT_INCOMPLETE_MESSAGE } from '@shared/lib/ipc-error'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import { isNarraCatProject } from './novel-project'
@@ -10,7 +11,7 @@ import type {
   NovelStatusSnapshot,
 } from '@shared/types/novel'
 
-const missingProjectProblem = '缺少 .narracat/config.yaml 或 .narracat/state.yaml'
+const missingProjectProblem = NOVEL_PROJECT_INCOMPLETE_MESSAGE
 const defaultGenre = '未分类'
 
 async function readYamlFile(path: string): Promise<Record<string, unknown>> {
@@ -150,13 +151,33 @@ export interface NovelStatusAggregationOptions {
   enrich?: (input: { projectPath: string; currentChapter: number | null }) => Promise<NovelStatusEnrichment>
 }
 
+async function fileExists(path: string): Promise<boolean> {
+  return Boolean(await stat(path).catch(() => null))
+}
+
 export async function aggregateNovelStatusSnapshot(
   projectPath: string,
   options: NovelStatusAggregationOptions = {},
 ): Promise<NovelStatusSnapshot> {
   const trimmed = projectPath.trim()
   if (!trimmed) throw new Error('缺少项目路径。')
-  if (!(await isNarraCatProject(trimmed))) throw new Error(missingProjectProblem)
+  if (!(await isNarraCatProject(trimmed))) {
+    // 面向作者的文案保持不变（不把本机路径推到 UI 上），但主进程日志必须留下现场：
+    // 没有 projectPath 就无法从一句静态文案倒推是哪个项目、缺的是哪个文件（#38）。
+    const [hasConfig, hasState] = await Promise.all([
+      fileExists(join(trimmed, narracatConfigPath())),
+      fileExists(join(trimmed, narracatStatePath())),
+    ])
+    console.error(
+      '[novel-status] 项目文件不完整：',
+      JSON.stringify({
+        projectPath: trimmed,
+        'config.yaml': hasConfig ? 'ok' : 'missing',
+        'state.yaml': hasState ? 'ok' : 'missing',
+      }),
+    )
+    throw new Error(missingProjectProblem)
+  }
 
   const [config, state] = await Promise.all([
     readYamlFile(join(trimmed, narracatConfigPath())),

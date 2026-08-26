@@ -125,6 +125,36 @@ describe('novel project loading', () => {
     expect(config).toContain('cover_preset: cover-08')
   })
 
+  test('reports the current automation level and treats a missing one as collaborative', async () => {
+    const root = await makeNovelProject('automation-level')
+
+    expect((await loadNovelProjectSummary(root)).automationLevel).toBe('auto')
+
+    await writeNovelFixtureFile(
+      root,
+      join('.narracat', 'config.yaml'),
+      ['novel_id: novel-1', 'title: 星辰大海', 'language: zh-CN', ''].join('\n'),
+    )
+
+    expect((await loadNovelProjectSummary(root)).automationLevel).toBe('collaborative')
+  })
+
+  test('switches the automation level and keeps the rest of config.yaml untouched', async () => {
+    const root = await makeNovelProject('switch-automation')
+
+    const updated = await updateNovelProjectMetadata({ projectPath: root, automationLevel: 'collaborative' })
+    const config = await readFile(join(root, '.narracat', 'config.yaml'), 'utf-8')
+
+    expect(updated.automationLevel).toBe('collaborative')
+    expect(config).toContain('automation_level: collaborative')
+    expect(config).toContain('novel_id: novel-1')
+    expect(config).toContain('title: 星辰大海')
+    expect(config).toContain('language: zh-CN')
+    expect(config).toContain('estimated_total_chapters: null')
+    expect(config).toContain('words_per_chapter: null')
+    expect(config).toContain('style_profile: null')
+  })
+
   test('rejects blank titles and unknown cover presets when updating metadata', async () => {
     const root = await makeNovelProject('reject-metadata')
 

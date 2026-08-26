@@ -22,6 +22,8 @@ import type { CreateNovelProjectInput } from '@shared/types/novel'
 type ButtonProps = ComponentProps<typeof Button>
 
 export const CREATE_NOVEL_INITIAL_GENRE = ''
+/** 默认推荐档：先让作者拿到整章成品，再决定要不要把手伸回流程里（#27）。 */
+export const CREATE_NOVEL_INITIAL_AUTOMATION_LEVEL: CreateNovelProjectInput['automationLevel'] = 'auto'
 export const CREATE_NOVEL_TITLE_PLACEHOLDER = '输入小说标题'
 export const CREATE_NOVEL_GENRE_PLACEHOLDER = '例如：仙侠、都市异能、悬疑推理'
 export const CREATE_NOVEL_GENRE_HELP = '可以填写单一题材或复合题材，Agent 会据此调整后续问题。'
@@ -29,7 +31,8 @@ export const CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL = '协作模式'
 export const CREATE_NOVEL_AUTOMATION_COLLABORATIVE_HELP =
   '关键节点先和你确认再继续：大纲分段生成、写作前过目。'
 export const CREATE_NOVEL_AUTOMATION_AUTO_LABEL = '全自动'
-export const CREATE_NOVEL_AUTOMATION_AUTO_HELP = '全程不打断，大纲和写作一口气跑完，适合想直接看结果。'
+export const CREATE_NOVEL_AUTOMATION_AUTO_HELP =
+  '中途不再停下来问你：大纲和写作一口气跑完，适合想直接看结果。'
 
 function Field({
   asLabel = true,
@@ -163,17 +166,17 @@ export function CreateNovelDialogPanel({
             <div className="grid gap-1.5">
               <div data-create-novel-automation="segmented" className="grid grid-cols-2 rounded-row bg-active p-1">
                 <AutomationOption
-                  active={automationLevel === 'collaborative'}
-                  recommended
-                  onClick={() => onAutomationLevelChange('collaborative')}
-                >
-                  {CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL}
-                </AutomationOption>
-                <AutomationOption
                   active={automationLevel === 'auto'}
+                  recommended
                   onClick={() => onAutomationLevelChange('auto')}
                 >
                   {CREATE_NOVEL_AUTOMATION_AUTO_LABEL}
+                </AutomationOption>
+                <AutomationOption
+                  active={automationLevel === 'collaborative'}
+                  onClick={() => onAutomationLevelChange('collaborative')}
+                >
+                  {CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL}
                 </AutomationOption>
               </div>
               <p data-create-novel-automation-help="true" className="text-xs font-normal leading-5 text-hint-foreground">
@@ -221,8 +224,7 @@ export function CreateNovelDialog({
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [genre, setGenre] = useState(CREATE_NOVEL_INITIAL_GENRE)
-  const [automationLevel, setAutomationLevel] =
-    useState<CreateNovelProjectInput['automationLevel']>('collaborative')
+  const [automationLevel, setAutomationLevel] = useState(CREATE_NOVEL_INITIAL_AUTOMATION_LEVEL)
   const [formError, setFormError] = useState<string | null>(null)
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {

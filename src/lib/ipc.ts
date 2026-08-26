@@ -76,6 +76,7 @@ import type {
   ReadPlannedStateInput,
 } from '@shared/types/planned-state'
 import type { ProseBlockView } from '@shared/types/prose-block'
+import type { ProcessHealthReport } from '@shared/types/process-health'
 
 export function ping(): Promise<string> {
   return window.electron.ping()
@@ -135,6 +136,11 @@ export function listProviderModels(provider: ProviderId): Promise<ProviderModelL
 
 export function getNarraCatDiagnostics(): Promise<NarraCatAgentCoreDiagnostics> {
   return window.electron.getNarraCatDiagnostics()
+}
+
+/** 进程健康记录（#39）：界面崩溃 / 子进程退出 / 主线程卡死的留痕。 */
+export function getProcessHealth(): Promise<ProcessHealthReport> {
+  return window.electron.getProcessHealth()
 }
 
 /**

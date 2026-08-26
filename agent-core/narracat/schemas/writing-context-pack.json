@@ -230,6 +230,29 @@
         }
       }
     },
+    "characters_without_cards": {
+      "type": "array",
+      "description": "本章出场但状态卡未随包给出的角色（可选；无缺口时省略）。出场名单必须完整——包是子 agent 的全部世界，缺卡不点名它就只能猜。需要其状态时按 character_uid 调 novel_character_state 补查",
+      "items": {
+        "type": "object",
+        "required": ["character", "reason"],
+        "properties": {
+          "character": {
+            "type": "string",
+            "description": "canonical 角色名"
+          },
+          "character_uid": {
+            "type": "string",
+            "description": "novel_character_state 的入参（该工具只认 uid）；角色未解析出 uid 时省略"
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["尚无状态记录", "状态卡超预算未随包给出"],
+            "description": "缺卡成因：折叠不出卡（新登场/未抽出事实） vs 卡存在但被区块预算裁掉"
+          }
+        }
+      }
+    },
     "planned_state_changes": {
       "type": "array",
       "description": "本章计划状态变更（可选；planned_state_changes 计划账 status=planned 行的人读渲染，维度按词表 display_name 口径）。写手把这些变化在本章正文里演出来；当前状态仍以 character_cards 为准",

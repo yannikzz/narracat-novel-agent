@@ -414,7 +414,7 @@ export function WorkbenchPrimarySidebar({
       data-workbench-primary-sidebar="true"
     >
       <div
-        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[112px] pr-3 [-webkit-app-region:drag]"
+        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[var(--titlebar-inset-left)] pr-3 [-webkit-app-region:drag]"
         data-workbench-sidebar-headbar="true"
       >
         <IconTooltip label="返回图书馆">

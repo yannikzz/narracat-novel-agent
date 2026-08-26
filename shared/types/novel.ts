@@ -1,6 +1,8 @@
 import type { NarraCatArtifactKind } from './narracat'
 
 export type NovelProjectStatus = 'ready' | 'needs-setup' | 'needs-outline' | 'in-progress' | 'invalid'
+/** 落盘为 `.narracat/config.yaml` 顶层 `automation_level`；控制状态，不外露到对话流（ADR-0016）。 */
+export type NovelAutomationLevel = 'collaborative' | 'auto'
 export type NovelTocItemKind = 'volume' | 'chapter'
 export type NovelChapterStatus =
   | 'completed'
@@ -47,6 +49,8 @@ export interface NovelProjectSummary {
   wordCountLabel: string
   /** 原始总字数（纯文字）。首页 banner 聚合用此精确求和，不从 wordCountLabel 反解。 */
   wordCountTotal?: number
+  /** 当前自动化模式；config.yaml 读不到（项目损坏）时缺省，UI 据此隐藏切换入口。 */
+  automationLevel?: NovelAutomationLevel
   updatedAt?: string
   problem?: string
   checkpoint?: NovelCheckpoint | null
@@ -287,7 +291,7 @@ export interface NovelStatusSnapshot {
 export interface CreateNovelProjectInput {
   title: string
   genre: string
-  automationLevel: 'collaborative' | 'auto'
+  automationLevel: NovelAutomationLevel
 }
 
 export interface CreatedNovelProject {
@@ -299,6 +303,7 @@ export interface UpdateNovelProjectMetadataInput {
   projectPath: string
   title?: string
   coverPreset?: string
+  automationLevel?: NovelAutomationLevel
 }
 
 export interface DeleteNovelProjectInput {

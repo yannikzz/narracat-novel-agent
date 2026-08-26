@@ -15,16 +15,23 @@ type AppShellProps = {
 export function AppShell({ navStart, navCenter, navEnd, children }: AppShellProps) {
   return (
     <div className={`${APP_CANVAS_CLASS} flex h-full flex-col`}>
-      {/* 顶部 nav：只承担拖拽和轻量导航，不再作为一块有边框的独立 surface。 */}
+      {/* 顶部 nav：只承担拖拽和轻量导航，不再作为一块有边框的独立 surface。
+          左右 padding 平台感知：mac 给左上角红绿灯让位（--titlebar-inset-left），
+          Windows 给右上角系统 caption 按钮让位（--titlebar-inset-right），
+          再加呼吸位——caption 与 navEnd 图标只隔让位线会读成一团（视觉混排）。
+          左侧同样 +1rem 呼吸位：原实现是 header px-4 与内层 pl-[112px] 两层叠加（合计 128px），
+          收进变量时必须保留两层语义，与右侧 +0.75rem 写法对称。 */}
       <header
         className={`
           ${APP_HEADER_CLASS}
           relative flex items-center justify-between
-          h-14 px-4 shrink-0
+          h-14 shrink-0
+          pl-[max(1rem,calc(var(--titlebar-inset-left)+1rem))]
+          pr-[max(1rem,calc(var(--titlebar-inset-right)+0.75rem))]
           [-webkit-app-region:drag]
         `}
       >
-        <div className="flex h-full min-w-0 items-center gap-2.5 leading-none [-webkit-app-region:no-drag] pl-[112px] [&_a]:leading-none [&_button]:leading-none [&_span]:leading-none [&_svg]:shrink-0">
+        <div className="flex h-full min-w-0 items-center gap-2.5 leading-none [-webkit-app-region:no-drag] [&_a]:leading-none [&_button]:leading-none [&_span]:leading-none [&_svg]:shrink-0">
           {navStart}
         </div>
         {navCenter ? (

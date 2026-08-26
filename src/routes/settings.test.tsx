@@ -39,7 +39,8 @@ describe('SettingsRoute', () => {
     expect(html).toContain('data-settings-sidebar="true"')
     expect(html).toContain('w-64')
     expect(html).toContain('data-settings-stage="true"')
-    expect(html).toContain('min-h-0 min-w-0 flex-1 p-3')
+    // 顶部 padding 消费 --titlebar-gutter-top（win32 上下分区：内容卡从 caption 带下开始）
+    expect(html).toContain('min-h-0 min-w-0 flex-1 px-3 pb-3 pt-[max(0.75rem,var(--titlebar-gutter-top))]')
     expect(html).toContain('data-settings-content-shell="true"')
     expect(html).toContain('rounded-workspace border border-border bg-workspace')
     expect(html).toContain('data-settings-content-titlebar="true"')

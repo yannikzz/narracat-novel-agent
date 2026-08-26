@@ -1,3 +1,5 @@
+import { isProjectIncompleteError } from '@shared/lib/ipc-error'
+import { Link } from 'react-router'
 import { Fragment, useEffect } from 'react'
 import { Check, CircleAlert, Gauge, Loader2, RefreshCw } from 'lucide-react'
 import { BrandIllustration, type BrandIllustrationPurpose } from '@/components/brand'
@@ -443,6 +445,31 @@ function WorkbenchStatusFailure({
   onRetry: () => void
   retrying: boolean
 }) {
+  // 项目文件不完整时重试一万次都是同一个错，给出路而不是给重试按钮；
+  // 原始错误只进主进程日志，不推到作者面前（#38）。
+  if (error && isProjectIncompleteError(error)) {
+    return (
+      <div className={cn(DESTRUCTIVE_INLINE_CLASS, 'mb-4 flex items-start gap-2')} data-workbench-status-failure="true">
+        <CircleAlert className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="font-medium">这本书的项目文件不完整</div>
+          <div className="mt-0.5 break-words text-xs leading-snug opacity-90">
+            暂时算不出写作进度。常见原因是文件夹被移动或重命名，也可能是它所在的磁盘没有连接。
+          </div>
+        </div>
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          data-workbench-status-back-to-library="true"
+        >
+          <Link to="/">返回书架</Link>
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div className={cn(DESTRUCTIVE_INLINE_CLASS, 'mb-4 flex items-start gap-2')} data-workbench-status-failure="true">
       <CircleAlert className="mt-0.5 size-4 shrink-0" />

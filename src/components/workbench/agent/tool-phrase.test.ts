@@ -83,7 +83,7 @@ describe('getToolPhrase', () => {
   })
 })
 
-const NM = 'mcp__plugin_narracat_novelmemory__'
+const NM = 'mcp__narracat_memory__'
 
 describe('getToolPhrase · NovelMemory MCP 人读动作名', () => {
   test('已知工具映射为人读动作名', () => {
@@ -124,5 +124,40 @@ describe('getToolPhrase · NovelMemory MCP 人读动作名', () => {
     const declared = [...new Set([...toolsSource.matchAll(/name: "(novel_[a-z_]+)"/g)].map((match) => match[1]))].sort()
     const mapped = Object.keys(NARRACAT_TOOL_LABELS).sort()
     expect(mapped).toEqual(declared)
+  })
+})
+
+describe('pi runtime tool names (#37 dogfood)', () => {
+  // 真机会话取证：pi 用小写内置名（Read→read、Write→write、Grep→grep），且 Glob 已改名为
+  // find。换 pi 时 tool-phrase 的 case 没跟着改，这些分支成了死代码，工具卡文案静默退化成
+  // 「调用 read」这类兜底黑话——违反「产品面不出现开发黑话」的既有约定。
+  const REAL_TOOL_CALLS: Array<[string, Record<string, unknown>]> = [
+    ['read', { path: '/novels/x/.narracat/config.yaml' }],
+    ['write', { path: '/novels/x/chapters/ch-021.md', content: 'a\nb' }],
+    ['find', { pattern: '*.md', path: '/novels/x/bible' }],
+    ['grep', { pattern: '林小满', path: '/novels/x' }],
+    ['edit', { path: '/novels/x/chapters/ch-021.md' }],
+    ['bash', { command: 'ls -la' }],
+    ['AskUserQuestion', { question: '要用哪个方向？' }],
+  ]
+
+  test('never leaks the raw english tool name to the author', () => {
+    // 退化形态不止「调用 read」：default 分支拿到 path 时会吐「read config.yaml」，
+    // 同样是把工具标识糊到作者脸上。断言按「label 不以工具名开头」来写，两种都能抓。
+    for (const [name, input] of REAL_TOOL_CALLS) {
+      const { label } = getToolPhrase(name, input)
+      expect(label.startsWith(name)).toBe(false)
+      expect(label.startsWith(`调用 ${name}`)).toBe(false)
+    }
+  })
+
+  test('reads the pi path argument for file tools', () => {
+    expect(getToolPhrase('read', { path: '/novels/x/.narracat/config.yaml' }).label).toBe(
+      '读取 config.yaml',
+    )
+    expect(getToolPhrase('write', { path: '/novels/x/chapters/ch-021.md', content: 'a\nb' }).label).toContain(
+      'ch-021.md',
+    )
+    expect(getToolPhrase('find', { pattern: '*.md' }).label).toBe('搜索文件 *.md')
   })
 })

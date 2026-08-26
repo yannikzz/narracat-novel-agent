@@ -8,11 +8,26 @@ import {
   CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL,
   CREATE_NOVEL_GENRE_HELP,
   CREATE_NOVEL_GENRE_PLACEHOLDER,
+  CREATE_NOVEL_INITIAL_AUTOMATION_LEVEL,
   CREATE_NOVEL_INITIAL_GENRE,
   CREATE_NOVEL_TITLE_PLACEHOLDER,
   CreateNovelDialogPanel,
   buildCreatedNovelWorkbenchHref,
 } from './CreateNovelDialog'
+
+/**
+ * 分档按钮按渲染顺序还原成「标签 → 选中态」。选中态与点击回调分别写在两个块上，最容易的手误就是
+ * 把它们在两块之间对调，而顺序/徽标那几条断言全都照样绿——所以这里逐块锁死配对。
+ */
+function readAutomationOptions(html: string): { active: string; label: string }[] {
+  const start = html.indexOf('data-create-novel-automation="segmented"')
+  const end = html.indexOf('data-create-novel-automation-help="true"')
+  const segmented = html.slice(start, end)
+
+  return [...segmented.matchAll(/data-active="(true|false)"[^>]*><span>([^<]*)<\/span>/g)].map(
+    ([, active, label]) => ({ active, label }),
+  )
+}
 
 describe('CreateNovelDialogPanel', () => {
   test('opens a newly created novel on the core premise tab', () => {
@@ -69,15 +84,23 @@ describe('CreateNovelDialogPanel', () => {
     expect(html).toContain('推荐')
     expect(html).toContain(CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL)
     expect(html).toContain(CREATE_NOVEL_AUTOMATION_AUTO_LABEL)
-    // 推荐徽标挂在协作模式选项上，且协作模式排在自动前面（默认档=协作模式）。
-    expect(html.indexOf(CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL)).toBeLessThan(
-      html.indexOf(CREATE_NOVEL_AUTOMATION_AUTO_LABEL),
+    // 推荐徽标挂在全自动选项上，且全自动排在协作模式前面（默认档=全自动，#27）。
+    expect(html.indexOf(CREATE_NOVEL_AUTOMATION_AUTO_LABEL)).toBeLessThan(
+      html.indexOf(CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL),
+    )
+    expect(html.indexOf(CREATE_NOVEL_AUTOMATION_AUTO_LABEL)).toBeLessThan(
+      html.indexOf('data-create-novel-automation-recommended="true"'),
     )
     expect(html.indexOf('data-create-novel-automation-recommended="true"')).toBeLessThan(
-      html.indexOf(CREATE_NOVEL_AUTOMATION_AUTO_LABEL),
+      html.indexOf(CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL),
     )
+    // automationLevel="auto" → 只有「全自动」那块高亮（接反了这条会红）。
+    expect(readAutomationOptions(html)).toEqual([
+      { active: 'true', label: CREATE_NOVEL_AUTOMATION_AUTO_LABEL },
+      { active: 'false', label: CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL },
+    ])
     expect(html).toContain('data-create-novel-automation-help="true"')
-    // 传入 automationLevel="auto" 时，说明文案应讲清"全程不打断"的后果。
+    // 传入 automationLevel="auto" 时，说明文案应讲清全程不打断换来的代价（时间与花费）。
     expect(html).toContain(CREATE_NOVEL_AUTOMATION_AUTO_HELP)
     expect(html).not.toContain(CREATE_NOVEL_AUTOMATION_COLLABORATIVE_HELP)
     expect(html).toContain('rounded-row bg-active p-1')
@@ -94,6 +117,10 @@ describe('CreateNovelDialogPanel', () => {
 
   test('does not prefill a genre before the author chooses one', () => {
     expect(CREATE_NOVEL_INITIAL_GENRE).toBe('')
+  })
+
+  test('defaults a new novel to the recommended fully automatic mode (#27)', () => {
+    expect(CREATE_NOVEL_INITIAL_AUTOMATION_LEVEL).toBe('auto')
   })
 
   test('collaborative automation shows its own consequence copy (dogfood #5 default)', () => {
@@ -113,6 +140,11 @@ describe('CreateNovelDialogPanel', () => {
       </Dialog>,
     )
 
+    // automationLevel="collaborative" → 高亮跟着换到「协作模式」那块，「推荐」徽标不跟着跑。
+    expect(readAutomationOptions(html)).toEqual([
+      { active: 'false', label: CREATE_NOVEL_AUTOMATION_AUTO_LABEL },
+      { active: 'true', label: CREATE_NOVEL_AUTOMATION_COLLABORATIVE_LABEL },
+    ])
     expect(html).toContain(CREATE_NOVEL_AUTOMATION_COLLABORATIVE_HELP)
     expect(html).not.toContain(CREATE_NOVEL_AUTOMATION_AUTO_HELP)
   })

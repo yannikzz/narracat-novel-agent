@@ -140,7 +140,9 @@ describe('切片③ 权限门禁接线', () => {
     const adapter = createPiAdapter()
     const options = (await adapter.createRunOptions(makeRunConfig())) as PiRunOptions
     expect(options.tools).toEqual(['read', 'grep', 'find', 'bash'])
-    expect(options.customTools).toHaveLength(0)
+    // 只有 find/grep（不依赖 fd/ripgrep 的替代实现，工具面含它们时自动注入）——此处要钉的是
+    // 「不注册其它自定义工具」，故精确列举而非只判空。
+    expect(options.customTools.map((tool) => tool.name)).toEqual(['find', 'grep'])
   })
 
   test('allowedTools 含 AskUserQuestion 时注册自定义工具且 tools 列表含其名', async () => {
@@ -162,7 +164,8 @@ describe('切片③ 权限门禁接线', () => {
   test('guard 扩展始终注入且允许根含 novelRootDir/projectPath/cwd', async () => {
     const adapter = createPiAdapter()
     const options = (await adapter.createRunOptions(makeRunConfig())) as PiRunOptions
-    expect(options.extensions).toHaveLength(2)
+    // guard + eager 参数救回 + 输出上限兑现（测试配置的主力槽是白名单内的 deepseek-v4-pro）。
+    expect(options.extensions).toHaveLength(3)
     expect(options.extensions.some((extension) => extension.handlers.has('tool_call'))).toBe(true)
   })
 
@@ -207,8 +210,10 @@ describe('切片③ 权限门禁接线', () => {
     } as never)) as PiRunOptions
     expect(options.tools).toEqual(['read', 'write', 'find'])
     expect(options.cwd).toBe('/tmp/sandbox-ws')
-    expect(options.customTools).toHaveLength(0)
-    expect(options.extensions).toHaveLength(2)
+    // 只有 find（不依赖 fd 的替代实现，工具面含 find 时自动注入）——此处要钉的是
+    // 「不注册其它自定义工具」，故精确列举而非只判空。
+    expect(options.customTools.map((tool) => tool.name)).toEqual(['find'])
+    expect(options.extensions).toHaveLength(3)
   })
 
   test('createSandboxedRunOptions 沙盒路径同规持久化：resume 翻成 sessionStore.resumeSessionId（对齐 SDK persistSession 默认，向导轮次续接同构）', async () => {
@@ -228,7 +233,7 @@ describe('切片④ 引擎钩子接线', () => {
   test('loadNarraCatRuntime=true → extensions 含 guard + engine-hooks 两个扩展', async () => {
     const adapter = createPiAdapter()
     const options = (await adapter.createRunOptions(makeRunConfig({ loadNarraCatRuntime: true }))) as PiRunOptions
-    expect(options.extensions).toHaveLength(3)
+    expect(options.extensions).toHaveLength(4)
     expect(options.extensions.some((extension) => extension.handlers.has('tool_call'))).toBe(true)
     expect(options.extensions.some((extension) => extension.handlers.has('tool_result'))).toBe(true)
   })
@@ -237,10 +242,29 @@ describe('切片④ 引擎钩子接线', () => {
     const adapter = createPiAdapter()
     const withoutFlag = (await adapter.createRunOptions(makeRunConfig())) as PiRunOptions
     expect(withoutFlag.extensions.some((extension) => extension.handlers.has('tool_result'))).toBe(false)
-    expect(withoutFlag.extensions).toHaveLength(2)
+    expect(withoutFlag.extensions).toHaveLength(3)
     const withFalse = (await adapter.createRunOptions(makeRunConfig({ loadNarraCatRuntime: false }))) as PiRunOptions
     expect(withFalse.extensions.some((extension) => extension.handlers.has('tool_result'))).toBe(false)
-    expect(withFalse.extensions).toHaveLength(2)
+    expect(withFalse.extensions).toHaveLength(3)
+  })
+
+  test('输出上限兑现扩展按模型装配：白名单内挂，白名单外零装配（不赌 provider 的上限）', async () => {
+    const adapter = createPiAdapter()
+    const hasPatch = (options: PiRunOptions) =>
+      options.extensions.some((extension) => extension.handlers.has('before_provider_request'))
+    const whitelisted = (await adapter.createRunOptions(makeRunConfig())) as PiRunOptions
+    expect(hasPatch(whitelisted)).toBe(true)
+    const unknownModel = (await adapter.createRunOptions(
+      makeRunConfig({
+        // 换成没收进白名单的模型 id（老 deepseek-chat 输出上限低得多，抬上去就是硬 400）。
+        config: {
+          ...config,
+          modelPool: [{ provider: 'deepseek', modelId: 'deepseek-chat', verification: null }],
+          primaryModelKey: 'deepseek/deepseek-chat',
+        },
+      } as never),
+    )) as PiRunOptions
+    expect(hasPatch(unknownModel)).toBe(false)
   })
 })
 
@@ -326,7 +350,9 @@ describe('切片⑤ 子 agent 派发与任务卡接线', () => {
       ...makeRunConfig({ loadNarraCatRuntime: true }),
       sandbox: { tools: ['Read', 'Write', 'Glob'], workspaceDir: '/tmp/sandbox-ws' },
     } as never)) as PiRunOptions
-    expect(options.customTools).toHaveLength(0)
+    // 只有 find（不依赖 fd 的替代实现，工具面含 find 时自动注入）——此处要钉的是
+    // 「不注册其它自定义工具」，故精确列举而非只判空。
+    expect(options.customTools.map((tool) => tool.name)).toEqual(['find'])
     expect(options.tools).toEqual(['read', 'write', 'find'])
   })
 
@@ -387,7 +413,9 @@ describe('切片⑥ NovelMemory 工具接线', () => {
       ...makeRunConfig({ loadNarraCatRuntime: true }),
       sandbox: { tools: ['Read', 'Write', 'Glob'], workspaceDir: '/tmp/sandbox-ws' },
     } as never)) as PiRunOptions
-    expect(options.customTools).toHaveLength(0)
+    // 只有 find（不依赖 fd 的替代实现，工具面含 find 时自动注入）——此处要钉的是
+    // 「不注册其它自定义工具」，故精确列举而非只判空。
+    expect(options.customTools.map((tool) => tool.name)).toEqual(['find'])
   })
 
   test('子会话按自己声明的面过滤：只含 novel_query，不含父面也开了的 novel_commit_chapter', async () => {
@@ -441,5 +469,53 @@ describe('切片⑥ NovelMemory 工具接线', () => {
     // model 别名映射（模型池化）：frontmatter model:'haiku' → 同 provider 已验证轻量槽；父 run 用主力槽
     expect(childOptions.model.id).toBe('model-haiku')
     expect(options.model.id).toBe('model-sonnet')
+  })
+})
+
+describe('find 工具可移植化（不依赖 fd 二进制）', () => {
+  // pi 内置 find 走 fd：查系统 PATH，找不到就下载。macOS 从 Finder 启动的 App 继承 launchd
+  // 窄 PATH（不含 Homebrew），作者机器上也不会装 fd，GitHub 下载对国内用户基本不可达——
+  // 真机打包版实测 find 一半调用直接报「fd is not available」。同名 customTool 覆盖内置。
+  test('工具面含 find 时注入同名替代实现', async () => {
+    const adapter = createPiAdapter()
+    const options = (await adapter.createRunOptions(makeRunConfig())) as PiRunOptions
+    expect(options.tools).toContain('find')
+    expect(options.customTools.map((tool) => tool.name)).toContain('find')
+  })
+
+  test('工具面不含 find 时不注入——不给会话凭空多一个工具面', async () => {
+    const adapter = createPiAdapter()
+    const options = (await adapter.createRunOptions(makeRunConfig({ allowedTools: ['Read', 'Write'] }))) as PiRunOptions
+    expect(options.tools).not.toContain('find')
+    expect(options.customTools.map((tool) => tool.name)).not.toContain('find')
+  })
+
+  test('子会话同样拿到替代实现——写手/审校跑在子会话里，漏了这条它们的 find 照样是坏的', async () => {
+    capturedChildSessionCalls = []
+    const adapter = createPiAdapter({ memoryBridge: fakeMemoryBridge })
+    const options = (await adapter.createRunOptions(
+      makeRunConfig({
+        loadNarraCatRuntime: true,
+        allowedTools: ['Read', 'Glob', 'Agent'],
+        agents: {
+          'chapter-writer': { description: '写手', prompt: '写手系统词', tools: ['Read', 'Glob'] },
+        },
+      }),
+    )) as PiRunOptions
+    const task = options.customTools.find((tool) => tool.name === 'Task')!
+    await task.execute('tc-1', { subagent_type: 'chapter-writer', prompt: '写第一章' } as never, undefined, undefined, {} as never)
+
+    const childOptions = capturedChildSessionCalls[0]!.options as PiRunOptions
+    expect(childOptions.tools).toContain('find')
+    expect(childOptions.customTools.map((tool) => tool.name)).toContain('find')
+  })
+
+  test('沙盒会话（学习/向导）同样注入——它们一样跑在打包版里', async () => {
+    const adapter = createPiAdapter()
+    const options = (await adapter.createSandboxedRunOptions({
+      ...makeRunConfig(),
+      sandbox: { tools: ['Read', 'Glob'], workspaceDir: '/tmp/sandbox-ws' },
+    } as never)) as PiRunOptions
+    expect(options.customTools.map((tool) => tool.name)).toContain('find')
   })
 })

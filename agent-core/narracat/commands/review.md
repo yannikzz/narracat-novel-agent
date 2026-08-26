@@ -1,7 +1,7 @@
 ---
 description: 审校已完成章节 — 默认客观错误审校；追加 deep 进入深度标注
 argument-hint: <章节号或范围，如"42"、"40-45"、"vol-01"；追加 deep 进入深审>
-allowed-tools: [Agent, Read, Write, AskUserQuestion, "mcp__plugin_narracat_novelmemory__novel_build_writing_context_pack", "mcp__plugin_narracat_novelmemory__novel_get_review"]
+allowed-tools: [Agent, Read, Write, AskUserQuestion, "mcp__narracat_memory__novel_build_writing_context_pack", "mcp__narracat_memory__novel_get_review"]
 ---
 
 对已完成章节做审校。两种模式：

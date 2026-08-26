@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter } from 'react-router'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
   CurrentArcBlock,
@@ -44,7 +45,8 @@ function render({
   nextStep?: StatusNextStep
 }): string {
   return renderToStaticMarkup(
-    <TooltipProvider>
+    <MemoryRouter>
+      <TooltipProvider>
       <WorkbenchStatusPanelView
         phase={phase}
         snapshot={snapshot}
@@ -53,7 +55,8 @@ function render({
         nextStep={nextStep}
         onRefresh={() => {}}
       />
-    </TooltipProvider>,
+      </TooltipProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -192,6 +195,22 @@ describe('WorkbenchStatusPanelView', () => {
 
     expect(html).toContain('data-workbench-status-failure="true"')
     expect(html).toContain('还没有状态快照')
+  })
+
+
+  test('broken project shows plain-language guidance and a way back instead of retry', () => {
+    // 对损坏项目重试一万次都是同一个错。作者需要的是「这本书的文件不完整」+ 一条出路，
+    // 而不是一个永远点不出结果的重试按钮，更不是 IPC 实现细节。
+    const html = render({
+      phase: 'failed',
+      snapshot: null,
+      error: '缺少 .narracat/config.yaml 或 .narracat/state.yaml',
+    })
+
+    expect(html).toContain('data-workbench-status-failure="true"')
+    expect(html).toContain('data-workbench-status-back-to-library="true"')
+    expect(html).not.toContain('data-workbench-status-retry="true"')
+    expect(html).not.toContain('.narracat/config.yaml')
   })
 
   test('enriched snapshot shows the default 当前剧情 tab plus triggers for the other groups', () => {

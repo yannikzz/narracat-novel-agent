@@ -258,6 +258,58 @@ Workbench 使用固定 px 侧栏 + 流式内容区，不使用百分比作为可
 
 所有原生滚动条必须匹配 sidebar 的 ScrollArea 语言：透明轨道、`10px` 视觉占位、圆形 `border` token thumb，hover 切换到 `border-strong`。不要在内容区、Agent 区或弹出层里单独定义更深、更宽或彩色滚动条。
 
+### 4.4 平台顶栏让位（mac 红绿灯 / Windows caption）
+
+窗口是无边框的（`titleBarStyle: 'hidden'`），但两个平台的系统窗口按钮仍由系统绘制在我们的 UI **之上**：mac 的红绿灯在左上角，Windows 的最小化/最大化/关闭在右上角。它们不参与我们的布局，只会盖住我们的内容——所以顶部区域必须主动让位。
+
+这是**全局布局契约**：任何新页面、新浮层只要有元素贴近窗口顶边，都要按本节处理。
+
+#### 让位量只有一个来源
+
+平台由 `<html data-platform>` 决定（`src/main.tsx` 从 preload 的 `window.electron.platform` 取，主进程平台为准）。三个 CSS 变量是**唯一的让位量来源**，页面一律不许自己硬编码像素：
+
+| 变量 | darwin | win32 | 其他 | 含义 |
+|------|--------|-------|------|------|
+| `--titlebar-inset-left` | `112px` | `0` | `0` | 左上角红绿灯占位宽 |
+| `--titlebar-inset-right` | `0` | `150px`（回退值） | `0` | 右上角 caption 按钮占位宽 |
+| `--titlebar-gutter-top` | `0` | `56px` | `0` | caption 带高度，等于 `window.ts` 的 `TITLE_BAR_HEIGHT` |
+
+`--titlebar-inset-right` 的 `150px` 只是 100% 缩放下的**回退值**。真实值由 `main.tsx` 用 Window Controls Overlay API（`navigator.windowControlsOverlay.getTitlebarAreaRect()`）在运行时实测后写成内联变量覆盖——125% / 150% 缩放下 caption 实际更宽，硬编码必漏。不要因为看到 `150px` 就以为它是常量。
+
+#### 两套策略，新页面按页面结构选
+
+| 页面结构 | 策略 | 代表页 | 做法 |
+|---|---|---|---|
+| 有**通栏 header** | **水平让位** | 书架（`AppShell`） | header 左右 padding 分别消费 `inset-left` / `inset-right`。系统按钮落在通栏 header 上不构成混排 |
+| 无通栏 header，canvas 上直接浮起卡片 | **上下分区** | 工作台、设置页 | 卡片容器顶部 padding 消费 `gutter-top`，卡片从 caption 带**下方**开始，系统按钮悬在 canvas gutter 上；左侧栏保持通顶 |
+
+两套并存不是历史包袱：上下分区解决的是「系统按钮压在卡片白底上、与卡片自身的图标按钮读成一团」，而通栏 header 本来就没有这个问题。**选错的代价是 Windows 上按钮打架，而 mac 上看不出来**——所以选择依据是页面结构，不是个人偏好。
+
+#### 消费写法（照抄，不要自创）
+
+```
+左：pl-[max(1rem,calc(var(--titlebar-inset-left)+1rem))]
+右：pr-[max(1rem,calc(var(--titlebar-inset-right)+0.75rem))]
+顶：pt-[max(0.75rem,var(--titlebar-gutter-top))]
+```
+
+三条规则，缺一条就会出 bug：
+
+1. **兼作视觉间距的 padding 必须 `max()` 保底。** 非 mac / 非 win 平台变量是 `0`，若这一侧 padding 同时承担内容与窗口边缘的正常间距，裸写 `pl-[var(--titlebar-inset-left)]` 会让它直接归零——布局在这些平台上塌掉，而开发机上永远复现不了。
+   *例外：纯让位型 padding 可以裸写。* 当某侧 padding 的**唯一职责**就是给系统按钮腾地方、不承担任何视觉间距时（典型是 `justify-end` 的左栏头部：内容右对齐，左侧本就该是空的），归零正是期望行为。现有两处如此——`SettingsLayout.tsx` 与 `WorkbenchPrimarySidebar.tsx` 的 `pl-[var(--titlebar-inset-left)]`。判断依据是**这侧 padding 去掉后设计上是否还需要间距**，不是「有没有写 max()」。
+2. **呼吸位不可省。** 系统按钮与我们的图标之间只隔一条让位线时会被读成同一组按钮。左右各留 `1rem` / `0.75rem`。
+3. **已经在 caption 带下方的元素不要二次让位。** 上下分区之后，卡片内部的头部（Agent 面板头、聊天卡头）已经整体位于系统按钮下方，再消费 `inset-right` 会把按钮无故推离卡片右缘上百像素。
+
+**例外是全屏覆盖态**：`fixed inset-0` 的浮层（如记忆星图全屏）会盖住整个窗口、包括 caption 带，必须重新让位。
+
+#### 与间距 scale 的关系
+
+本节是 §10 / §11「间距使用 Tailwind 内置 scale、不写任意值」的**明确例外**——让位量是运行时决定的平台值，scale 无法表达。例外仅限本节这三个变量的消费，不构成在别处写任意间距的理由。
+
+#### 已知耦合点
+
+`--titlebar-gutter-top` 的 `56px` 必须与 `electron/main/window.ts` 的 `TITLE_BAR_HEIGHT` 保持一致。这是跨文件硬编码，改任一侧都要改另一侧，否则 Windows 上卡片与 caption 带错位，且没有任何测试会红。
+
 ---
 
 ## 5. 交互状态
@@ -675,6 +727,8 @@ Workbench 中间内容区不是普通页面容器，而是 Novel project 当前�
 | 固定宽度 dropdown `w-52` | 文字换行不可控 | `w-auto` / `min-w-* max-w-*` |
 | Header/sidebar 做不透明卡片 | 破坏 floating workspace 母题 | header/sidebar 透明，主工作区浮起 |
 | 把 workspace card 铺满屏幕边缘 | 失去产品识别度 | 保留 `mt-1.5 mr-3 mb-3` gutter |
+| 顶栏元素硬编码平台让位像素（`pl-[112px]`） | mac 与 Windows 让位量不同，Windows 高 DPI 下还是运行时实测值 | 消费 `--titlebar-inset-*` / `--titlebar-gutter-top`（§4.4） |
+| 裸写 `pl-[var(--titlebar-inset-left)]`，不带 `max()` 保底 | 非 mac / 非 win 平台变量为 `0`，该侧 padding 直接塌掉，且开发机复现不了 | `pl-[max(1rem,calc(var(--titlebar-inset-left)+1rem))]` |
 | 页面直接 import Logo 或品牌插图并散写尺寸 | 品牌资产难以治理 | 使用 `BrandMark` / `BrandLockup` / `BrandIllustration` |
 | 把品牌绿用于 primary、active 或成功状态 | 混淆品牌身份和操作语义 | `brand` 只用于低频品牌细节；操作仍用 `primary` / `active` |
 | 有内容的阅读态显示品牌插图 | 干扰 Markdown 阅读和小说正文 | 插图只进入缺失 / 引导态 |
@@ -702,6 +756,7 @@ Workbench 中间内容区不是普通页面容器，而是 Novel project 当前�
 - [ ] Pressed scale 是否按组件大小选择了 `0.92` / `0.95` / `0.97` / `0.98`？
 - [ ] 图标尺寸是否与组件尺寸匹配？IconTile 是否保持单色？
 - [ ] 间距是否使用 Tailwind 内置 scale（无任意值）？
+- [ ] 贴近窗口顶边的元素是否按 §4.4 让位（消费 `--titlebar-*` 变量 + `max()` 保底 + 呼吸位），而不是硬编码像素？新页面是否按页面结构选对了水平让位 / 上下分区？
 - [ ] 圆角是否来自降低 2px 后的规范 scale 或组件变体？等宽高 submit/send 是否为正圆？
 - [ ] Dark 模式下 floating card、glass、hairline 是否仍有清晰层级？
 - [ ] 有没有不必要的分割线（可以用间距或 hairline 透明度替代）？

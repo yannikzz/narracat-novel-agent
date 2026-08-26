@@ -1,3 +1,4 @@
+import { stripIpcErrorPrefix } from '@shared/lib/ipc-error'
 import { create } from 'zustand'
 import { readNovelStatus, refreshNovelStatus } from '@/lib/ipc'
 import type { NovelStatusSnapshot } from '@shared/types/novel'
@@ -27,7 +28,8 @@ interface WorkbenchStatusStore {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  // 剥掉 Electron IPC 外壳再交给 UI：作者看到的就是这个字符串（#38）。
+  return stripIpcErrorPrefix(error instanceof Error ? error.message : String(error))
 }
 
 const initialState = {
