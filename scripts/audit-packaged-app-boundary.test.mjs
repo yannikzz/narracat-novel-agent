@@ -17,6 +17,11 @@ import {
 import { resolveNativeTarget } from './stage-narracat-agent-core.mjs'
 
 describe('packaged app.asar boundary audit', () => {
+  // 显式钉 darwin：本组断言的是「mac 产物边界」，与测试跑在哪台机器上无关。
+  // 省略 target 会走 resolveNativeTarget(process.platform)，在 Linux CI runner 上
+  // fail-loud（linux 不是分发目标）——那是 runner 平台泄漏进断言。
+  const target = resolveNativeTarget('darwin')
+
   test('allows only runtime top-level entries', () => {
     const report = auditAsarEntries([
       '/package.json',
@@ -88,7 +93,7 @@ describe('packaged app.asar boundary audit', () => {
       'NarraCatAgentCore/mcp-server/src/index.ts',
       'NarraCatAgentCore/docs/adr/0026-staged-distribution-for-internal-test-and-beta.md',
       'fr.lproj',
-    ])
+    ], target)
 
     expect(report.ok).toBe(false)
     expect(report.violations.map((violation) => violation.path)).toEqual([
@@ -115,7 +120,7 @@ describe('packaged app.asar boundary audit', () => {
       'NarraCatAgentCore/mcp-server/node_modules/foo/src/runtime.js',
       'en.lproj',
       'zh_CN.lproj',
-    ])
+    ], target)
 
     expect(report).toEqual({
       ok: true,
@@ -125,7 +130,7 @@ describe('packaged app.asar boundary audit', () => {
   })
 
   test('classifies unexpected Electron locales explicitly', () => {
-    expect(classifyPackagedResourceEntry('/zh_TW.lproj')).toEqual({
+    expect(classifyPackagedResourceEntry('/zh_TW.lproj', target)).toEqual({
       ok: false,
       path: 'zh_TW.lproj',
       reason: 'unexpected Electron locale resource: zh_TW.lproj',
@@ -134,18 +139,21 @@ describe('packaged app.asar boundary audit', () => {
 
   test('打包后审计拦下混入的非目标平台二进制', () => {
     const base = 'NarraCatAgentCore/mcp-server/node_modules/onnxruntime-node/bin/napi-v3'
-    expect(classifyPackagedResourceEntry(`${base}/darwin/arm64/onnxruntime_binding.node`).ok).toBe(true)
-    expect(classifyPackagedResourceEntry(`${base}/linux/x64/onnxruntime_binding.node`).ok).toBe(false)
-    expect(classifyPackagedResourceEntry(`${base}/win32/x64/onnxruntime_binding.node`).ok).toBe(false)
-    expect(classifyPackagedResourceEntry(`${base}/darwin/x64/onnxruntime_binding.node`).ok).toBe(false)
+    expect(classifyPackagedResourceEntry(`${base}/darwin/arm64/onnxruntime_binding.node`, target).ok).toBe(true)
+    expect(classifyPackagedResourceEntry(`${base}/linux/x64/onnxruntime_binding.node`, target).ok).toBe(false)
+    expect(classifyPackagedResourceEntry(`${base}/win32/x64/onnxruntime_binding.node`, target).ok).toBe(false)
+    expect(classifyPackagedResourceEntry(`${base}/darwin/x64/onnxruntime_binding.node`, target).ok).toBe(false)
   })
 
   test('resolves the default packaged app.asar path', () => {
-    expect(resolvePackagedAppPath([], '/repo')).toBe(join('/repo', 'dist', 'mac-arm64', 'NarraCat.app'))
-    expect(resolvePackagedAsarPath([], '/repo')).toBe(
+    // 「default」指的是没有 --app 覆盖时的默认产物路径，不是「默认平台」——
+    // 平台显式钉 darwin，否则在 Linux CI runner 上解析目标平台时 fail-loud。
+    const mac = ['--platform', 'darwin']
+    expect(resolvePackagedAppPath(mac, '/repo')).toBe(join('/repo', 'dist', 'mac-arm64', 'NarraCat.app'))
+    expect(resolvePackagedAsarPath(mac, '/repo')).toBe(
       join('/repo', 'dist', 'mac-arm64', 'NarraCat.app', 'Contents', 'Resources', 'app.asar'),
     )
-    expect(resolvePackagedAsarPath(['--app', 'dist/custom/NarraCat.app'], '/repo')).toBe(
+    expect(resolvePackagedAsarPath([...mac, '--app', 'dist/custom/NarraCat.app'], '/repo')).toBe(
       join('/repo', 'dist', 'custom', 'NarraCat.app', 'Contents', 'Resources', 'app.asar'),
     )
     expect(resolvePackagedAsarPath(['--asar=dist/app.asar'], '/repo')).toBe(join('/repo', 'dist', 'app.asar'))
