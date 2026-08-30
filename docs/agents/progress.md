@@ -10,6 +10,8 @@
 
 **2026-08-25 三追加（#39 取证半边）**：main = `be5ba05`。PR #56 合入——渲染进程崩溃 / 子进程退出 / 主线程卡死三类事件不再静默，记录落 `userData/process-health.json`，设置-关于诊断折叠可见。**端到端未验证**（Electron 事件的真实触发形状只能真机验），已并入 #25 Windows 走查。#39 保持 open，跟踪剩余的 Electron 41.2.1 → 41.10.x 升级（有意押后：先用 CI 出过包的基线把 Windows 走通，再升级双平台回归，变量才干净）。
 
+**2026-08-30 追加（Windows 顶栏收官 + 版本号机制换代）**：main = `8d86516`。合入 PR #58（Windows 打包链/CI 出包/发版通道 + 顶栏真机走查两处，关阶段二～四）与 PR #59（**ADR-0038：版本号改由人在 `package.json` 声明，不再从提交数派生**，起点 `0.3.0`）。真机验收已过（#25 Task 12 五项 + 顶栏两处）。**下一步 = 发首个双平台版本 `0.3.0`**（即 #25 Task 13 的首个 Windows beta，未签名、必然触发 SmartScreen，是 SignPath 申请的前置）。⚠️ **发版必须双平台**——更新代理把两个平台的清单都翻译成 `releases/latest/download/<清单名>`，只含单平台产物的 Release 一旦成为 latest，另一个平台的清单查询直接 404、更新链就此断掉（实测：`/mac-arm64/latest-mac.yml` 200，`/win-x64/latest.yml` 404——Windows 从没发布过，正是这条机制的另一面）。
+
 **2026-08-25 再追加（issue 清扫轮）**：main = `84522b5`。合入 PR #26（Windows 顶栏 caption 让位，社区 @yuki-czf，关 #11）、PR #53（顶栏让位契约进 `docs/design.md` §4.4）、PR #54（NovelMemory 工具名缩到 64 以内，关 #12，引擎 **4.0.180**）；关闭 #28（墙钟优化收官）。**GitHub 上零 open PR，只剩 #25 / #39 / #42 / #5 四条**；分支从 11 条清到 3 条（`main` / `signatures` / `feat/windows-port`）。下一步回到 Windows 适配（#25）。
 
 ## Current Phase
