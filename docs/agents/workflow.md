@@ -41,7 +41,7 @@ bun --no-cache run ops:status
 - 递进规矩：修 bug 走 patch（`0.3.1`）；有明显新能力走 minor（`0.4.0`）；`1.0.0` 留给正式公开发布。当前版本线起点 `0.3.0`。
 - **发版第一步是决定并抬版本号**——它现在是发版的输入，不再是打包的副产品。忘了抬会被 `release.mjs` 的重复版本闸在打包前拦下。
 - 改版本号只能改 `package.json`。About 版本展示、artifact 命名、发布验收全部经 `scripts/client-version.mjs` 取值，两条构建期路径（electron-builder `extraMetadata` / vite `define`）必须同源。
-- 新版本号必须严格大于 `HIGHEST_SHIPPED_VERSION`（已交付到用户手上的最高版本），否则那批机器收不到更新且无任何提示——`scripts/client-version.test.mjs` 钉住这条。**发版发出去之后要把那个常量抬上来。**
+- 新版本号必须严格大于 `HIGHEST_SHIPPED_VERSION`（已交付到用户手上的最高版本），否则那批机器收不到更新且无任何提示——`scripts/client-version.test.mjs` 钉住这条。**发版之后要抬两个数且它们是一对**：`HIGHEST_SHIPPED_VERSION` 抬到刚发的版本，`package.json` 的 version 抬到下一个开发版本；只抬前者会让断言当场失守（刚发完时两者相等）。
 - `bun --no-cache run ops:check` 检查版本解析逻辑存在、版本号是合法三段 semver，且与 `package.json.version` 一致。
 - 本地临时测试包要压过线上版本时用 `NARRACAT_CLIENT_VERSION=x.y.z`（打包链专用；正式发布链路不吃这个变量）。
 - **发版必须显式声明覆盖平台**：`release --with-win <目录>`（双平台）或 `--mac-only`（只发 mac），两个都不给直接炸。「不给就只发 mac」这个旧默认在 Windows 成为正式分发平台后是静默陷阱——命令照常成功，Windows 用户静默停在上一版。

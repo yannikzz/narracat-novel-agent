@@ -10,6 +10,12 @@
 
 **2026-08-25 三追加（#39 取证半边）**：main = `be5ba05`。PR #56 合入——渲染进程崩溃 / 子进程退出 / 主线程卡死三类事件不再静默，记录落 `userData/process-health.json`，设置-关于诊断折叠可见。**端到端未验证**（Electron 事件的真实触发形状只能真机验），已并入 #25 Windows 走查。#39 保持 open，跟踪剩余的 Electron 41.2.1 → 41.10.x 升级（有意押后：先用 CI 出过包的基线把 Windows 走通，再升级双平台回归，变量才干净）。
 
+**2026-08-30 发布 `v0.3.0` — 首个双平台版本，Windows 更新链首次接通**：mac + Windows 八件产物进同一个 Release，`releases/latest` 已指向它。**完成判据逐条实测**：tag 非 draft ✓ / 产物八件齐 ✓ / `update.narracat.com/mac-arm64/latest-mac.yml` 200 ✓ / `/win-x64/latest.yml` **404 → 200** ✓（Windows 自动更新从此可用）。mac 包发布前经真机验收，打包期冒烟在真实产物上验过 sqlite-vec + bge embedding + 检索链路（这条有静默失效前科）。Windows 为未签名包，用户首启必见 SmartScreen——这是 SignPath Foundation 免费签名的硬条款要求的必经步骤，下一步即 #25 Task 14 申请签名。
+
+**发版过程中改掉的两处真缺陷**（产品主人质疑触发）：①「CI 出包 → 人下载 244MB → 再传回 GitHub」——实测本机下载 **23.7 KB/s（约 3 小时）**，这条路在国内网络下根本不成立。改为 **CI 直接传进 draft Release**（PR #62）：draft 不被 `releases/latest` 看见，「传上去」不等于「发出去」，人工确认闸一步没少，而 CI 在 GitHub 内网里传是秒级的；发布侧新增 `--win-from-release` 并远程核验三件就位**且非 0 字节**（上传中断会留下名字齐全的空壳）。②复用产物的**陈旧闸拿 HEAD 当代理**（PR #63）：闸的语义是「产物不能比它所代表的代码旧」，而只改发版脚本/文档也会推高 HEAD，于是一份刚验收过的 mac 包被判过期、要重打 20-40 分钟。改为比「最后一次影响产物的改动」（git pathspec 排除文档/CI/发版脚本/测试）。**方向性判断记档：用排除清单而非包含清单**——漏一条排除项只是多打一次包（安全），漏一条包含项会发出不含新代码的包且无人察觉（危险）。
+
+**发版后收尾（这次才发现是一对）**：`HIGHEST_SHIPPED_VERSION` 抬到刚发的 `0.3.0`，同时 `package.json` 抬到下一个开发版本 `0.3.1`——只做前者会让版本线不变量测试当场变红（刚发完时两者相等），而把断言放松成 `>=` 等于拆掉「忘了 bump 就发版」的拦截力。已补进 ADR-0038、发版清单、workflow 与 release-app skill。
+
 **2026-08-30 追加（Windows 顶栏收官 + 版本号机制换代）**：main = `8d86516`。合入 PR #58（Windows 打包链/CI 出包/发版通道 + 顶栏真机走查两处，关阶段二～四）与 PR #59（**ADR-0038：版本号改由人在 `package.json` 声明，不再从提交数派生**，起点 `0.3.0`）。真机验收已过（#25 Task 12 五项 + 顶栏两处）。**下一步 = 发首个双平台版本 `0.3.0`**（即 #25 Task 13 的首个 Windows beta，未签名、必然触发 SmartScreen，是 SignPath 申请的前置）。⚠️ **发版必须双平台**——更新代理把两个平台的清单都翻译成 `releases/latest/download/<清单名>`，只含单平台产物的 Release 一旦成为 latest，另一个平台的清单查询直接 404、更新链就此断掉（实测：`/mac-arm64/latest-mac.yml` 200，`/win-x64/latest.yml` 404——Windows 从没发布过，正是这条机制的另一面）。
 
 **2026-08-25 再追加（issue 清扫轮）**：main = `84522b5`。合入 PR #26（Windows 顶栏 caption 让位，社区 @yuki-czf，关 #11）、PR #53（顶栏让位契约进 `docs/design.md` §4.4）、PR #54（NovelMemory 工具名缩到 64 以内，关 #12，引擎 **4.0.180**）；关闭 #28（墙钟优化收官）。**GitHub 上零 open PR，只剩 #25 / #39 / #42 / #5 四条**；分支从 11 条清到 3 条（`main` / `signatures` / `feat/windows-port`）。下一步回到 Windows 适配（#25）。

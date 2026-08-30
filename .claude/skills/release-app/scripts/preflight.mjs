@@ -42,13 +42,20 @@ const { CORPUS_ENV_VARS, NOTARIZE_ENV_VARS, loadEnvFiles } = await import(
 )
 
 const checks = []
+let draftExists = false
 /** blocker：不解决就不该发。warning：需要人判断，不一定拦。 */
 function add(level, label, detail) {
   checks.push({ level, label, detail })
 }
 
+// stderr 一律吞掉：预检要自己决定怎么措辞。放任 git 的 fatal 直喷屏幕，会在「分支还没
+// push」这类完全正常的情况下糊一屏红字，把真正的检查结果淹掉。
 function git(args) {
-  return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim()
+  return execFileSync('git', args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim()
 }
 
 // ── 1. git 状态 ─────────────────────────────────────────────
@@ -68,15 +75,27 @@ try {
     add('ok', '工作区干净', '')
   }
 
+  let remoteKnown = true
   try {
     git(['fetch', 'origin', branch, '--quiet'])
   } catch {
-    add('warning', '拉取 origin 失败', '可能没网；下面的「与远端同步」结论可能过期')
+    // 远端没有这个分支（新分支还没 push）与「没网」在这里表现相同，靠下面探一次远端 ref 区分。
+    remoteKnown = false
   }
-  const ahead = git(['rev-list', '--count', `origin/${branch}..HEAD`])
-  const behind = git(['rev-list', '--count', `HEAD..origin/${branch}`])
-  if (ahead === '0' && behind === '0') add('ok', '与远端同步', '')
-  else add('blocker', '与远端不同步', `本地领先 ${ahead} 个、落后 ${behind} 个提交`)
+  try {
+    git(['rev-parse', '--verify', `origin/${branch}`])
+  } catch {
+    remoteKnown = false
+  }
+
+  if (!remoteKnown) {
+    add('warning', '远端没有这个分支', `origin 上找不到 ${branch}——还没 push，或者网络不通`)
+  } else {
+    const ahead = git(['rev-list', '--count', `origin/${branch}..HEAD`])
+    const behind = git(['rev-list', '--count', `HEAD..origin/${branch}`])
+    if (ahead === '0' && behind === '0') add('ok', '与远端同步', '')
+    else add('blocker', '与远端不同步', `本地领先 ${ahead} 个、落后 ${behind} 个提交`)
+  }
 } catch (error) {
   add('blocker', 'git 状态读取失败', String(error?.message ?? error))
 }
@@ -111,14 +130,18 @@ if (version) {
       ['release', 'view', tag, '--repo', RELEASE_REPO, '--json', 'isDraft'],
       { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     )
-    const isDraft = JSON.parse(out)?.isDraft
-    if (isDraft) {
-      add('warning', `${tag} 停在 draft`, '上次发版中途失败的残留；线上仍是上一版，重跑前先处理它')
+    const parsed = JSON.parse(out)
+    if (parsed?.isDraft) {
+      // draft 存在在新流程下是**正常状态**：Windows CI 出完包会直接建这个 draft 并把三件产物
+      // 放进去（--win-from-release）。只有当里面没有 Windows 产物时，才可能是上次发版中途
+      // 失败的残留。下面第 5 节会查里面到底有什么，这里只作中性陈述、不预判。
+      draftExists = true
+      add('ok', `${tag} 有 draft`, '发布时会往这个 draft 里补 mac 产物，最后翻成正式版')
     } else {
       add('blocker', `${tag} 已经发布过了`, '多半是忘了抬版本号；照原样发会把线上那一版的文件悄悄换掉')
     }
   } catch {
-    add('ok', `${tag} 尚未发布`, '')
+    add('warning', `${tag} 还没有 draft`, 'Windows 包还没出——先跑 gh workflow run windows-release-build.yml --ref main')
   }
 }
 
@@ -174,11 +197,36 @@ if (winDirArg !== -1 && process.argv[winDirArg + 1] && version) {
       )
     }
   }
+} else if (version && draftExists) {
+  // 新流程（--win-from-release）的主路径：产物在 draft 里，不在本机。
+  const tag = releaseTag(version)
+  const expected = winReleaseAssetFileNames(version)
+  try {
+    const out = execFileSync(
+      'gh',
+      ['release', 'view', tag, '--repo', RELEASE_REPO, '--json', 'assets'],
+      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    const bySize = new Map((JSON.parse(out)?.assets ?? []).map((a) => [a.name, a.size]))
+    const missing = expected.filter((n) => !bySize.has(n))
+    const empty = expected.filter((n) => bySize.has(n) && !(bySize.get(n) > 0))
+    if (missing.length === 0 && empty.length === 0) {
+      add('ok', `Windows 三件已在 draft 就位（${version}）`, 'CI 直传，本机不需要下载')
+    } else {
+      add(
+        'blocker',
+        'draft 里的 Windows 产物不完整',
+        `${[...missing.map((n) => `缺 ${n}`), ...empty.map((n) => `${n} 是空文件`)].join(' / ')}——重跑 gh workflow run windows-release-build.yml --ref main`,
+      )
+    }
+  } catch {
+    add('warning', '读不到 draft 的资产列表', '发布脚本会再核验一次；网络或权限问题不影响本地其余检查')
+  }
 } else {
   add(
     'warning',
     '没检查 Windows 产物',
-    '加 --win-dir <目录> 可一并核对。发版必须双平台：只发一边会让另一边的更新链断掉',
+    'Windows 包还没出：先跑 gh workflow run windows-release-build.yml --ref main（CI 会直接传进 draft）。发版必须双平台——只发一边会让另一边的更新链断掉',
   )
 }
 

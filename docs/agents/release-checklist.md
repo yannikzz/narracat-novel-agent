@@ -16,8 +16,13 @@
 **This is now the first step of a release, not a by-product of packaging.** Bump `package.json`'s
 `version` (patch for fixes, minor for new capability), commit it, and only then package. Forgetting
 this is caught before packaging by `release.mjs`'s duplicate-version gate — but catching it early
-saves a signing + notarization round. After the release ships, raise `HIGHEST_SHIPPED_VERSION` in
-`scripts/client-version.mjs` to the version you just shipped.
+saves a signing + notarization round.
+
+After the release ships, raise **both** numbers — they are a pair: `HIGHEST_SHIPPED_VERSION` in
+`scripts/client-version.mjs` goes to the version just shipped, and `package.json`'s `version` goes to
+the next development version. Raising only the former makes the invariant test fail immediately (the
+two are equal right after a release), and relaxing that test to `>=` would remove the "forgot to
+bump" protection entirely. Doing both leaves the repo parked at "next version, ready to cut".
 
 Both platforms read the same `package.json`, so mac and Windows artifacts carry the same version
 by construction — that is the point of ADR-0038.

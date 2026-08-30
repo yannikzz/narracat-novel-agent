@@ -27,11 +27,16 @@ export const CLIENT_VERSION_RE = /^\d+\.\d+\.\d+$/
  * 已交付到用户手上的最高版本。**新版本号必须严格大于它**，否则 electron-updater 认为
  * 用户已是最新，那批机器就此掉队（静默，无任何提示）。
  *
- * 当前值 `0.2.92` = Windows 适配分支 CI 出包、已交付真机验收的那一版；线上最新正式版
- * 是 `0.2.65`，比它低，故取前者。**发版发出去之后要把这个值抬上来**——它是那道
- * 「手滑把版本改小 / 忘了 bump」的闸的唯一依据（`client-version.test.mjs`）。
+ * 当前值 `0.3.0` = 2026-08-30 发布的首个双平台版本（mac + Windows 各自的更新链均已实测 200）。
+ *
+ * **发版之后要做两件事，缺一不可**（2026-08-30 发 0.3.0 时才发现这是一对）：
+ *   ① 把这个常量抬到刚发出去的版本——它是那道「手滑把版本改小 / 忘了 bump」的闸的唯一依据
+ *   ② 同时把 `package.json` 的 version 抬到下一个开发版本（如 `0.3.1`）
+ * 只做①会让 `client-version.test.mjs` 当场变红：断言是 package.json 的 version **严格大于**
+ * 本常量，而刚发完时两者相等。这不是断言写歪了——严格大于正是「忘了 bump 就发版」的拦截力
+ * 所在，改成 `>=` 等于把闸拆了。两件一起做，仓库就始终停在「下一版待发」的状态上。
  */
-export const HIGHEST_SHIPPED_VERSION = '0.2.92'
+export const HIGHEST_SHIPPED_VERSION = '0.3.0'
 
 /** semver 三段比较：a > b。只处理 `x.y.z`，本仓不发预发布版（feed 只认 releases/latest）。 */
 export function isVersionGreater(a, b) {
