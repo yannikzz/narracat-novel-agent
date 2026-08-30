@@ -419,8 +419,9 @@ describe('发版覆盖平台必须显式声明', () => {
     expect(error.message).toContain('--mac-only')
     // 只说「不许」没用，必须告诉人怎么拿到 Windows 产物
     expect(error.message).toContain('windows-release-build.yml')
-    // 选了只发 mac 的代价要当场说清楚
-    expect(error.message).toContain('Windows 用户收不到')
+    // 选了只发 mac 的真实代价要当场说清楚：不是「停在上一版」，是更新链断掉
+    expect(error.message).toContain('releases/latest')
+    expect(error.message).toContain('404')
   })
 
   test('--mac-only：放行，winDir 为空（这是主动选择，不是默认）', () => {

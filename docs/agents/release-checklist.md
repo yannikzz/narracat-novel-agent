@@ -41,8 +41,17 @@ bun --no-cache run release --with-win <dir with the three CI artifacts>
 
 `release` **refuses to run without `--with-win <dir>` or `--mac-only`.** Shipping mac-only used to be
 the silent default; once Windows became a real distribution target that default turned into a trap —
-the command still succeeds, the release still publishes, and Windows users just silently stay on the
-previous version. Choosing `--mac-only` is now a deliberate act.
+and a worse one than "one package missing":
+
+**Both platforms' update manifests resolve to `releases/latest`** (see `workers/narracat-update`:
+`latest-mac.yml` and `latest.yml` both map to `releases/latest/download/<manifest>`). A release
+carrying only one platform's artifacts becomes `latest`, and the *other* platform's manifest lookup
+then 404s — that update channel is broken until the next release that includes it. Not "users stay
+one version behind": they stop receiving updates entirely, with no error on either end.
+
+**So once both platforms have users, every release must ship both.** `--mac-only` exists for the
+current state (Windows never published yet) and for the emergency case where Windows CI cannot
+produce a package and a mac hotfix cannot wait.
 
 ## Automatic Gate
 

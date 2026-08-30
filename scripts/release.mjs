@@ -440,10 +440,20 @@ export async function runRelease({ winDir, useExistingArtifacts = false } = {}) 
  * **覆盖平台必须显式声明**：`--with-win <目录>` 发双平台，`--mac-only` 发单 mac，两个都不给就炸。
  *
  * 为什么不让「不给就只发 mac」当默认：那个默认在只有 mac 的时代是对的，Windows 成为正式分发
- * 平台之后就变成了一个**静默陷阱**——命令照常跑完、照常发布成功，只是这一版没有 Windows 包，
- * Windows 用户静默跳过这一版、收不到更新也不知道为什么。失败的表现不是报错，是安静地少做一件事
- * （与 ADR-0038 治的那类问题同族）。发版确认界面确实会列出待传文件，但那是靠人在一堆文件名里
- * 数数发现少了三个，不是闸。
+ * 平台之后就变成了一个**静默陷阱**，而且后果比「少发一个包」重得多——
+ *
+ * **两个平台的更新清单都指向 `releases/latest`**（见 workers/narracat-update/src/index.ts 的
+ * resolveUpstreamUrl：`latest-mac.yml` 与 `latest.yml` 一律翻译成
+ * `releases/latest/download/<清单名>`）。所以一个只含单平台产物的 Release 一旦成为 latest，
+ * **另一个平台的清单查询直接 404，那条更新链就断了**——不是「停在上一版」，是从此收不到任何
+ * 更新，直到下一次带上该平台产物的发布为止。全程无报错、无提示，两端都察觉不到。
+ *
+ * 命令照常跑完、发布照常成功，正是这类问题的典型形态（与 ADR-0038 治的那起同族）。发版确认
+ * 界面确实会列出待传文件，但那是靠人在一堆文件名里数出少了三个，不是闸。
+ *
+ * ⚠️ 推论：**Windows 正式发布之后，`--mac-only` 基本不该再用**——那时它意味着主动掐断
+ * Windows 用户的更新链。保留这个选项只为「Windows 尚未发布过」的当下，以及 Windows CI 出包
+ * 失败又必须紧急发 mac 修复的极端情况。
  *
  * 两个都给则是矛盾指令，同样炸——不猜用户想要哪个。
  */
@@ -472,7 +482,9 @@ export function parseReleaseArgs(argv) {
         '      再从 Actions 页把三件产物（exe / exe.blockmap / latest.yml）下载到那个目录。',
         '',
         '  只发 mac（需要主动选择）：bun --no-cache run release --mac-only',
-        '      这一版 Windows 用户收不到，会停在上一个版本。',
+        '      ⚠️ 两个平台的更新清单都指向 releases/latest，所以这一版一旦成为 latest，',
+        '      Windows 客户端查清单会 404——不是停在上一版，是整条更新链断到下次带 Windows',
+        '      产物的发布为止，且两端都没有任何报错。Windows 发布过之后不要用这个选项。',
       ].join('\n'),
     )
   }
