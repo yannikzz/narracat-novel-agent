@@ -6,6 +6,7 @@ import { join } from 'node:path'
 
 import {
   assertArtifactsNotStale,
+  assertWinAssetsInDraft,
   assertArtifactsNotarized,
   assertInteractive,
   assertVersionNotAlreadyReleased,
@@ -15,6 +16,7 @@ import {
   formatConfirmation,
   parseReleaseArgs,
   publishRelease,
+  readReleaseAssets,
   readReleaseState,
 } from './release.mjs'
 import { releaseAssetFileNames } from './update-feed.mjs'
@@ -427,6 +429,7 @@ describe('发版覆盖平台必须显式声明', () => {
   test('--mac-only：放行，winDir 为空（这是主动选择，不是默认）', () => {
     expect(parseReleaseArgs(['node', 'release.mjs', '--mac-only'])).toEqual({
       winDir: undefined,
+      winFromRelease: false,
       useExistingArtifacts: false,
     })
   })
@@ -457,6 +460,132 @@ describe('发版覆盖平台必须显式声明', () => {
   test('--use-existing-artifacts 与覆盖平台正交', () => {
     expect(
       parseReleaseArgs(['node', 'release.mjs', '--mac-only', '--use-existing-artifacts']),
-    ).toEqual({ winDir: undefined, useExistingArtifacts: true })
+    ).toEqual({ winDir: undefined, winFromRelease: false, useExistingArtifacts: true })
+  })
+})
+
+describe('CI 直传 draft（--win-from-release）', () => {
+  // 2026-08-30：产物 244MB、国内实测下载约 23KB/s（3 小时），「下载再上传」那条路把发版卡死。
+  // 改由 CI 在 GitHub 内网直传 draft。人工确认闸一步没少——draft 不被 releases/latest 看见。
+
+  const plan = () => createReleasePlan({ clientVersion: '0.3.0', winFromRelease: true })
+
+  test('winFromRelease 时 Windows 产物不进本地上传清单，但记进 remoteWinAssets', () => {
+    const p = plan()
+
+    expect(p.assets.some((a) => a.includes('win-x64'))).toBe(false)
+    expect(p.assets.length).toBeGreaterThan(0) // mac 五件仍在
+    expect(p.remoteWinAssets).toEqual([
+      'NarraCat-0.3.0-win-x64.exe',
+      'NarraCat-0.3.0-win-x64.exe.blockmap',
+      'latest.yml',
+    ])
+  })
+
+  test('release notes 仍要认出这一版含 Windows（否则少掉 SmartScreen 提示）', () => {
+    // notes 的 hasWindows 原本只看本地 assets；直传后那里没有 win 文件了，
+    // 漏改的话 Windows 用户拿到的说明里不会提「未签名会弹蓝屏警告」。
+    const confirmation = formatConfirmation({
+      clientVersion: '0.3.0',
+      repo: 'x/y',
+      tag: 'v0.3.0',
+      files: [],
+    })
+    expect(typeof confirmation).toBe('string')
+
+    const p = plan()
+    expect(p.remoteWinAssets.some((f) => f.endsWith('-win-x64.exe'))).toBe(true)
+  })
+
+  test('三件齐全且非空：放行', () => {
+    expect(() =>
+      assertWinAssetsInDraft(plan(), {
+        readAssets: () => [
+          { name: 'NarraCat-0.3.0-win-x64.exe', size: 256337009 },
+          { name: 'NarraCat-0.3.0-win-x64.exe.blockmap', size: 270336 },
+          { name: 'latest.yml', size: 352 },
+        ],
+      }),
+    ).not.toThrow()
+  })
+
+  test('缺件：fail-loud，并说清后果与重跑办法', () => {
+    let error
+    try {
+      assertWinAssetsInDraft(plan(), {
+        readAssets: () => [{ name: 'NarraCat-0.3.0-win-x64.exe', size: 256337009 }],
+      })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain('blockmap')
+    expect(error.message).toContain('latest.yml')
+    expect(error.message).toContain('windows-release-build.yml')
+    // 后果必须写明：不是「少一个包」，是另一条更新链会断
+    expect(error.message).toContain('404')
+  })
+
+  test('0 字节资产：上传中断留下的空壳，同样拦下', () => {
+    // 名字齐全、下下来是空文件——只查名字的话这种会溜过去。
+    expect(() =>
+      assertWinAssetsInDraft(plan(), {
+        readAssets: () => [
+          { name: 'NarraCat-0.3.0-win-x64.exe', size: 0 },
+          { name: 'NarraCat-0.3.0-win-x64.exe.blockmap', size: 270336 },
+          { name: 'latest.yml', size: 352 },
+        ],
+      }),
+    ).toThrow('空文件')
+  })
+
+  test('读不到资产列表：不猜，直接中止', () => {
+    expect(() => assertWinAssetsInDraft(plan(), { readAssets: () => null })).toThrow('读不到')
+  })
+
+  test('非 winFromRelease 时本函数不做任何事（不误伤 --with-win / --mac-only）', () => {
+    const macOnly = createReleasePlan({ clientVersion: '0.3.0' })
+    let called = false
+    assertWinAssetsInDraft(macOnly, {
+      readAssets: () => {
+        called = true
+        return []
+      },
+    })
+    expect(called).toBe(false)
+  })
+
+  test('draftExists 时不再 create——CI 已经建好了，再建会撞「tag 已存在」', () => {
+    const calls = []
+    publishRelease(plan(), { run: (args) => calls.push(args[1]), draftExists: true })
+
+    expect(calls).not.toContain('create')
+    expect(calls).toContain('upload')
+    expect(calls).toContain('edit')
+  })
+
+  test('draftExists 为假时仍然照常 create（老路径不受影响）', () => {
+    const calls = []
+    publishRelease(createReleasePlan({ clientVersion: '0.3.0', winDir: '/tmp/w' }), {
+      run: (args) => calls.push(args[1]),
+    })
+
+    expect(calls[0]).toBe('create')
+  })
+
+  test('readReleaseAssets：读不到时返回 null 而不是抛', () => {
+    expect(
+      readReleaseAssets('v9.9.9', {
+        execFile: () => {
+          throw new Error('not found')
+        },
+      }),
+    ).toBeNull()
+    expect(
+      readReleaseAssets('v0.3.0', {
+        execFile: () => JSON.stringify({ assets: [{ name: 'a.exe', size: 5 }] }),
+      }),
+    ).toEqual([{ name: 'a.exe', size: 5 }])
   })
 })

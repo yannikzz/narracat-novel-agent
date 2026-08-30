@@ -32,12 +32,18 @@ The two platforms are built on separate paths and merged into one Release:
 | Windows x64 | GitHub CI | mac cannot cross-build a working Windows package (keytar / better-sqlite3 are mac-native binaries), and SignPath requires a verifiable build from source |
 
 ```bash
-# 1. Windows artifacts (≈5 min), then download the three files from the Actions run
+# 1. Windows artifacts (≈5 min). CI uploads them straight into the v<version> draft release —
+#    nothing to download locally. A draft is invisible to releases/latest, so this is not a publish.
 gh workflow run windows-release-build.yml --ref main
 
-# 2. Package mac + publish both platforms into one Release
-bun --no-cache run release --with-win <dir with the three CI artifacts>
+# 2. Package mac + publish both platforms into that same release
+bun --no-cache run release --win-from-release
 ```
+
+`--win-from-release` verifies remotely that the three Windows assets are actually present and
+non-empty before the confirmation prompt. Use `--with-win <dir>` only when the artifacts already
+sit on this machine — downloading 244 MB from CI just to upload it back is a pointless round trip
+(and at the ~23 KB/s measured from here, a 3-hour one).
 
 `release` **refuses to run without `--with-win <dir>` or `--mac-only`.** Shipping mac-only used to be
 the silent default; once Windows became a real distribution target that default turned into a trap —

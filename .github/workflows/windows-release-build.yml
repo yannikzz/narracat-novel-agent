@@ -3,9 +3,15 @@
 # 为什么必须走 CI：SignPath Foundation 的免费 OV 签名硬要求「产物必须以可验证的方式
 # 从源码构建」。mac 包因为签名依赖本机 Keychain 仍是手打，两套流程并存是有意为之。
 #
-# 本流水线只出包、不发布。发布由人在本机跑 `bun --no-cache run release --with-win <目录>`，
-# 把这里下载下来的三个文件与 mac 产物一并传进同一个 GitHub Release——「发布必须过人工
-# 确认闸」这条纪律不因为加了 CI 就松掉。
+# 本流水线出包并把三件产物传进目标版本的 **draft** Release，但**不发布**。
+# draft 不被匿名 API 与 releases/latest 看见，所以「传上去」不等于「发出去」——
+# 发布仍由人在本机跑 `bun --no-cache run release --win-from-release`：那一步会打 mac 包、
+# 核验这三件确实就位、列出全部待发文件请人确认，最后才把 draft 翻成正式版。
+# 「发布必须过人工确认闸」这条纪律一步没少。
+#
+# 2026-08-30 从「artifact 让人下载后再上传」改成直传：产物 244MB，而国内实测下载
+# 约 23KB/s（要 3 小时），那条路等于把发版卡死。CI 在 GitHub 内网里传是秒级的。
+# artifact 仍然保留，供调试与留档。
 #
 # ⚠️ CI 全绿不构成任何功能保证：本流水线从不启动界面，而已知的两个 Windows 崩溃
 #（issue #1 details 挂死 / issue #3 locales 空白屏）全在渲染层。真机走查不可省。
@@ -16,6 +22,11 @@ on:
   # 因为 workflow_dispatch 要求 **workflow 文件存在于默认分支**才能用，那时它还没进 main。
   # 现在要给任意分支出包：`gh workflow run windows-release-build.yml --ref <分支>`。
   workflow_dispatch:
+
+# 只要 contents:write（建 draft、传资产）。默认 GITHUB_TOKEN 在 fork PR 上是只读的，
+# 而本流水线只由维护者手动触发，不接受 fork 触发。
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -56,6 +67,41 @@ jobs:
           echo "=== latest.yml ==="
           cat dist/latest.yml
 
+      # 直传 draft。安全边界：**绝不碰已发布的 Release**——那会把线上文件悄悄换掉而版本号
+      # 不变，自动更新那边完全无感。只允许「draft 已存在则补传」或「不存在则新建 draft」。
+      - name: 传进 draft Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "目标：$TAG"
+
+          STATE=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || echo absent)
+          if [ "$STATE" = "false" ]; then
+            echo "::error::$TAG 已经是已发布的 Release，CI 不会往里传东西。要发新版先抬 package.json 的 version。"
+            exit 1
+          fi
+          if [ "$STATE" = "absent" ]; then
+            gh release create "$TAG" --draft \
+              --title "NarraCat $VERSION" \
+              --notes "草稿：Windows 产物已由 CI 就位，等待 mac 产物与人工确认后发布。"
+            echo "已新建 draft $TAG"
+          else
+            echo "复用已存在的 draft $TAG"
+          fi
+
+          gh release upload "$TAG" \
+            "dist/NarraCat-$VERSION-win-x64.exe" \
+            "dist/NarraCat-$VERSION-win-x64.exe.blockmap" \
+            dist/latest.yml --clobber
+
+          echo "=== draft 现有资产 ==="
+          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes"'
+
+      # artifact 保留：调试与留档用，发版链已不依赖它（见文件头注释）。
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64-unsigned

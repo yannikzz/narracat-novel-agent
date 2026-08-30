@@ -35,10 +35,19 @@ import { loadEnvFiles, runPackageRc } from './package-rc.mjs'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
 
-export function createReleasePlan({ clientVersion, distDir = join(repoRoot, 'dist'), winDir }) {
+export function createReleasePlan({
+  clientVersion,
+  distDir = join(repoRoot, 'dist'),
+  winDir,
+  winFromRelease = false,
+}) {
   return {
     repo: RELEASE_REPO,
     tag: releaseTag(clientVersion),
+    // Windows 三件产物由 CI 直接传进同一个 draft（--win-from-release）时，它们不在本地，
+    // 故不进 assets（那是「要从本机上传的文件」清单）；改由 assertWinAssetsInDraft 远程核验。
+    // 记在这里是为了让 releaseNotes 知道这一版含 Windows，以及给校验函数一份期望清单。
+    remoteWinAssets: winFromRelease ? winReleaseAssetFileNames(clientVersion) : [],
     // 决策 8a（2026-08-16）：开源之后「内部测试」概念已不成立，对外物料不再带内测措辞。
     // 急刹车 / 软过期机制原样保留、只是不用。
     title: `NarraCat ${clientVersion}`,
@@ -342,6 +351,63 @@ function tagExistsRecoveryGuidance(plan) {
 }
 
 /**
+ * 核验 Windows 三件产物确实躺在目标 draft 里（`--win-from-release` 模式的闸）。
+ *
+ * 为什么必须查而不是信：CI 那一步失败时人未必看见（流水线绿不绿与产物有没有传成功是两件事，
+ * 本仓有前科）。不查就 publish，等于发一个只有 mac 的 Release——而两个平台的更新清单都指向
+ * `releases/latest`，Windows 那条链会当场断掉，且两端都没有报错。
+ *
+ * 也查大小：GitHub 上传中断会留下 0 字节的资产条目，名字齐全但下下来是空文件。
+ */
+export function assertWinAssetsInDraft(plan, { readAssets = readReleaseAssets } = {}) {
+  const expected = plan.remoteWinAssets ?? []
+  if (expected.length === 0) return
+
+  const actual = readAssets(plan.tag)
+  if (actual === null) {
+    throw new Error(
+      `读不到 ${plan.repo} 上 ${plan.tag} 的资产列表——无法确认 Windows 产物是否已就位，不继续发布。`,
+    )
+  }
+
+  const bySize = new Map(actual.map((a) => [a.name, a.size]))
+  const missing = expected.filter((name) => !bySize.has(name))
+  const empty = expected.filter((name) => bySize.has(name) && !(bySize.get(name) > 0))
+
+  if (missing.length || empty.length) {
+    throw new Error(
+      [
+        `发布中止：${plan.tag} 的 draft 里 Windows 产物不完整。`,
+        ...(missing.length ? [`  缺少：${missing.join(' / ')}`] : []),
+        ...(empty.length ? [`  空文件（上传中断）：${empty.join(' / ')}`] : []),
+        '',
+        '这三件本应由 Windows CI 直接传进这个 draft。重新触发一次即可：',
+        '  gh workflow run windows-release-build.yml --ref main',
+        '',
+        '照原样发下去的后果不是少一个包——两个平台的更新清单都指向 releases/latest，',
+        'Windows 客户端查清单会 404，那条更新链会断到下次带 Windows 产物的发布为止。',
+      ].join('\n'),
+    )
+  }
+}
+
+/** 读 release 的资产名与大小；tag 不存在或读不到返回 null（调用方据此 fail-loud）。 */
+export function readReleaseAssets(tag, { execFile = execFileSync, repo = RELEASE_REPO } = {}) {
+  try {
+    const out = execFile('gh', ['release', 'view', tag, '--repo', repo, '--json', 'assets'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const parsed = JSON.parse(out)
+    if (!Array.isArray(parsed?.assets)) return null
+    return parsed.assets.map((a) => ({ name: a.name, size: a.size }))
+  } catch {
+    return null
+  }
+}
+
+/**
  * 先建 draft、传完全部资产、最后才 publish。
  * 这是本脚本最重要的顺序纪律：draft release 不被匿名 API 与 releases/latest 看见，
  * 所以在资产全部传完之前没有任何用户能看到这个版本——不存在「清单已翻但包还没传完」
@@ -351,14 +417,19 @@ function tagExistsRecoveryGuidance(plan) {
  * 风险最高的一段（真正改动线上 release），此前完全没有单测覆盖，变异实验证实
  * 删掉某条 `--repo` 测试仍然全绿。
  */
-export function publishRelease(plan, { run = ghRun } = {}) {
-  try {
-    run(['release', 'create', plan.tag, '--repo', plan.repo, '--draft', '--title', plan.title, '--notes', releaseNotes(plan)])
-  } catch (error) {
-    // 不吞掉原始错误：release view 探测失败（真不是 tag 已存在）就原样抛出；
-    // 探测命中就换成可操作的中文指引，但仍以非零退出——不静默、不假装成功。
-    if (!releaseAlreadyExists(plan, run)) throw error
-    throw new Error(tagExistsRecoveryGuidance(plan))
+export function publishRelease(plan, { run = ghRun, draftExists = false } = {}) {
+  // draftExists：CI 已经建好 draft 并把 Windows 三件放了进去（--win-from-release）。
+  // 这种情况下再 create 必然撞「tag 已存在」，那条路径的恢复指引是给「上次发版中途失败」
+  // 准备的，用在这里会把正常流程说成故障。改为直接往那个 draft 里补 mac 产物。
+  if (!draftExists) {
+    try {
+      run(['release', 'create', plan.tag, '--repo', plan.repo, '--draft', '--title', plan.title, '--notes', releaseNotes(plan)])
+    } catch (error) {
+      // 不吞掉原始错误：release view 探测失败（真不是 tag 已存在）就原样抛出；
+      // 探测命中就换成可操作的中文指引，但仍以非零退出——不静默、不假装成功。
+      if (!releaseAlreadyExists(plan, run)) throw error
+      throw new Error(tagExistsRecoveryGuidance(plan))
+    }
   }
   for (const asset of plan.assets) {
     process.stdout.write(`↑ ${asset.split('/').pop()}\n`)
@@ -369,7 +440,9 @@ export function publishRelease(plan, { run = ghRun } = {}) {
 
 function releaseNotes(plan) {
   const version = plan.tag.replace(/^v/, '')
-  const hasWindows = plan.assets.some((file) => file.endsWith('-win-x64.exe'))
+  const hasWindows =
+    plan.assets.some((file) => file.endsWith('-win-x64.exe')) ||
+    (plan.remoteWinAssets ?? []).some((file) => file.endsWith('-win-x64.exe'))
   return [
     `NarraCat ${version}。`,
     '',
@@ -385,7 +458,7 @@ function releaseNotes(plan) {
   ].join('\n')
 }
 
-export async function runRelease({ winDir, useExistingArtifacts = false } = {}) {
+export async function runRelease({ winDir, winFromRelease = false, useExistingArtifacts = false } = {}) {
   // 放在打包之前：非交互环境就别浪费几分钟签名 + 公证了。
   assertInteractive(process.stdin.isTTY)
 
@@ -401,9 +474,12 @@ export async function runRelease({ winDir, useExistingArtifacts = false } = {}) 
     runPackageRc({ cwd: repoRoot, notarize: true })
   }
 
-  const plan = createReleasePlan({ clientVersion, winDir })
+  const plan = createReleasePlan({ clientVersion, winDir, winFromRelease })
   assertArtifactsExist(plan.assets)
   assertManifestFreshness(plan, clientVersion)
+  // Windows 三件由 CI 直传时不在本地，改为远程核验它们真的躺在这个 draft 里。
+  // 放在确认闸之前：撞上了就别让人对着一份不完整的清单点确认。
+  assertWinAssetsInDraft(plan)
   if (useExistingArtifacts) {
     // 复用产物比刚打完的更危险，三道闸缺一不可（见各函数注释）
     assertArtifactsNotStale(plan)
@@ -413,7 +489,9 @@ export async function runRelease({ winDir, useExistingArtifacts = false } = {}) 
   }
   await confirm(plan, clientVersion)
 
-  publishRelease(plan)
+  // draft 已经由 CI 建好并放了 Windows 产物时不要再 create（会撞「tag 已存在」，
+  // 而那条恢复指引是给上次发版中途失败准备的，用在这儿会把正常流程说成故障）。
+  publishRelease(plan, { draftExists: winFromRelease })
 
   process.stdout.write(
     [
@@ -460,6 +538,7 @@ export async function runRelease({ winDir, useExistingArtifacts = false } = {}) 
 export function parseReleaseArgs(argv) {
   const withWinIndex = argv.indexOf('--with-win')
   const macOnly = argv.includes('--mac-only')
+  const winFromRelease = argv.includes('--win-from-release')
 
   if (withWinIndex !== -1) {
     const value = argv[withWinIndex + 1]
@@ -468,18 +547,22 @@ export function parseReleaseArgs(argv) {
     }
   }
 
-  if (withWinIndex !== -1 && macOnly) {
-    throw new Error('--with-win 与 --mac-only 互斥：前者发双平台、后者只发 mac，不能同时给。')
+  const modes = [withWinIndex !== -1 && '--with-win', winFromRelease && '--win-from-release', macOnly && '--mac-only'].filter(Boolean)
+  if (modes.length > 1) {
+    throw new Error(`${modes.join(' 与 ')} 互斥：一次发版只能选一种覆盖平台的方式，不要同时给。`)
   }
 
-  if (withWinIndex === -1 && !macOnly) {
+  if (modes.length === 0) {
     throw new Error(
       [
         '发版中止：没说这次发哪些平台。',
         '',
-        '  双平台（常规）：bun --no-cache run release --with-win <存放 CI Windows 产物的目录>',
-        '      先跑 `gh workflow run windows-release-build.yml --ref main` 出包，',
-        '      再从 Actions 页把三件产物（exe / exe.blockmap / latest.yml）下载到那个目录。',
+        '  双平台（常规）：bun --no-cache run release --win-from-release',
+        '      Windows 三件产物由 CI 直接传进同一个 draft，本机不必下载。',
+        '      先跑 `gh workflow run windows-release-build.yml --ref main`（约 5 分钟）。',
+        '',
+        '  双平台（本地有 Windows 产物时）：bun --no-cache run release --with-win <目录>',
+        '      仅在产物已经在本机时用；从 CI 下载 244MB 再传回去是没必要的往返。',
         '',
         '  只发 mac（需要主动选择）：bun --no-cache run release --mac-only',
         '      ⚠️ 两个平台的更新清单都指向 releases/latest，所以这一版一旦成为 latest，',
@@ -491,6 +574,7 @@ export function parseReleaseArgs(argv) {
 
   return {
     winDir: withWinIndex === -1 ? undefined : resolve(argv[withWinIndex + 1]),
+    winFromRelease,
     useExistingArtifacts: argv.includes('--use-existing-artifacts'),
   }
 }

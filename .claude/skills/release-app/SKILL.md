@@ -41,11 +41,13 @@ description: Cut and publish a new NarraCat-app version — bump the version num
 node .claude/skills/release-app/scripts/preflight.mjs
 ```
 
-拿到 Windows 产物之后再跑一次，带上目录一并核对：
+Windows 产物在本机时（`--with-win` 那条老路）再跑一次带目录核对：
 
 ```bash
 node .claude/skills/release-app/scripts/preflight.mjs --win-dir <目录>
 ```
+
+走 `--win-from-release`（常规路径）时不需要这一步 —— 产物在 GitHub 上，由发布脚本远程核验。
 
 它检查：在不在 main、工作区干不干净、与远端同步没、版本号是否合法且高于已交付的最高版、这个 tag 是不是已经发过、三样凭证齐不齐、签名身份在不在、Windows 三件产物齐不齐且版本号对不对得上。
 
@@ -65,30 +67,39 @@ node .claude/skills/release-app/scripts/preflight.mjs --win-dir <目录>
 
 发版前值得先问用户一句：**这一版对用户来说是什么？** 这既决定 patch 还是 minor，也是 Release notes 的内容。可以用 `git log --oneline v<上一版>..main` 看这一版实际包含什么，用大白话总结给用户确认 —— 用户关心的是"能感觉到什么变化"，不是提交列表。
 
-## 步骤 2：CI 出 Windows 包
+## 步骤 2：CI 出 Windows 包（会自动传进 draft）
 
 ```bash
 gh workflow run windows-release-build.yml --ref main
 gh run watch <run-id> --exit-status    # 约 5 分钟
 ```
 
-跑完从 Actions 页下载 artifact `windows-x64-unsigned`，解压得到三个文件（`.exe` / `.exe.blockmap` / `latest.yml`），放进一个目录备用。
+CI 出完包会**直接把三件产物传进 `v<版本>` 的 draft Release**，本机不需要下载任何东西。
+
+draft 不被匿名 API 与 `releases/latest` 看见，所以**传上去 ≠ 发出去** —— 人工确认闸仍在步骤 3。
+
+> 为什么不是「下载 artifact 再上传」：产物 244MB，而国内实测下载约 23KB/s（要 3 小时），
+> 那条路等于把发版卡死。CI 在 GitHub 内网里传是秒级的。artifact 仍然保留，供调试与留档。
+
+CI 拒绝往**已发布**的 Release 里传东西（那会把线上文件悄悄换掉而版本号不变）。撞上这个报错说明版本号忘了抬。
 
 ⚠️ **CI 全绿不构成任何功能保证** —— 这条流水线从不启动界面，而已知的 Windows 崩溃全在渲染层。CI 只证明"包能打出来"。
-
-⚠️ 确认包里的版本号是这次要发的那个。如果 CI 跑在版本号还没抬的提交上，出来的是旧版本号的包，`--with-win` 那一步会对不上。预检脚本带 `--win-dir` 就是查这个。
 
 ## 步骤 3：打 mac 包并发布双平台
 
 ```bash
-bun --no-cache run release --with-win <放着三件 Windows 产物的目录>
+bun --no-cache run release --win-from-release
 ```
+
+`--win-from-release` = Windows 三件已由 CI 就位在 draft 里。发布前会远程核验它们真的在、且不是 0 字节的空壳（上传中断会留下名字齐全的空文件）；缺任何一件都会中止并告诉你重跑哪条命令。
+
+产物已经在本机时（少见）用 `--with-win <目录>` 那条老路，行为不变。
 
 这一条命令会：打 mac 包 → 签名 → 公证 → 建 draft Release → 传两个平台的全部产物 → 最后才 publish。**20-40 分钟**，其中大部分是公证在等 Apple。
 
 顺序纪律：先建 draft、传完全部资产、最后才 publish。draft 不被匿名 API 与 `releases/latest` 看见，所以在资产全部传完之前没有任何用户能看到这个版本 —— 任一步失败，Release 停在 draft，线上仍是上一版，零影响。
 
-中途会有一个确认界面列出待传的全部文件。**这是最后一道人工闸**，让用户过目再确认，尤其核对 Windows 那三件在不在。
+中途会有一个确认界面列出待传的全部文件。**这是最后一道人工闸**，让用户过目再确认。
 
 ## 步骤 4：发完之后（不要跳过）
 
