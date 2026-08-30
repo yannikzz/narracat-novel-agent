@@ -8,11 +8,13 @@ import {
   assertArtifactsNotStale,
   assertArtifactsNotarized,
   assertInteractive,
+  assertVersionNotAlreadyReleased,
   assertZipMatchesManifest,
   assertManifestMatchesVersion,
   createReleasePlan,
   formatConfirmation,
   publishRelease,
+  readReleaseState,
 } from './release.mjs'
 import { releaseAssetFileNames } from './update-feed.mjs'
 
@@ -331,5 +333,69 @@ describe('复用现成产物的三道加严闸（--use-existing-artifacts）', (
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('版本号重复闸（ADR-0038 补的第二道）', () => {
+  // 派生时代版本号只增不减、天然不可能重复；改成人在 package.json 里定之后，「忘了 bump 就发版」
+  // 成了真实可能，而它**不报错**——资产会被 --clobber 传进已发布的 tag，线上文件被悄悄换掉、
+  // 版本号没变，electron-updater 完全无感。这一组就是那道闸。
+
+  test('tag 不存在：放行（正常发版路径）', () => {
+    expect(() =>
+      assertVersionNotAlreadyReleased('0.3.0', { readState: () => null }),
+    ).not.toThrow()
+  })
+
+  test('tag 存在但停在 draft：放行，交给既有的恢复引导', () => {
+    // draft 是上次发版中途某个资产上传失败的残留，与「忘了 bump」是两回事：
+    // draft 不被匿名 API 与 releases/latest 看见，线上仍是上一版，重跑是安全的。
+    expect(() =>
+      assertVersionNotAlreadyReleased('0.3.0', { readState: () => ({ isDraft: true }) }),
+    ).not.toThrow()
+  })
+
+  test('tag 已发布：fail-loud，并指出多半是忘了抬版本号', () => {
+    let error
+    try {
+      assertVersionNotAlreadyReleased('0.3.0', { readState: () => ({ isDraft: false }) })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain('v0.3.0')
+    expect(error.message).toContain('package.json')
+    // 报错必须给出下一步怎么办，否则撞上的人只能来读源码
+    expect(error.message).toContain('0.3.1')
+    expect(error.message).toContain('release delete')
+  })
+
+  test('传给闸的是 tag 而不是裸版本号（少一个 v 就查错对象、恒放行）', () => {
+    const seen = []
+    assertVersionNotAlreadyReleased('0.3.0', {
+      readState: (tag) => {
+        seen.push(tag)
+        return null
+      },
+    })
+
+    expect(seen).toEqual(['v0.3.0'])
+  })
+
+  test('readReleaseState：gh 报错（tag 不存在）时返回 null，不把发版流程炸掉', () => {
+    expect(
+      readReleaseState('v9.9.9', {
+        execFile: () => {
+          throw new Error('release not found')
+        },
+      }),
+    ).toBeNull()
+  })
+
+  test('readReleaseState：正常返回时解析出 isDraft', () => {
+    expect(
+      readReleaseState('v0.3.0', { execFile: () => JSON.stringify({ isDraft: true }) }),
+    ).toEqual({ isDraft: true })
   })
 })

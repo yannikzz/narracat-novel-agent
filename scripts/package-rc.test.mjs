@@ -20,7 +20,7 @@ import {
   resolveStepEnv,
   runPackageRc,
 } from './package-rc.mjs'
-import { CLIENT_BUILD_VERSION_RE } from './client-build-version.mjs'
+import { CLIENT_VERSION_RE } from './client-version.mjs'
 import { DEFAULT_APP_PATH } from './verify-signed-artifact.mjs'
 
 const packageRcModuleUrl = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'package-rc.mjs')).href
@@ -455,20 +455,20 @@ describe('CLI 入口守卫：node scripts/package-rc.mjs 必须先加载 .env �
    * （import.meta.url）算出来的，与进程 cwd 无关，所以 spawn 真实路径无论 cwd 传什么，
    * 都会去加载仓库根真实的 .env.local（含真实凭证）——这正是本任务的全局约束明令禁止读取的文件。
    *
-   * 解法：把 package-rc.mjs 与它唯一的相对依赖 client-build-version.mjs 原样复制（逐字节不改）到
+   * 解法：把 package-rc.mjs 与它唯一的相对依赖 client-version.mjs 原样复制（逐字节不改）到
    * 一个 mkdtemp 临时目录的 scripts/ 子目录下，spawn 这份拷贝。拷贝后它的 repoRoot 落在临时目录里，
    * 测试就完全掌控它会加载哪个 .env，而运行的仍是当前这份真实源码。
    *
    * 两组对照缺一不可：
    * ①凭证齐备但无效——如果 loadEnvFiles() 真的把凭证读进了 process.env，
    *   assertNotarizeCredentials/assertCorpusCredentials 会通过，失败会发生在凭证检查**之后**，
-   *   落在 runPackageRc 里紧跟着的 resolveClientBuildVersion（`git rev-list --count HEAD`——
-   *   临时目录不是 git 仓库，必然 fatal）：这一步比任何打包步骤都快得多（不会碰 stage Agent Core /
+   *   落在 runPackageRc 里紧跟着的版本解析（读 `<repoRoot>/package.json`——临时目录里只复制了
+   *   scripts/，没有 manifest，必然 fatal）：这一步比任何打包步骤都快得多（不会碰 stage Agent Core /
    *   prepare embedding model 等耗时步骤，甚至不会进入 步骤循环），且失败原因显然不是「凭证缺失」。
    * ②环境干净、临时目录里没有任何 .env 文件、也没有对应的 shell env——loadEnvFiles() 无凭证可加载，
-   *   必须在 resolveClientBuildVersion 之前就被 assertNotarizeCredentials fail-loud 拦下。
+   *   必须在版本解析之前就被 assertNotarizeCredentials fail-loud 拦下。
    * 若把 CLI 入口的 loadEnvFiles() 调用删掉，①里的 .env.local 凭证永远读不到，
-   * 会在还没跑到 git 检查前就先撞上①本不该出现的「凭证缺失」——测试就会变红。
+   * 会在还没跑到版本解析前就先撞上①本不该出现的「凭证缺失」——测试就会变红。
    *
    * 踩坑记录：mkdtemp(tmpdir()) 在 macOS 上返回的是 `/var/folders/...`，而 `/var` 本身是指向
    * `/private/var` 的符号链接。package-rc.mjs 的 CLI 入口判断用的是
@@ -494,8 +494,8 @@ describe('CLI 入口守卫：node scripts/package-rc.mjs 必须先加载 .env �
     await mkdir(fixtureScriptsDir, { recursive: true })
     await copyFile(join(realScriptsDir, 'package-rc.mjs'), join(fixtureScriptsDir, 'package-rc.mjs'))
     await copyFile(
-      join(realScriptsDir, 'client-build-version.mjs'),
-      join(fixtureScriptsDir, 'client-build-version.mjs'),
+      join(realScriptsDir, 'client-version.mjs'),
+      join(fixtureScriptsDir, 'client-version.mjs'),
     )
     return join(fixtureScriptsDir, 'package-rc.mjs')
   }
@@ -536,15 +536,15 @@ describe('CLI 入口守卫：node scripts/package-rc.mjs 必须先加载 .env �
 
       const output = runCliExpectingFailure(cliPath, dir)
       expect(output).not.toMatch(/凭证缺失/)
-      // 临时目录不是 git 仓库，resolveClientBuildVersion 必然倒在 git rev-list 这一步——
-      // 证明流程已经越过了两道凭证闸，只是倒在了别处。
-      expect(output).toMatch(/git|rev-list|not a git repository/i)
+      // 临时目录里只有 scripts/、没有 package.json，版本解析必然倒在读 manifest 这一步——
+      // 证明流程已经越过了两道凭证闸，只是倒在了别处（ADR-0038 前这里倒在 git rev-list）。
+      expect(output).toMatch(/package\.json/i)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
   })
 
-  test('环境干净：失败正是「凭证缺失」，且发生在 resolveClientBuildVersion 之前', async () => {
+  test('环境干净：失败正是「凭证缺失」，且发生在版本解析之前', async () => {
     const dir = realpathSync(await mkdtemp(join(tmpdir(), 'narracat-package-rc-cli-')))
     try {
       const cliPath = await buildCliFixture(dir)
@@ -562,7 +562,7 @@ describe('CLI 入口守卫：node scripts/package-rc.mjs 必须先加载 .env �
 describe('resolvePackageClientVersion — 内测包版本号覆盖', () => {
   test('未设环境变量时走 git 计数（与正式链路同源）', () => {
     const version = resolvePackageClientVersion({ env: {} })
-    expect(version).toMatch(CLIENT_BUILD_VERSION_RE)
+    expect(version).toMatch(CLIENT_VERSION_RE)
   })
 
   test('设了就用它——测试包要能压过线上版本，否则 electron-updater 会静默换掉它', () => {
@@ -571,7 +571,7 @@ describe('resolvePackageClientVersion — 内测包版本号覆盖', () => {
 
   test('空白值视同未设，不产出空版本号', () => {
     const version = resolvePackageClientVersion({ env: { NARRACAT_CLIENT_VERSION: '   ' } })
-    expect(version).toMatch(CLIENT_BUILD_VERSION_RE)
+    expect(version).toMatch(CLIENT_VERSION_RE)
   })
 
   test('非法值 fail-loud，不静默打出坏版本号的包', () => {

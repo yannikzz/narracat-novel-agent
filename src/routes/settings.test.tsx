@@ -4,9 +4,11 @@ import { MemoryRouter } from 'react-router'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SettingsRoute } from './settings'
 import { useNovelStore } from '@/lib/novel-store'
-import { formatClientBuildVersion } from '../../scripts/client-build-version.mjs'
+import { CLIENT_VERSION_RE } from '../../scripts/client-version.mjs'
 
-const EXPECTED_CLIENT_VERSION = formatClientBuildVersion(253)
+// 只需一个合法的三段 semver 占位——真实值由 package.json 决定（ADR-0038），
+// 构建期经 define 注入 __NARRACAT_CLIENT_VERSION__。格式合法性由下方断言钉住。
+const EXPECTED_CLIENT_VERSION = '0.3.253'
 
 globalThis.__NARRACAT_CLIENT_VERSION__ = EXPECTED_CLIENT_VERSION
 
@@ -175,6 +177,7 @@ describe('SettingsRoute', () => {
       html.indexOf('data-settings-about-list="true"'),
     )
     expect(html).toContain('客户端版本')
+    expect(CLIENT_VERSION_RE.test(EXPECTED_CLIENT_VERSION)).toBe(true)
     expect(html).toContain(EXPECTED_CLIENT_VERSION)
     expect(html).toContain('NarraCat Agent Core 版本')
     expect(html).toContain('3.10.22')

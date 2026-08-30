@@ -5,13 +5,13 @@ import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
 const __dirname = import.meta.dirname
-const clientVersion = readClientBuildVersion()
+const clientVersion = readClientVersion()
 // 构建那一刻的 ISO 时间，注入主进程供「内测硬过期兜底」用（#354，构建后 N 天失效）。
 // dev 态每次启动 = 当下，硬过期永远 90 天外，不会误伤开发。
 const buildTime = new Date().toISOString()
 
-function readClientBuildVersion(): string {
-  return execFileSync(process.execPath, [resolve(__dirname, 'scripts/client-build-version.mjs')], {
+function readClientVersion(): string {
+  return execFileSync(process.execPath, [resolve(__dirname, 'scripts/client-version.mjs')], {
     cwd: __dirname,
     encoding: 'utf8',
   }).trim()

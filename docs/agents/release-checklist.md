@@ -9,7 +9,18 @@
 - Target: macOS arm64
 - Artifact: DMG plus unpacked `.app`
 - Artifact naming: `NarraCat-${version}-mac-arm64`
-- Client build version: `0.2.<release commit count>` from `scripts/client-build-version.mjs` (line prefix = `CLIENT_BUILD_VERSION_PREFIX`; raised `0.1` → `0.2` on 2026-08-25, see ADR-0006 amendment — a `0.1.x` cut would rank below the shipped `v0.1.1930` and reach nobody)
+- Client version: `package.json`'s `version`, decided by a human at release time (ADR-0038; superseded the commit-count derivation of ADR-0006). Resolved through `scripts/client-version.mjs`; must be strictly greater than `HIGHEST_SHIPPED_VERSION` or those machines never see the update.
+
+## Step 0 — Decide The Version
+
+**This is now the first step of a release, not a by-product of packaging.** Bump `package.json`'s
+`version` (patch for fixes, minor for new capability), commit it, and only then package. Forgetting
+this is caught before packaging by `release.mjs`'s duplicate-version gate — but catching it early
+saves a signing + notarization round. After the release ships, raise `HIGHEST_SHIPPED_VERSION` in
+`scripts/client-version.mjs` to the version you just shipped.
+
+Both platforms read the same `package.json`, so mac and Windows artifacts carry the same version
+by construction — that is the point of ADR-0038.
 
 ## Automatic Gate
 
@@ -26,7 +37,7 @@ bun --no-cache run build
 bun --no-cache run package
 ```
 
-`bun --no-cache run package` computes the client build version from the current release commit, verifies and prepares NarraCat Agent Core, probes the staged runtime, builds Electron bundles, packages the macOS arm64 DMG, and smokes the packaged app.
+`bun --no-cache run package` reads the client version from `package.json`, verifies and prepares NarraCat Agent Core, probes the staged runtime, builds Electron bundles, packages the macOS arm64 DMG, and smokes the packaged app.
 
 Do not use an upstream NarraCat checkout during RC packaging. RC packaging uses the internal `agent-core/narracat` source and packages it as `NarraCatAgentCore`.
 
@@ -35,7 +46,7 @@ Do not use an upstream NarraCat checkout during RC packaging. RC packaging uses 
 Use the unpacked `.app` produced beside the DMG:
 
 1. Launch the unpacked `NarraCat.app`.
-2. Open Settings and confirm the client version matches `node scripts/client-build-version.mjs`.
+2. Open Settings and confirm the client version matches `node scripts/client-version.mjs`.
 3. Confirm NarraCat Agent Core diagnostics report the locked Agent Core version.
 4. Create a temporary Novel project from Library.
 5. Open the created Workbench.

@@ -12,26 +12,19 @@
 name: Windows Release Build
 
 on:
-  # workflow_dispatch 有个硬限制：**workflow 文件必须存在于默认分支**才能被手动触发
-  #（"This event will only trigger a workflow run if the workflow file exists on the
-  # default branch"）。本战役分支在产品主人 Windows 真机验收前不合 main，所以手动触发
-  # 这条路在合并前是走不通的——push 触发是合并前唯一能跑起 CI 的入口。
-  # 合进 main 之后，下面这条 push 触发即可删除，只留 workflow_dispatch。
+  # 只留手动触发（2026-08-30，#58 合入 main 后）。合并前曾额外挂过 `push: feat/windows-port`,
+  # 因为 workflow_dispatch 要求 **workflow 文件存在于默认分支**才能用，那时它还没进 main。
+  # 现在要给任意分支出包：`gh workflow run windows-release-build.yml --ref <分支>`。
   workflow_dispatch:
-  push:
-    branches:
-      - feat/windows-port
 
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
+      # 默认浅克隆即可：版本号读的是 package.json（ADR-0038），不再数提交数，
+      # 所以不需要完整历史。两平台读同一个 manifest，版本号天然一致。
       - uses: actions/checkout@v4
-        with:
-          # client-build-version.mjs 靠 `git rev-list --count HEAD` 派生版本号，
-          # 浅克隆会数出错误的 commit 数 → 包的版本号与 mac 端对不上。
-          fetch-depth: 0
 
       # 打包脚本全部由 `node` 直接运行（package-rc.mjs 用的是 process.execPath），
       # 且第一步就是 check-node-runtime.mjs 硬闸 ^22.12.0——必须显式装 Node 22，

@@ -11,7 +11,7 @@
 | [0003](0003-explicit-recovery-for-interrupted-narracat-writes.md) | 中断的 NarraCat 写作由 App 显式恢复 | Accepted | Recovery product model remains current; old plugin wording should be read as Agent Core contract. |
 | [0004](0004-workbench-titlebar-and-composer-handoff.md) | Workbench Titlebar Actions Use Composer Handoff For Existing Content | Accepted | Current Workbench titlebar/composer handoff interaction rule. |
 | [0005](0005-rc-app-identity.md) | RC App Identity | Accepted | Current user-facing app identity for RC/package naming. |
-| [0006](0006-client-build-version-is-derived-at-build-time.md) | Client Build Version Is Derived At Build Time | Accepted | Current client build version policy. |
+| [0006](0006-client-build-version-is-derived-at-build-time.md) | Client Build Version Is Derived At Build Time | Superseded by 0038 | 提交数派生机制已停用；决策史保留。 |
 | 0007 (not published) | Stage The NarraCat Agent Core Cutover | Accepted, migration completed | Staging steps are historical; the surviving decision is that the engine lives internally at `agent-core/narracat/`. |
 | [0008](0008-model-service-verification-key-metadata.md) | Model Service Verification Uses Non-Sensitive Key Metadata | Accepted | Current BYOK verification persistence rule. |
 | 0009 (not published) | Packaged Agent Runs Use A Bundled Headless Runtime | Superseded by 0037 | Premise (running the packaged runtime through the SDK CLI) no longer holds; the surviving rule is that packaged runs must never depend on the user machine Node/shell/PATH. |
@@ -43,6 +43,7 @@
 | [0035](0035-app-owned-durable-production-continuity.md) | App 拥有耐久生产连续性——主进程真相、renderer 投影、显式恢复 | Accepted | Current P1A continuity boundary；正文资产归项目，Agent/App 状态归 userData，后台任务不依赖窗口，完整退出不自动续跑。 |
 | [0036](0036-architecture-layering-discipline.md) | 架构分层与依赖纪律——shared 层 + 单向依赖 + runtime 收口 | Accepted | Current 依赖分层纪律；`shared/` 是唯一双侧 import 层，electron/ 与 src/ 互不 import，`check:architecture` 强制校验。 |
 | [0037](0037-agent-runtime-pi-migration.md) | Agent Runtime 从 Claude Code SDK 迁移至 Pi（方案 A：先立骨架再换心脏） | Accepted, migration completed | 迁移已走完：pi 是唯一 runtime，旧 SDK adapter 目录已删、旧包被 `check:architecture` 全仓零容忍；supersedes 0009 与 0027。 |
+| [0038](0038-client-version-is-declared-not-derived.md) | 客户端版本号由人在 package.json 声明 | Accepted | Current client version policy; supersedes 0006. |
 
 ## Status Vocabulary
 

@@ -2,11 +2,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  CLIENT_BUILD_VERSION_PREFIX,
-  CLIENT_BUILD_VERSION_RE,
-  resolveClientBuildVersion,
-} from './client-build-version.mjs'
+import { CLIENT_VERSION_RE, resolveClientVersion } from './client-version.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -42,7 +38,7 @@ function readMarkdownDir(root, files) {
 
 export function readOpsFiles(root = repoRoot) {
   const files = {}
-  const directFiles = ['AGENTS.md', 'CONTEXT.md', 'package.json', 'scripts/client-build-version.mjs']
+  const directFiles = ['AGENTS.md', 'CONTEXT.md', 'package.json', 'scripts/client-version.mjs']
 
   for (const file of directFiles) {
     const content = readIfExists(join(root, file))
@@ -108,24 +104,38 @@ function addPackageScriptFailures(files, failures) {
   }
 }
 
-function addClientBuildVersionFailures(files, failures, clientBuildVersion) {
-  const resolver = files['scripts/client-build-version.mjs']
+function addClientVersionFailures(files, failures, clientVersion) {
+  const resolver = files['scripts/client-version.mjs']
   if (
     typeof resolver !== 'string' ||
-    !resolver.includes('formatClientBuildVersion') ||
-    !resolver.includes('resolveClientBuildVersion')
+    !resolver.includes('readPackageVersion') ||
+    !resolver.includes('resolveClientVersion')
   ) {
-    failures.push('scripts/client-build-version.mjs must export formatClientBuildVersion and resolveClientBuildVersion.')
+    failures.push('scripts/client-version.mjs must export readPackageVersion and resolveClientVersion.')
   }
 
-  if (typeof clientBuildVersion === 'string' && !CLIENT_BUILD_VERSION_RE.test(clientBuildVersion)) {
-    failures.push(
-      `client build version must match ${CLIENT_BUILD_VERSION_PREFIX}.<commit count>, got ${clientBuildVersion}.`,
-    )
+  if (typeof clientVersion === 'string' && !CLIENT_VERSION_RE.test(clientVersion)) {
+    failures.push(`client version must be a three-part semver, got ${clientVersion}.`)
+  }
+
+  // ADR-0038：package.json.version 是版本号唯一真相源。两者不一致 = 有人绕过了 SSOT
+  // （旧机制下这里恰恰**不许**比较——版本号派生自提交数，与 manifest 无关；ADR-0038 反转了这条）。
+  const manifest = files['package.json']
+  if (typeof manifest === 'string' && typeof clientVersion === 'string') {
+    try {
+      const parsed = JSON.parse(manifest)
+      if (parsed?.version !== clientVersion) {
+        failures.push(
+          `package.json version (${parsed?.version}) must equal the resolved client version (${clientVersion}); package.json is the single source (ADR-0038).`,
+        )
+      }
+    } catch {
+      // package.json 不是合法 JSON 已由 addPackageScriptFailures 报过，这里不重复报
+    }
   }
 }
 
-export function checkOpsDocs({ files, clientBuildVersion }) {
+export function checkOpsDocs({ files, clientVersion }) {
   const failures = []
 
   addAgentReferenceFailures(files, failures)
@@ -133,7 +143,7 @@ export function checkOpsDocs({ files, clientBuildVersion }) {
   addPlaceholderFailures(files, failures)
   addBareBunRunFailures(files, failures)
   addPackageScriptFailures(files, failures)
-  addClientBuildVersionFailures(files, failures, clientBuildVersion)
+  addClientVersionFailures(files, failures, clientVersion)
 
   return {
     ok: failures.length === 0,
@@ -142,7 +152,7 @@ export function checkOpsDocs({ files, clientBuildVersion }) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const result = checkOpsDocs({ files: readOpsFiles(), clientBuildVersion: resolveClientBuildVersion() })
+  const result = checkOpsDocs({ files: readOpsFiles(), clientVersion: resolveClientVersion() })
 
   if (result.ok) {
     console.log('OPS check passed.')

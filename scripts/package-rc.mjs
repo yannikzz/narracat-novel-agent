@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { resolveClientBuildVersion, resolveOverridableClientVersion } from './client-build-version.mjs'
+import { resolveClientVersion, resolveOverridableClientVersion } from './client-version.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
@@ -305,7 +305,7 @@ function createMacSteps({ clientVersion, notarize }) {
 }
 
 export function createPackageRcSteps({
-  clientVersion = resolveClientBuildVersion({ root: repoRoot }),
+  clientVersion = resolveClientVersion({ root: repoRoot }),
   notarize = false,
   platform = process.platform,
 } = {}) {
@@ -315,7 +315,7 @@ export function createPackageRcSteps({
 }
 
 /**
- * 打包入口的客户端版本号：直接复用 SSOT（见 client-build-version.mjs 的
+ * 打包入口的客户端版本号：直接复用 SSOT（见 client-version.mjs 的
  * resolveOverridableClientVersion——版本号在打包链上有两条独立取值路径，必须同源）。
  */
 export function resolvePackageClientVersion({ cwd = repoRoot, env = process.env } = {}) {

@@ -29,7 +29,7 @@ import {
   winFeedUrl,
   winReleaseAssetFileNames,
 } from './update-feed.mjs'
-import { resolveClientBuildVersion } from './client-build-version.mjs'
+import { resolveClientVersion } from './client-version.mjs'
 import { loadEnvFiles, runPackageRc } from './package-rc.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -263,6 +263,58 @@ function ghRun(args) {
 }
 
 /**
+ * 读线上 release 状态；tag 不存在返回 null。
+ *
+ * 不能复用 ghRun：那个是 stdio:'inherit'，输出直接流向终端、拿不回来。
+ */
+export function readReleaseState(tag, { execFile = execFileSync, repo = RELEASE_REPO } = {}) {
+  try {
+    const out = execFile('gh', ['release', 'view', tag, '--repo', repo, '--json', 'isDraft'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    return JSON.parse(out)
+  } catch {
+    // tag 不存在是最常见的分支（正常发版路径），gh 会以非零退出；
+    // 网络/认证故障也落这里，但那种情况后面真正 create 时一样会炸，不会静默发出去。
+    return null
+  }
+}
+
+/**
+ * 版本号重复闸（ADR-0038 补的第二道，放在打包之前）。
+ *
+ * 旧机制下版本号是 `git rev-list --count HEAD`，只增不减、天然不可能重复；ADR-0038 改成人在
+ * `package.json` 里定之后，「忘了 bump 就发版」成了真实可能——**而它的后果不是报错**：
+ * 资产会被 `release upload --clobber` 传进一个已经发布过的 tag，线上那个版本的文件被悄悄换掉、
+ * 版本号却没变，electron-updater 那边完全无感（用户永远不会重新下载），排查时也毫无线索。
+ *
+ * 只拦**已发布**的 release。停在 draft 的那种是上次发版中途某个资产上传失败的残留，
+ * 属于另一回事，交给既有的 tagExistsRecoveryGuidance 处理（删掉重来 or 补齐资产）。
+ */
+export function assertVersionNotAlreadyReleased(clientVersion, { readState = readReleaseState } = {}) {
+  const tag = releaseTag(clientVersion)
+  const state = readState(tag)
+  if (!state || state.isDraft) return
+
+  throw new Error(
+    [
+      `发布中止：${RELEASE_REPO} 上已经发布过 ${tag} 了。`,
+      '',
+      '最常见的原因是忘了先抬版本号——版本号现在由人在 package.json 里定（ADR-0038），',
+      '不再自动从提交数派生，所以不会自己往上走。',
+      '',
+      '要发新版本：改 package.json 的 version（修 bug 走 patch，如 0.3.1；有新能力走 minor，如 0.4.0），',
+      '提交后重新跑一遍 `bun --no-cache run release`。',
+      '',
+      '如果你确实想替换已发布的这一版（极少见，会让已下载的用户与线上文件不一致），',
+      `请先手动删掉它：gh release delete ${tag} --repo ${RELEASE_REPO} --cleanup-tag --yes`,
+    ].join('\n'),
+  )
+}
+
+/**
  * `gh release create` 失败时，用 `gh release view` 探测是否是「tag 已存在」这一类——
  * 不解析错误文本：上面的 run 用 stdio: 'inherit'，子进程 stderr 直接流向终端，
  * Error 对象里根本拿不到内容。命中就返回 true，探测本身失败（tag 确实不存在）
@@ -337,7 +389,9 @@ export async function runRelease({ winDir, useExistingArtifacts = false } = {}) 
   // 放在打包之前：非交互环境就别浪费几分钟签名 + 公证了。
   assertInteractive(process.stdin.isTTY)
 
-  const clientVersion = resolveClientBuildVersion({ root: repoRoot })
+  const clientVersion = resolveClientVersion({ root: repoRoot })
+  // 重复版本闸放在打包之前：撞上了就别浪费几分钟签名 + 公证（与上面 assertInteractive 同理）。
+  assertVersionNotAlreadyReleased(clientVersion)
   // 本机只打 mac：Windows 包由 CI 出（SignPath 要求可验证地从源码构建），
   // 通过 --with-win <目录> 把下载好的三件产物带进本次 Release——两条路互不影响，
   // --use-existing-artifacts 跳过的只是 mac 这一次打包。

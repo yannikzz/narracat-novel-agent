@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0038](0038-client-version-is-declared-not-derived.md) (2026-08-30)
+
+> 派生机制已停用。版本号现由人在 `package.json.version` 声明，理由见 ADR-0038：把版本号绑在
+> 「当前分支的历史有多长」上，跨分支不稳定、squash 会让它回落、历史重写会重置（本 ADR 的
+> Amendment 就是一次打补丁），且 Windows 成为第二个分发平台后两平台无法同号——已实际造成
+> 一台真机永久收不到更新。本文保留作决策史。
 
 ## Context
 

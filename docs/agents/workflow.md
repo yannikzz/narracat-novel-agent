@@ -37,8 +37,10 @@ bun --no-cache run ops:status
 
 ## Client Version
 
-- 客户端构建版本使用 `0.2.<release commit 提交数>`（版本线前缀是 `CLIENT_BUILD_VERSION_PREFIX`，2026-08-25 由 `0.1` 抬到 `0.2`，见 ADR-0006 修订——本仓干净历史重建后提交数从 0 重数，而线上 `v0.1.1930` 的数字来自旧主仓，仍走 `0.1.x` 的话新版在 semver 下反而更小，存量用户收不到更新）。
-- 提交数由构建 / 发布脚本在打包时从当前 release commit 派生，例如 `git rev-list --count HEAD`。
-- `package.json` 的 `version` 是源码清单 / 产品线基础版本，不承载提交数派生的客户端构建版本。
-- About 版本展示、RC artifact 命名和发布验收记录必须使用同一套客户端构建版本解析逻辑。
-- `bun --no-cache run ops:check` 应检查客户端构建版本解析逻辑存在且可得到当前 commit 的版本，不检查 `package.json.version` 是否等于提交数。
+- **客户端版本号的唯一真相源是 `package.json` 的 `version`，由人在发版时决定**（ADR-0038，2026-08-30 起；此前是从 `git rev-list --count HEAD` 派生，见已停用的 ADR-0006）。
+- 递进规矩：修 bug 走 patch（`0.3.1`）；有明显新能力走 minor（`0.4.0`）；`1.0.0` 留给正式公开发布。当前版本线起点 `0.3.0`。
+- **发版第一步是决定并抬版本号**——它现在是发版的输入，不再是打包的副产品。忘了抬会被 `release.mjs` 的重复版本闸在打包前拦下。
+- 改版本号只能改 `package.json`。About 版本展示、artifact 命名、发布验收全部经 `scripts/client-version.mjs` 取值，两条构建期路径（electron-builder `extraMetadata` / vite `define`）必须同源。
+- 新版本号必须严格大于 `HIGHEST_SHIPPED_VERSION`（已交付到用户手上的最高版本），否则那批机器收不到更新且无任何提示——`scripts/client-version.test.mjs` 钉住这条。**发版发出去之后要把那个常量抬上来。**
+- `bun --no-cache run ops:check` 检查版本解析逻辑存在、版本号是合法三段 semver，且与 `package.json.version` 一致。
+- 本地临时测试包要压过线上版本时用 `NARRACAT_CLIENT_VERSION=x.y.z`（打包链专用；正式发布链路不吃这个变量）。
