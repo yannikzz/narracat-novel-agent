@@ -566,6 +566,34 @@ describe('CI 直传 draft（--win-from-release）', () => {
     expect(calls).toContain('edit')
   })
 
+  /**
+   * 0.3.1 的真实事故：走 --win-from-release 时跳过 create，而 notes 只挂在 create 上，
+   * 于是 CI 建 draft 时写的内部占位串「草稿：等待 mac 产物…」被当成发布说明发给了所有用户，
+   * 连「Windows 未签名会撞 SmartScreen」那段该告诉用户的话都一起丢了。
+   * 上一条测试只看了动词序列（没 create、有 upload、有 edit）——它证明了「不重复建」，
+   * 却没人问「那谁来写发布说明」。这两条补的就是那个缺口。
+   */
+  test('draftExists 时发布说明仍然由脚本定稿，不留 CI 的占位串', () => {
+    const calls = []
+    publishRelease(plan(), { run: (args) => calls.push(args), draftExists: true })
+
+    const edit = calls.at(-1)
+    expect(edit[1]).toBe('edit')
+    const notes = edit[edit.indexOf('--notes') + 1]
+    expect(notes).toContain('NarraCat')
+    expect(notes).not.toContain('草稿')
+    expect(notes).not.toContain('等待 mac 产物')
+  })
+
+  test('带 Windows 产物时，未签名提示必须出现在发布说明里', () => {
+    const calls = []
+    publishRelease(plan(), { run: (args) => calls.push(args), draftExists: true })
+
+    const edit = calls.at(-1)
+    const notes = edit[edit.indexOf('--notes') + 1]
+    expect(notes).toContain('尚未代码签名')
+  })
+
   test('draftExists 为假时仍然照常 create（老路径不受影响）', () => {
     const calls = []
     publishRelease(createReleasePlan({ clientVersion: '0.3.0', winDir: '/tmp/w' }), {

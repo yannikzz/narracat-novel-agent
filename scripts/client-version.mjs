@@ -36,7 +36,7 @@ export const CLIENT_VERSION_RE = /^\d+\.\d+\.\d+$/
  * 本常量，而刚发完时两者相等。这不是断言写歪了——严格大于正是「忘了 bump 就发版」的拦截力
  * 所在，改成 `>=` 等于把闸拆了。两件一起做，仓库就始终停在「下一版待发」的状态上。
  */
-export const HIGHEST_SHIPPED_VERSION = '0.3.0'
+export const HIGHEST_SHIPPED_VERSION = '0.3.1'
 
 /** semver 三段比较：a > b。只处理 `x.y.z`，本仓不发预发布版（feed 只认 releases/latest）。 */
 export function isVersionGreater(a, b) {

@@ -164,6 +164,16 @@ xcrun notarytool info <submission-id> --key ... --key-id ... --issuer ...
 - Release 页上这个 tag 存在、不是 draft、被标记为 latest
 - 两个平台的产物都在资产列表里（mac 五件 + Windows 三件）
 - 上面两条 `curl` 都返回 200
+- **发布说明是给用户看的内容，不是「草稿：…」这类内部占位串**（`gh release view <tag> --json body -q .body`）
 - `HIGHEST_SHIPPED_VERSION` 已抬到这一版并合进 main
 
-前三条任何一条不成立，都要如实告诉用户哪里没成，而不是报告"发布成功"。
+前四条任何一条不成立，都要如实告诉用户哪里没成，而不是报告"发布成功"。
+
+> 发布说明那条是 0.3.1 踩出来的：CI 建 draft 时写的占位串被当成发布说明发给了所有用户，
+> 连「Windows 未签名会撞 SmartScreen」那段该告知的话都一起丢了（`releaseNotes()` 在
+> `--win-from-release` 路径上根本没被调用）。脚本已修并有变异验证过的测试兜底，
+> 但**产物齐全 + 更新链 200 不代表这个 Release 对用户是像样的**，所以判据里单列一条。
+
+`releaseNotes()` 生成的是通用样板（升级方式 + 首次安装 + Windows 未签名提示）。
+**这一版对用户是什么，样板答不了**——发完记得手动补一段人话说明这次改了什么，
+或者在发布前就把它准备好。

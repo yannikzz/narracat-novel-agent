@@ -485,7 +485,25 @@ export function publishRelease(plan, { run = ghRun, draftExists = false } = {}) 
     process.stdout.write(`↑ ${asset.split('/').pop()}\n`)
     run(['release', 'upload', plan.tag, asset, '--repo', plan.repo, '--clobber'])
   }
-  run(['release', 'edit', plan.tag, '--repo', plan.repo, '--draft=false', '--latest'])
+  // 标题与发布说明在这里定稿，而不是只在上面的 create 里给一次：
+  // 走 --win-from-release 时 draft 是 CI 建的（windows-release-build.yml），它写的是
+  // 一句「草稿：等待 mac 产物…」的内部占位串。而那条路径会跳过 create，于是 releaseNotes()
+  // 在正常发版路径上根本不会被调用——0.3.1 就是这么把占位串当作发布说明发出去的，
+  // 连「Windows 未签名会撞 SmartScreen」那段该告诉用户的话都一起丢了。
+  // 把 notes 挂在 publish 这一步，谁建的 draft 都不影响最终发布说明。
+  run([
+    'release',
+    'edit',
+    plan.tag,
+    '--repo',
+    plan.repo,
+    '--title',
+    plan.title,
+    '--notes',
+    releaseNotes(plan),
+    '--draft=false',
+    '--latest',
+  ])
 }
 
 function releaseNotes(plan) {
