@@ -8,7 +8,7 @@
 //
 // 所有判据都从真实契约 import，不重新实现一遍——版本号规则改了这里自动跟上（ADR-0038）。
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -151,6 +151,19 @@ try {
   loadEnvFiles(repoRoot)
 } catch (error) {
   add('warning', '.env 文件解析失败', String(error?.message ?? error))
+}
+
+// 这一版对用户是什么（docs/release-notes/<版本号>.md）。缺了不拦——紧急修复可能真没什么好说的，
+// 但 0.3.1 那次发出去的是一句 CI 的内部占位串，没人在任何一道闸上看见过它，所以这里必须出声。
+const highlightsFile = join(repoRoot, 'docs', 'release-notes', `${version}.md`)
+if (existsSync(highlightsFile) && readFileSync(highlightsFile, 'utf8').trim().length > 0) {
+  add('ok', `发布说明正文已写好`, `docs/release-notes/${version}.md`)
+} else {
+  add(
+    'warning',
+    '这一版没写发布说明正文',
+    `发布说明会只剩通用样板（怎么升级 / 首次安装 / Windows 未签名提示），答不了「这一版改了什么」。想写就建 docs/release-notes/${version}.md`,
+  )
 }
 
 const missingNotarize = NOTARIZE_ENV_VARS.filter((key) => !String(process.env[key] ?? '').trim())

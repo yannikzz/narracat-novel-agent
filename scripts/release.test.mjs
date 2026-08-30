@@ -17,6 +17,7 @@ import {
   formatConfirmation,
   parseReleaseArgs,
   publishRelease,
+  readVersionHighlights,
   readReleaseAssets,
   readReleaseState,
 } from './release.mjs'
@@ -585,6 +586,30 @@ describe('CI 直传 draft（--win-from-release）', () => {
     expect(notes).not.toContain('等待 mac 产物')
   })
 
+  test('写了每版正文时，它排在发布说明最前面（用户先看到「这版改了什么」）', () => {
+    const calls = []
+    publishRelease(
+      { ...plan(), highlights: '这一版加了匿名使用统计。' },
+      { run: (args) => calls.push(args), draftExists: true },
+    )
+
+    const edit = calls.at(-1)
+    const notes = edit[edit.indexOf('--notes') + 1]
+    expect(notes).toContain('这一版加了匿名使用统计。')
+    // 排在「怎么升级」之前：用户打开 Release 页最先想知道的是这版改了什么。
+    expect(notes.indexOf('这一版加了匿名使用统计。')).toBeLessThan(notes.indexOf('自动收到更新'))
+  })
+
+  test('没写每版正文时退回通用样板，不留空标题', () => {
+    const calls = []
+    publishRelease({ ...plan(), highlights: null }, { run: (args) => calls.push(args), draftExists: true })
+
+    const edit = calls.at(-1)
+    const notes = edit[edit.indexOf('--notes') + 1]
+    expect(notes).toContain('自动收到更新')
+    expect(notes).not.toContain('\n\n\n')
+  })
+
   test('带 Windows 产物时，未签名提示必须出现在发布说明里', () => {
     const calls = []
     publishRelease(plan(), { run: (args) => calls.push(args), draftExists: true })
@@ -601,6 +626,32 @@ describe('CI 直传 draft（--win-from-release）', () => {
     })
 
     expect(calls[0]).toBe('create')
+  })
+
+  test('readVersionHighlights：文件不存在返回 null，不抛', () => {
+    expect(
+      readVersionHighlights('9.9.9', {
+        read: () => {
+          throw new Error('ENOENT')
+        },
+      }),
+    ).toBeNull()
+  })
+
+  test('readVersionHighlights：文件只有空白也算没写', () => {
+    expect(readVersionHighlights('9.9.9', { read: () => '   \n\n  ' })).toBeNull()
+  })
+
+  test('formatConfirmation 把真正会发出去的发布说明打出来——最后一道人工闸要看得见', () => {
+    const text = formatConfirmation({
+      clientVersion: '0.3.2',
+      repo: 'x/y',
+      tag: 'v0.3.2',
+      files: [{ name: 'a.dmg', bytes: 1 }],
+      notes: 'NarraCat 0.3.2。\n这一版改了什么。',
+    })
+    expect(text).toContain('这一版改了什么。')
+    expect(text).toContain('用户在 Release 页会读到这段')
   })
 
   test('readReleaseAssets：读不到时返回 null 而不是抛', () => {

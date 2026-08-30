@@ -67,6 +67,9 @@ node .claude/skills/release-app/scripts/preflight.mjs --win-dir <目录>
 
 发版前值得先问用户一句：**这一版对用户来说是什么？** 这既决定 patch 还是 minor，也是 Release notes 的内容。可以用 `git log --oneline v<上一版>..main` 看这一版实际包含什么，用大白话总结给用户确认 —— 用户关心的是"能感觉到什么变化"，不是提交列表。
 
+**确认下来的那段话就写进 `docs/release-notes/<版本号>.md`**，跟版本号一起走 PR 合进 main。
+它会成为 Release 页最前面的正文；不写就只有通用样板。
+
 ## 步骤 2：CI 出 Windows 包（会自动传进 draft）
 
 ```bash
@@ -174,6 +177,9 @@ xcrun notarytool info <submission-id> --key ... --key-id ... --issuer ...
 > `--win-from-release` 路径上根本没被调用）。脚本已修并有变异验证过的测试兜底，
 > 但**产物齐全 + 更新链 200 不代表这个 Release 对用户是像样的**，所以判据里单列一条。
 
-`releaseNotes()` 生成的是通用样板（升级方式 + 首次安装 + Windows 未签名提示）。
-**这一版对用户是什么，样板答不了**——发完记得手动补一段人话说明这次改了什么，
-或者在发布前就把它准备好。
+**这一版对用户是什么，写在 `docs/release-notes/<版本号>.md`**（见该目录 README）。
+发版时它会排在发布说明最前面，后面自动接上通用样板（升级方式 + 首次安装 + Windows 未签名提示）。
+不写不阻断发版，但预检会出一条提醒，且发布说明就只剩样板、答不了「这一版改了什么」。
+
+**步骤 3 那个确认界面现在会把真正会发出去的发布说明原样打出来** —— 按确认之前先读一遍它，
+用户在 Release 页看到的就是那段。

@@ -35,11 +35,29 @@ import { loadEnvFiles, runPackageRc } from './package-rc.mjs'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
 
+/**
+ * 每一版的「这一版对用户是什么」，放在 docs/release-notes/<版本号>.md。
+ *
+ * 为什么是文件而不是发版时在终端里现问：这段话要提前写、要能在 PR 里被审、要能改；
+ * 而发版当口对着 TTY 敲一段中文正文，既难写也没人会认真写。文件缺失不阻断发版
+ * （紧急修复可能真的没什么好说的），只是发布说明退回通用样板——预检会提醒。
+ */
+export function readVersionHighlights(clientVersion, { root = repoRoot, read = readFileSync } = {}) {
+  try {
+    const text = read(join(root, 'docs', 'release-notes', `${clientVersion}.md`), 'utf8')
+    const trimmed = String(text).trim()
+    return trimmed.length > 0 ? trimmed : null
+  } catch {
+    return null
+  }
+}
+
 export function createReleasePlan({
   clientVersion,
   distDir = join(repoRoot, 'dist'),
   winDir,
   winFromRelease = false,
+  highlights = readVersionHighlights(clientVersion),
 }) {
   return {
     repo: RELEASE_REPO,
@@ -51,6 +69,8 @@ export function createReleasePlan({
     // 决策 8a（2026-08-16）：开源之后「内部测试」概念已不成立，对外物料不再带内测措辞。
     // 急刹车 / 软过期机制原样保留、只是不用。
     title: `NarraCat ${clientVersion}`,
+    // 这一版对用户是什么（docs/release-notes/<版本号>.md）；null = 只发通用样板。
+    highlights,
     // 不勾 Pre-release：GitHub 的 releases/latest 不含预发布版，勾了本 Worker
     // 就找不到最新版，整条自动更新链断掉。
     prerelease: false,
@@ -84,7 +104,7 @@ export function assertInteractive(isTTY) {
   )
 }
 
-export function formatConfirmation({ clientVersion, repo, tag, files }) {
+export function formatConfirmation({ clientVersion, repo, tag, files, notes }) {
   const lines = [
     '',
     '━━━━━━━━━━━━━━━━ 发版确认 ━━━━━━━━━━━━━━━━',
@@ -94,6 +114,12 @@ export function formatConfirmation({ clientVersion, repo, tag, files }) {
     `更新源：${macFeedUrl()}`,
     '产物：',
     ...files.map((file) => `  · ${file.name}  ${formatBytes(file.bytes)}`),
+    // 把真正会发出去的发布说明原样打出来：0.3.1 那次，产物齐全、更新链 200、
+    // 测试全绿，发出去的却是一句 CI 的内部占位串——没有任何一道闸让人看见过它。
+    // 这是最后一道人工闸，用户会读到什么就该在这里被看到。
+    ...(notes
+      ? ['', '发布说明（用户在 Release 页会读到这段）：', ...notes.split('\n').map((line) => `  │ ${line}`)]
+      : []),
     '',
     '上传后所有已安装用户都会自动收到此版本。',
     // tag 不存在时，gh 会基于发布仓（一个由人工定向同步的对外镜像仓）当前默认
@@ -310,7 +336,9 @@ function assertManifestFreshness(plan, clientVersion) {
 
 async function confirm(plan, clientVersion) {
   const files = plan.assets.map((file) => ({ name: file.split('/').pop(), bytes: statSync(file).size }))
-  process.stdout.write(`${formatConfirmation({ clientVersion, repo: plan.repo, tag: plan.tag, files })}\n`)
+  process.stdout.write(
+    `${formatConfirmation({ clientVersion, repo: plan.repo, tag: plan.tag, files, notes: releaseNotes(plan) })}\n`,
+  )
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const answer = await rl.question('确认上传？输入 yes 继续：')
   rl.close()
@@ -513,6 +541,9 @@ function releaseNotes(plan) {
     (plan.remoteWinAssets ?? []).some((file) => file.endsWith('-win-x64.exe'))
   return [
     `NarraCat ${version}。`,
+    // 每版正文排在最前：用户打开 Release 页最先想知道的是「这版改了什么」，
+    // 而不是怎么升级。没写就直接跳到通用样板，不留空标题。
+    ...(plan.highlights ? ['', plan.highlights] : []),
     '',
     '已装旧版的用户会在启动后自动收到更新，重启即可生效。',
     `首次安装：macOS 下载 dmg${hasWindows ? '，Windows 下载 exe。' : '。'}`,
