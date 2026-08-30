@@ -32,7 +32,16 @@ corpus-factory-data/
 # 2026-08-16：本仓升格为唯一开发仓，工程契约文档（CLAUDE.md / CONTEXT.md / AGENTS.md / docs/adr / docs/agents
 # / agent-core 引擎文档）已随代码入仓；此处只留私产（战略罗盘、过程流水、研究工具、语料）。
 docs/COMPASS.md
-.claude/
+# 写成 .claude/* 而不是 .claude/：git 不会递归进一个被整体排除的目录，
+# 父目录被排除时里面的 ! 例外规则一律失效（官方文档明写的行为）。
+.claude/*
+# 例外：.claude/skills/ 放的是工程工具（发版、内测门控），不是上面注释说的「私产」。
+# 它们必须随代码走——换台机器要还在、契约腐烂了要有守卫拦得住
+# （scripts/release-skill-preflight.test.mjs 就引用 release-app 的预检脚本，
+# 不跟踪的话那条测试在 CI 上必红）。只开 skills/ 这一层，其余 .claude/ 仍全忽略。
+!.claude/skills/
+# 触发测试的中间产物不进仓库（每次跑都重新生成，含大量临时文件）
+.claude/skills/*-workspace/
 .agents/
 docs/superpowers/
 docs/plans/
