@@ -48,19 +48,19 @@ Key 通过 macOS Keychain 存储，永不明文落盘；仓库代码可查证这
 | `feature_used` | 某个功能模块当天首次被用 | 模块名（16 个之一，如 `outline`、`character-chat`） |
 | `chapter_write_started` | 开始写一章 | 模型渠道、模型 ID、写到第几章的**区间**（如 `6-20`） |
 | `chapter_write_finished` | 一章写完 / 失败 / 取消 | 模型渠道、模型 ID、收场方式、耗时**区间**（如 `5-15m`） |
-| `error_occurred` | 出错 | 错误码（我们自己定义的 8 个枚举之一，**不含原始报错文本与堆栈**） |
-| `telemetry_opt_out` | 你关掉统计时 | App 版本（这样我们才知道有多少人关掉了） |
+| `error_occurred` | 出错 | 错误码（我自己定义的 8 个枚举之一，**不含原始报错文本与堆栈**） |
+| `telemetry_opt_out` | 你关掉统计时 | App 版本（这样我才知道有多少人关掉了） |
 
 注意数字全部落**区间**而非真实值：真实章数配合时间线有可能反推到具体作品，区间不会。
 
 ### 关于身份
 
 数据只关联一个**本机随机生成的 UUID**，与账号、邮箱、MAC 地址、机器指纹都无关，也不做设备识别。
-设置页可以随时重置这个 ID，重置后等同换了一台新机器。我们无法反查到具体某个人。
+设置页可以随时重置这个 ID，重置后等同换了一台新机器。我无法反查到具体某个人。
 
 ### 想自己核对
 
 - 待发队列是明文 JSON：设置 → 安全与项目 → 「查看已发送的数据」→ 在文件夹中显示；
 - 发送逻辑一共一个函数：`electron/main/telemetry/telemetry.ts` 的 `buildWirePayload`；
-- 数据经我们自己的域名 `telemetry.narracat.com` 中转到 PostHog 欧盟区（GDPR 管辖），
+- 数据经我自己的域名 `telemetry.narracat.com` 中转到 PostHog 欧盟区（GDPR 管辖），
   中转层的代码在 `workers/narracat-telemetry/`，它会**再执行一次**同样的字段白名单。

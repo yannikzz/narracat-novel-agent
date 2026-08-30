@@ -24,6 +24,7 @@ const expectedPurposes: BrandIllustrationPurpose[] = [
   'about',
   'wizard-guide',
   'wizard-journey',
+  'telemetry-notice',
 ]
 
 describe('brand illustration registry', () => {
@@ -58,6 +59,7 @@ describe('brand illustration registry', () => {
     expect(getBrandIllustration('home-agents').src).toContain('agents.webp')
     expect(getBrandIllustration('agent-question').src).toContain('thinking-draft.webp')
     expect(getBrandIllustration('about').src).toContain('fantasy-reading.webp')
+    expect(getBrandIllustration('telemetry-notice').src).toContain('heart-support.webp')
     expect(getBrandIllustration('wizard-guide').src).toContain('idea-writing.webp')
     expect(getBrandIllustration('wizard-journey').src).toContain('story-map.webp')
   })

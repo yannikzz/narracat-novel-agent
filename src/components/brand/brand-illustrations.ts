@@ -16,6 +16,7 @@ export type BrandIllustrationPurpose =
   | 'about'
   | 'wizard-guide'
   | 'wizard-journey'
+  | 'telemetry-notice'
 
 export interface BrandIllustrationAsset {
   src: string
@@ -40,6 +41,7 @@ export const BRAND_ILLUSTRATION_PURPOSES = [
   'about',
   'wizard-guide',
   'wizard-journey',
+  'telemetry-notice',
 ] as const satisfies readonly BrandIllustrationPurpose[]
 
 export const brandIllustrations: Record<BrandIllustrationPurpose, BrandIllustrationAsset> = {
@@ -113,6 +115,12 @@ export const brandIllustrations: Record<BrandIllustrationPurpose, BrandIllustrat
   'wizard-journey': {
     src: new URL('../../assets/illustrations/narracat/story-map.webp', import.meta.url).href,
     label: '作家向导访谈旅程',
+  },
+  // 匿名统计告知屏：这一屏要说的不是「我们在看着你」，是「你的稿子我们不碰」——
+  // 用抱着心的猫，把一屏本来像法务通知的东西还原成一次坦诚的打招呼。
+  'telemetry-notice': {
+    src: new URL('../../assets/illustrations/narracat/heart-support.webp', import.meta.url).href,
+    label: '匿名使用统计告知',
   },
 }
 
