@@ -205,8 +205,8 @@ function formatCardWordCount(words: string): string {
   return words.replace(/\s+字/g, '字')
 }
 
-export function LibraryNavBrand() {
-  return <BrandLockup data-library-nav-brand="true" size="md" />
+export function LibraryNavBrand({ className }: { className?: string }) {
+  return <BrandLockup data-library-nav-brand="true" size="md" className={className} />
 }
 
 export function LibraryEmptyState({ loading }: { loading: boolean }) {
@@ -1318,7 +1318,11 @@ export function LibraryRoute() {
 
   return (
     <AppShell
-      navCenter={<LibraryNavBrand />}
+      // 品牌位置平台感知：mac 居中（红绿灯占着左上角），win32 靠左（Windows 惯例把
+      // logo + 应用名放标题栏左端，且那里原本空着）。两份都渲染、由 CSS 选一份显示，
+      // 组件树保持同构；navStart 槽整体是 no-drag，品牌不是交互件故单独还原 drag。
+      navStart={<LibraryNavBrand className="hidden [-webkit-app-region:drag] win32:inline-flex" />}
+      navCenter={<LibraryNavBrand className="win32:hidden" />}
       navEnd={
         <>
           <UpdateReadyBanner variant="titlebar" />

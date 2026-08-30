@@ -296,11 +296,42 @@ Workbench 使用固定 px 侧栏 + 流式内容区，不使用百分比作为可
 三条规则，缺一条就会出 bug：
 
 1. **兼作视觉间距的 padding 必须 `max()` 保底。** 非 mac / 非 win 平台变量是 `0`，若这一侧 padding 同时承担内容与窗口边缘的正常间距，裸写 `pl-[var(--titlebar-inset-left)]` 会让它直接归零——布局在这些平台上塌掉，而开发机上永远复现不了。
-   *例外：纯让位型 padding 可以裸写。* 当某侧 padding 的**唯一职责**就是给系统按钮腾地方、不承担任何视觉间距时（典型是 `justify-end` 的左栏头部：内容右对齐，左侧本就该是空的），归零正是期望行为。现有两处如此——`SettingsLayout.tsx` 与 `WorkbenchPrimarySidebar.tsx` 的 `pl-[var(--titlebar-inset-left)]`。判断依据是**这侧 padding 去掉后设计上是否还需要间距**，不是「有没有写 max()」。
+   *例外：纯让位型 padding 可以裸写。* 当某侧 padding 的**唯一职责**就是给系统按钮腾地方、不承担任何视觉间距时（`justify-end` 的左栏头部曾是典型：内容右对齐，左侧本就该是空的），归零正是期望行为。判断依据是**这侧 padding 去掉后设计上是否还需要间距**，不是「有没有写 max()」。
+   **该例外目前全仓无实例**（2026-08-30）：原先援引的 `SettingsLayout.tsx` 与 `WorkbenchPrimarySidebar.tsx` 两处左栏头部，因下文「win32 顶栏左端的品牌标识」不再是空的，已改为 `pl-[max(0.75rem,var(--titlebar-inset-left))]`。例外规则本身保留——将来出现真正空着的左栏头部仍适用。
 2. **呼吸位不可省。** 系统按钮与我们的图标之间只隔一条让位线时会被读成同一组按钮。左右各留 `1rem` / `0.75rem`。
 3. **已经在 caption 带下方的元素不要二次让位。** 上下分区之后，卡片内部的头部（Agent 面板头、聊天卡头）已经整体位于系统按钮下方，再消费 `inset-right` 会把按钮无故推离卡片右缘上百像素。
 
 **例外是全屏覆盖态**：`fixed inset-0` 的浮层（如记忆星图全屏）会盖住整个窗口、包括 caption 带，必须重新让位。
+
+#### 让出去的地方必须还能拖窗口
+
+窗口无边框，**「能不能拖动窗口 / 双击能不能最大化」完全由页面自己声明 `-webkit-app-region: drag` 决定**，系统不会因为那里是标题栏高度就自动给。
+
+这条最容易漏在**上下分区**策略上：`pt-[max(…,var(--titlebar-gutter-top))]` 让出来的那条带在 DOM 里只是父容器的 padding，**padding 不带 drag 属性**——顶栏于是成了拖不动、双击也无反应的死区。上下分区的每个消费点都必须补拖拽层：
+
+```tsx
+<main className="relative pt-[max(0.75rem,var(--titlebar-gutter-top))]">
+  {/* …内容… */}
+  <TitlebarDragGutter />   {/* 放最后一个子节点：同 z-auto 时后置节点在上 */}
+</main>
+```
+
+`TitlebarDragGutter`（`src/components/TitlebarDragGutter.tsx`）贴容器顶边、高度取 `var(--titlebar-gutter-top)`，非 win32 平台高度归零、等同不存在。**`titlebar-windows-chrome.test.ts` 扫全部生产源码强制这条**：凡把 `--titlebar-gutter-top` 用作顶部 padding 又没挂拖拽层的文件，测试会红并点名。
+
+水平让位策略（通栏 header）不受此限——header 本体已经声明 drag，其中的交互件反声明 `no-drag` 即可。**全屏覆盖层同理需要自带 drag**（首启五幕顶条即为一例，否则整个首启期间窗口拖不动）。
+
+同样只在 Windows 上暴露：mac 的 `--titlebar-gutter-top` 为 `0`、卡片通顶、卡片自身的 h-14 header 就是 drag 区，本机开发永远看不见这个洞。
+
+#### win32 顶栏左端的品牌标识
+
+mac 的左上角归红绿灯，Windows 那个位置系统不占——按 Windows 桌面软件惯例应放 **logo + 应用名**，空着会显得像半成品。故 win32 顶栏左端统一挂 `BrandLockup`：
+
+- **图书馆**（通栏 header）：品牌 mac 居中（`navCenter`）、win32 靠左（`navStart`）。
+- **工作台 / 设置**（上下分区）：左栏 headbar 左端，`size="sm"`。
+
+平台差异一律收在样式层，不写 JS 分支——`globals.css` 定义了 `@custom-variant win32 (&:is([data-platform="win32"] *))`，两份品牌都渲染、由 `win32:inline-flex` / `win32:hidden` 选显示哪一份，组件树两平台同构。**这条变体的定义有守卫钉住**：Tailwind 对未定义变体不报错、直接不生成规则，删掉它的后果是品牌永远 `hidden`，且只在 Windows 上表现为「左上角还是空的」。
+
+品牌不是交互件，落在 `no-drag` 槽里时要单独还原 `[-webkit-app-region:drag]`，否则左上角又多一块死区。左栏可被拖到 200px，品牌须 `min-w-0` + 文字 truncate 让位给右侧图标组——挤到极限只裁品牌名，不挤坏按钮。
 
 #### 与间距 scale 的关系
 
@@ -757,6 +788,7 @@ Workbench 中间内容区不是普通页面容器，而是 Novel project 当前�
 - [ ] 图标尺寸是否与组件尺寸匹配？IconTile 是否保持单色？
 - [ ] 间距是否使用 Tailwind 内置 scale（无任意值）？
 - [ ] 贴近窗口顶边的元素是否按 §4.4 让位（消费 `--titlebar-*` 变量 + `max()` 保底 + 呼吸位），而不是硬编码像素？新页面是否按页面结构选对了水平让位 / 上下分区？
+- [ ] 让出来的那条 caption 带**还能拖动窗口**吗（上下分区必须挂 `TitlebarDragGutter`，全屏覆盖层必须自带 drag）？落在 drag 区里的交互件是否反声明 `no-drag`？
 - [ ] 圆角是否来自降低 2px 后的规范 scale 或组件变体？等宽高 submit/send 是否为正圆？
 - [ ] Dark 模式下 floating card、glass、hairline 是否仍有清晰层级？
 - [ ] 有没有不必要的分割线（可以用间距或 hairline 透明度替代）？

@@ -90,6 +90,14 @@
 @custom-variant dark (&:is([data-theme="dark"] *));
 
 /*
+ * 平台变体：main.tsx 把主进程平台写到 <html data-platform>，组件用 `win32:` 前缀
+ * 做平台专属渲染（如左上角品牌标识——Windows 惯例把 logo+应用名放标题栏左端，
+ * mac 那个位置归红绿灯）。用 CSS 变体而非 JS 分支，与 --titlebar-inset-* 的
+ * 现有做法同源：平台差异一律收在样式层，组件树两平台保持同构。
+ */
+@custom-variant win32 (&:is([data-platform="win32"] *));
+
+/*
  * 平台感知顶栏预留（main.tsx 把主进程平台写到 <html data-platform>）：
  * - darwin：左上角红绿灯按钮区，顶栏左内容需让位（约 112px，与 trafficLightPosition x:18 匹配）
  * - win32：右上角系统 caption 按钮（最小化/最大化/关闭）。

@@ -626,6 +626,15 @@ P1A-1 完成门已闭合。分支仍未推送、未创建 PR、未合并，继�
 - 阶段一「渲染层止血」已由社区 PR #2 / #7 完成；阶段二起（打包链跨平台化）为维护者本轮工作。
 - 执行顺序被 SignPath 条款锁死：①发未签名 Windows beta → ②申请 SignPath 免费 OV 签名 → ③发签名正式版。
 
+**2026-08-30 · Windows 真机走查第一批：顶栏两处（分支 `feat/windows-port`，未 push）**
+
+- 产品主人真机跑通体验流程后报两件事：①窗口最顶部拖不动、双击不最大化；②顶栏左上角空着（Windows 惯例那里是 logo + 应用名）。
+- **①的根因是 PR #26「上下分区」方案的一个盲面**：那条 56px caption 带在 DOM 里只是父容器的 `pt` padding，而 **padding 不带 `-webkit-app-region:drag`**——窗口是 `titleBarStyle:'hidden'`，能不能拖完全由页面自己声明。侧边栏 headbar 那一小段有 drag，其余整条是死区。**mac 上 `--titlebar-gutter-top` 为 0、卡片通顶、卡片自身 h-14 header 就是 drag 区，所以这个洞在 mac 上不存在，本机开发永远看不见。** 修法 = 新增 `TitlebarDragGutter`（贴容器顶、高度 `var(--titlebar-gutter-top)`、声明 drag），挂在三处让位点（工作台舞台 / 工作台无项目态 / 设置舞台）；顺带补了首启五幕顶条的 drag（全屏覆盖层，不拖则整个首启期间窗口都拖不动，「跳过」按钮同步反声明 `no-drag`）。
+- **②按「就地补齐」做**（产品主人在三个方案里选的）：不引入横贯式标题栏与文字菜单栏，只把 `BrandLockup` 补进顶栏左端——图书馆页品牌 mac 居中 / win32 靠左，工作台与设置左栏 headbar 左端补品牌。平台差异全部收在样式层：新增 `@custom-variant win32`，组件树两平台同构，由 CSS 选显示哪一份。左 padding 从 `pl-[var(--titlebar-inset-left)]` 改 `pl-[max(0.75rem,…)]`（mac 仍是 112px 逐像素不变，win32 从 0 退回呼吸位）。侧栏可拖到 200px，品牌用 `min-w-0` + 文字 truncate 让位给右侧三枚图标，挤到极限只裁品牌名、不挤坏按钮。
+- **守卫（这两条都是「mac 上看不见」的类型，必须有）**：`titlebar-windows-chrome.test.ts` 扫全部生产源码，**凡把 `--titlebar-gutter-top` 用作顶部 padding 的文件都必须挂 `TitlebarDragGutter`**——语义守卫不钉写法，新增页面只做「让位」一半就会红并点名文件（临时摘掉一处实测报红，确认有牙）；另钉 `@custom-variant win32` 必须存在——Tailwind 对未定义变体不报错、直接不生成规则，缺了就是「品牌永远 hidden 且只在 Windows 上表现为左上角还是空的」。
+- 顺手改了一条断言范围：`settings.test.tsx` 的「关于页用品牌横幅不用 lockup」原先扫整页 HTML，把左栏也罩进去了，已收窄到 `data-settings-page="about"` 之后的内容区，原语义不变。
+- 验证：`typecheck` / 全量 `bun --no-cache run test` **3265 pass 0 fail across 322 files** / `check:design` / `check:architecture` / `build` 全绿；**Tailwind 产物已逐条 grep 复核**（本仓有任意值静默丢弃前科）——`.win32\:hidden` / `.win32\:inline-flex` 两条变体规则、`.h-[var(--titlebar-gutter-top)]`、`[&>span:last-child]:truncate` 均落盘。**拖拽与双击最大化的真实行为只能 Windows 真机验**（mac 无 caption 带，模拟不出），并入 #25 Task 12。
+
 **2026-08-25 · #24 `check:design` 在 Windows 恒红已修（PR #52 已合入 main = `938abe7`，#24 已关闭）**
 
 - **根因是路径分隔符，不是 issue 正文猜的行尾**（社区贡献者 @zfengChen 在 Windows 10 实机诊断并给出证据链）：`listFiles()` 的 `relative('.', path)` 在 Windows 返回反斜杠，而品牌资产白名单存正斜杠 → `Set.has()` 恒 false → 三个合规包装器（`BrandMark` / `BrandStoryBanner` / `brand-illustrations`）被误扫，它们本来就该引用资产目录 → 守卫恒红；mac 恒绿，永远看不见。

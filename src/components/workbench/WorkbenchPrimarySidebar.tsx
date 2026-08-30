@@ -17,6 +17,7 @@ import {
   Settings,
   Waypoints,
 } from 'lucide-react'
+import { BrandLockup } from '@/components/brand'
 import { Button } from '@/components/ui/button'
 import { GlobalNotificationBell } from '@/components/notifications/GlobalNotificationBell'
 import { UpdateReadyBanner } from '@/components/settings/UpdateReadyBanner'
@@ -413,10 +414,20 @@ export function WorkbenchPrimarySidebar({
       className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-canvas"
       data-workbench-primary-sidebar="true"
     >
+      {/* 左 padding 平台感知：mac 让位红绿灯（112px），win32/linux 退回 0.75rem 呼吸位——
+          win32 那个位置归品牌标识（Windows 惯例：logo + 应用名在标题栏左端）。 */}
       <div
-        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[var(--titlebar-inset-left)] pr-3 [-webkit-app-region:drag]"
+        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[max(0.75rem,var(--titlebar-inset-left))] pr-3 [-webkit-app-region:drag]"
         data-workbench-sidebar-headbar="true"
       >
+        <BrandLockup
+          data-workbench-sidebar-brand="true"
+          size="sm"
+          // 只在 win32 出现（mac 左上角被红绿灯占）。侧栏可拖到 200px，品牌须能让位给右侧
+          // 三枚图标：min-w-0 + 文字 truncate，挤到极限只裁品牌名，不挤坏按钮。
+          // 品牌本身不是交互件，保持 drag——否则左上角又多一块拖不动的死区。
+          className="mr-auto hidden min-w-0 [&>span:last-child]:truncate win32:inline-flex"
+        />
         <IconTooltip label="返回图书馆">
           <Button asChild variant="ghost" size="icon-sm" className="[-webkit-app-region:no-drag]">
             <Link

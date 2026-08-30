@@ -160,7 +160,10 @@ describe('SettingsRoute', () => {
 
     expect(html).toContain('data-settings-about-brand-story="true"')
     expect(html).toContain('narracat-about-banner.webp')
-    expect(html).not.toContain('data-brand-lockup="true"')
+    // 「关于页用品牌横幅、不用 lockup」这条只管内容区：左栏 headbar 在 win32 上合法地
+    // 挂着一枚 lockup（顶栏左上角的 logo + 应用名），整页扫描会把它误判成回归。
+    const aboutPage = html.slice(html.indexOf('data-settings-page="about"'))
+    expect(aboutPage).not.toContain('data-brand-lockup="true"')
     expect(html).toContain('故事生于人，成于智能。')
     expect(html).toContain('在人类文明中，故事一直来自人的记忆、情感与想象。')
     expect(html).toContain('从口述，到书写，再到数字时代')

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, t
 import { useSearchParams } from 'react-router'
 import { AlertCircle, FolderOpen, Loader2, type LucideIcon } from 'lucide-react'
 import { LoadRecoveryNotice } from '@/components/LoadRecoveryNotice'
+import { TitlebarDragGutter } from '@/components/TitlebarDragGutter'
 import { WorkbenchPrimarySidebar } from '@/components/workbench/WorkbenchPrimarySidebar'
 import { WorkbenchStage } from '@/components/workbench/WorkbenchStage'
 import {
@@ -50,7 +51,7 @@ function WorkbenchRouteState({
 }) {
   return (
     // 顶部 padding 平台感知：win32 下让状态卡也从 caption 带下方开始（方案 A 上下分区）。
-    <main className="h-full min-h-0 min-w-0 flex-1 p-3 pt-[max(0px,var(--titlebar-gutter-top))]">
+    <main className="relative h-full min-h-0 min-w-0 flex-1 p-3 pt-[max(0px,var(--titlebar-gutter-top))]">
       <div className={`${WORKSPACE_STATE_CLASS} flex h-full min-h-0 items-center justify-center p-6`}>
         <div className="max-w-sm text-center">
           <Icon className="mx-auto mb-3 size-5 text-hint-foreground" />
@@ -58,6 +59,7 @@ function WorkbenchRouteState({
           <div className="mt-1 text-xs leading-snug text-muted-foreground">{children}</div>
         </div>
       </div>
+      <TitlebarDragGutter />
     </main>
   )
 }

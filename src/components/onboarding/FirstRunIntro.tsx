@@ -309,13 +309,18 @@ export function FirstRunIntro({ onDone }: FirstRunIntroProps) {
         </motion.div>
       )}
 
-      {/* 跳过（终幕不显示，那里只剩“开始创作”）。右侧预留 Windows caption 按钮区。 */}
-      <div className="relative z-10 flex h-14 shrink-0 items-center justify-end pl-[1.25rem] pr-[max(1.25rem,var(--titlebar-inset-right))]">
+      {/* 跳过（终幕不显示，那里只剩“开始创作”）。右侧预留 Windows caption 按钮区。
+          这条 h-14 与窗口顶栏同高同位，须自带 drag——首启五幕是全屏覆盖层，它不拖
+          等于整个首启期间窗口拖不动、双击不最大化（窗口是 titleBarStyle:'hidden'）。 */}
+      <div className="relative z-10 flex h-14 shrink-0 items-center justify-end pl-[1.25rem] pr-[max(1.25rem,var(--titlebar-inset-right))] [-webkit-app-region:drag]">
         {!isFinale && (
           <Button
             variant="ghost"
             size="xs"
-            className={onLightStage ? 'text-zinc-500' : 'text-muted-foreground'}
+            className={cn(
+              '[-webkit-app-region:no-drag]',
+              onLightStage ? 'text-zinc-500' : 'text-muted-foreground',
+            )}
             onClick={onDone}
           >
             跳过

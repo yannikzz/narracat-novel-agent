@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ArrowLeft, ChevronRight } from 'lucide-react'
+import { BrandLockup } from '@/components/brand'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -65,10 +66,16 @@ export function SettingsPrimarySidebar({
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col bg-canvas" data-settings-sidebar="true">
+      {/* 左 padding 与品牌标识同工作台左栏：mac 让位红绿灯，win32 那个位置归 logo + 应用名。 */}
       <div
-        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[var(--titlebar-inset-left)] pr-3 [-webkit-app-region:drag]"
+        className="flex h-14 shrink-0 items-center justify-end gap-2 pl-[max(0.75rem,var(--titlebar-inset-left))] pr-3 [-webkit-app-region:drag]"
         data-settings-sidebar-headbar="true"
       >
+        <BrandLockup
+          data-settings-sidebar-brand="true"
+          size="sm"
+          className="mr-auto hidden min-w-0 [&>span:last-child]:truncate win32:inline-flex"
+        />
         <IconTooltip label="返回">
           <Button
             type="button"

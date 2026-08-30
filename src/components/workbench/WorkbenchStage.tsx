@@ -11,6 +11,7 @@ import {
   WORKBENCH_RESIZE_HANDLE_CLASS,
   WORKBENCH_RESIZE_HANDLE_LINE_CLASS,
 } from '@/design-system'
+import { TitlebarDragGutter } from '@/components/TitlebarDragGutter'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { createAgentRunRequest } from '@/lib/agent-commands'
 import { getAgentThreadIdForProject, useAgentStore } from '@/lib/agent-store'
@@ -418,7 +419,9 @@ export function WorkbenchStage({
     <main
       // 顶部 padding 平台感知（方案 A 上下分区）：win32 下舞台卡片从 caption 带（56px）下方
       // 开始，caption 按钮悬于 canvas gutter，不再压在 Agent 面板头部白底上（视觉混排根因）。
-      className="h-full min-h-0 min-w-0 flex-1 pt-[max(0.75rem,var(--titlebar-gutter-top))] pb-3 pl-0 pr-3"
+      // relative 是给 TitlebarDragGutter 的定位基准——那条 padding 不带 drag 属性，
+      // 不补拖拽层则整条顶栏在 win32 上是死区（见组件注释）。
+      className="relative h-full min-h-0 min-w-0 flex-1 pt-[max(0.75rem,var(--titlebar-gutter-top))] pb-3 pl-0 pr-3"
       data-workbench-stage="true"
       data-section-id={selectedSectionId}
       data-tab-id={activeTab?.id ?? undefined}
@@ -510,6 +513,7 @@ export function WorkbenchStage({
         </div>
       </div>
       {confirmDialog}
+      <TitlebarDragGutter />
     </main>
   )
 }
