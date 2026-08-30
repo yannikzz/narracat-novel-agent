@@ -44,6 +44,7 @@
 | [0036](0036-architecture-layering-discipline.md) | 架构分层与依赖纪律——shared 层 + 单向依赖 + runtime 收口 | Accepted | Current 依赖分层纪律；`shared/` 是唯一双侧 import 层，electron/ 与 src/ 互不 import，`check:architecture` 强制校验。 |
 | [0037](0037-agent-runtime-pi-migration.md) | Agent Runtime 从 Claude Code SDK 迁移至 Pi（方案 A：先立骨架再换心脏） | Accepted, migration completed | 迁移已走完：pi 是唯一 runtime，旧 SDK adapter 目录已删、旧包被 `check:architecture` 全仓零容忍；supersedes 0009 与 0027。 |
 | [0038](0038-client-version-is-declared-not-derived.md) | 客户端版本号由人在 package.json 声明 | Accepted | Current client version policy; supersedes 0006. |
+| [0039](0039-anonymous-telemetry-informed-opt-out.md) | 匿名使用统计——先告知的默认开，红线由代码机械执行 | Accepted | Current telemetry policy；采集边界、模块级粒度、自有域名反代与「告知前零发送」闸门的长期真相；覆盖 0026 中未落地的 crash 上报设想并收窄为不做自动捕获。 |
 
 ## Status Vocabulary
 

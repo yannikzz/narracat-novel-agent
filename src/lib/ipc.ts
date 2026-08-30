@@ -77,6 +77,7 @@ import type {
 } from '@shared/types/planned-state'
 import type { ProseBlockView } from '@shared/types/prose-block'
 import type { ProcessHealthReport } from '@shared/types/process-health'
+import type { TelemetryState } from '@shared/types/telemetry'
 
 export function ping(): Promise<string> {
   return window.electron.ping()
@@ -84,6 +85,26 @@ export function ping(): Promise<string> {
 
 export function checkReleaseGuard(): Promise<ReleaseGateVerdict> {
   return window.electron.checkReleaseGuard()
+}
+
+export function getTelemetryState(): Promise<TelemetryState> {
+  return window.electron.getTelemetryState()
+}
+
+export function setTelemetryEnabled(enabled: boolean): Promise<TelemetryState> {
+  return window.electron.setTelemetryEnabled(enabled)
+}
+
+export function acknowledgeTelemetryNotice(): Promise<TelemetryState> {
+  return window.electron.acknowledgeTelemetryNotice()
+}
+
+export function resetTelemetryAnonymousId(): Promise<TelemetryState> {
+  return window.electron.resetTelemetryAnonymousId()
+}
+
+export function revealTelemetryQueue(): Promise<void> {
+  return window.electron.revealTelemetryQueue()
 }
 
 export function getUpdaterState(): Promise<UpdaterState> {

@@ -13,6 +13,7 @@ import { createAgentQuitController } from './agent/runs/agent-quit-controller.ts
 import { resolveNarraCatAgentCorePath } from './engine/engine.ts'
 import { maybeRunMemorySmoke } from './memory/memory-smoke.ts'
 import { startUpdater } from './updater/updater-runtime.ts'
+import { settleTelemetryBeforeQuit, startTelemetry } from './telemetry/telemetry-runtime.ts'
 import {
   attachAppProcessHealthWatcher,
   attachWindowProcessHealthWatchers,
@@ -89,6 +90,9 @@ async function main() {
   // 用户点了按钮却什么都没发生。startUpdater() 本身只做同步的状态机初始化 + 30s 后才真正
   // 发起首次检查，提前调用没有副作用代价。
   startUpdater()
+  // 匿名使用统计（ADR-0039）：补发上次没发出去的，并记一条启动。内部自带告知闸门——
+  // 用户没确认过告知屏、或关了开关，这里什么都不会发生，也不会抛。
+  void startTelemetry()
   await reconcileAgentRuntimeStartup()
   if (BrowserWindow.getAllWindows().length === 0) spawnMainWindow()
 }
@@ -131,6 +135,9 @@ app.on('before-quit', (event) => {
 
 app.on('will-quit', () => {
   disposeAllPendingCapabilityPackImportsSync()
+  // 退出前把内存里没发出去的落盘/发出去。will-quit 不等异步，故这里只是尽力而为：
+  // 真正的兜底是落盘队列，下次启动补发（ADR-0039 决定七）。
+  void settleTelemetryBeforeQuit()
 })
 
 main().catch((err) => {

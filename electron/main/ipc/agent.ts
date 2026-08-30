@@ -16,6 +16,7 @@ import {
 } from '../agent/runs/agent-runtime-coordinator.ts'
 import { createAgentSessionCompatibilityFingerprint } from '../agent/runs/session-fingerprint.ts'
 import { createAgentMainSideEffects } from '../agent/events/agent-main-side-effects.ts'
+import { recordChapterWrite } from '../telemetry/telemetry-runtime.ts'
 import { NARRACAT_AGENT_CORE_VERSION_LOCK } from '../engine/agent-core-contract.ts'
 import { resolveNarraCatAgentCorePath } from '../engine/engine.ts'
 import type {
@@ -58,6 +59,7 @@ export function getAgentRuntimeCoordinator(): AgentRuntimeCoordinator {
       showNativeNotification: showNativeResultNotificationIfNeeded,
       resolveProjectName: async (projectPath) => (await loadNovelProjectSummary(projectPath)).title,
       clearPendingMemorySync,
+      onChapterWriteEvent: (event) => void recordChapterWrite(event),
     })
     _agentRuntimeCoordinator = createAgentRuntimeCoordinator({
       store,

@@ -1,0 +1,13 @@
+# 匿名使用统计的反代 Worker（ADR-0039）。
+# 部署后需在 Cloudflare 面板给它绑定自定义域 telemetry.narracat.com，
+# 该域名硬编码在 electron/main/telemetry/telemetry-runtime.ts 的 TELEMETRY_URL。
+name = "narracat-telemetry"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+[vars]
+# 上游区域端点。选欧盟区（GDPR 管辖）而非默认的美国区，见 ADR-0039 决定四。
+POSTHOG_HOST = "https://eu.i.posthog.com"
+
+# POSTHOG_API_KEY 是 secret，不写在这里：
+#   wrangler secret put POSTHOG_API_KEY

@@ -18,14 +18,19 @@ import {
 import { registerPacksIpcHandlers } from './packs.ts'
 import { registerSkillsIpcHandlers } from './skills.ts'
 import { registerChatIpcHandlers } from './chat.ts'
+import { withIpcModuleTap } from './telemetry-tap.ts'
 
 export { reconcileAgentRuntimeStartup, settleAgentRuntimeBeforeQuit, hasActiveAgentRuntimeRuns }
 
 export function registerAllIpcHandlers(): void {
-  registerAppIpcHandlers()
-  registerNovelIpcHandlers()
-  registerAgentIpcHandlers()
-  registerPacksIpcHandlers()
-  registerSkillsIpcHandlers()
-  registerChatIpcHandlers()
+  // 装配期挂埋点壳（ADR-0039）：所有 handler 在这一处统一获得模块归属记账，
+  // 域文件本身不含任何埋点代码。壳只在注册窗口内生效，见 telemetry-tap.ts。
+  withIpcModuleTap(() => {
+    registerAppIpcHandlers()
+    registerNovelIpcHandlers()
+    registerAgentIpcHandlers()
+    registerPacksIpcHandlers()
+    registerSkillsIpcHandlers()
+    registerChatIpcHandlers()
+  })
 }

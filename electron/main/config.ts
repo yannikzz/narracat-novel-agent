@@ -136,8 +136,19 @@ function normalizeRecentNovelPaths(value: unknown): string[] {
   return paths
 }
 
-function normalizeIntroVersion(value: unknown): number {
+/** 「已看过的版本号」类字段的归一化：非负整数，其余一律回落 0（= 没看过）。 */
+function normalizeSeenVersion(value: unknown): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
+}
+
+/**
+ * 匿名 ID 只接受 UUID 形态；手改成别的（比如填了邮箱、机器名）一律清空重生成——
+ * 配置文件是用户可编辑的，不能假设里面永远是我们写进去的东西（ADR-0039）。
+ */
+function normalizeTelemetryAnonymousId(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : ''
 }
 
 function normalizeApiKeyMetadata(value: unknown): Partial<Record<ProviderId, ProviderApiKeyMetadata>> {
@@ -337,7 +348,12 @@ export function normalizeAppConfig(value: unknown, homeDir = homedir()): AppConf
     novelRootDir: asTrimmedString(input.novelRootDir) ?? defaultNovelRoot(homeDir),
     recentNovelPaths: normalizeRecentNovelPaths(input.recentNovelPaths),
     systemNotificationsEnabled: input.systemNotificationsEnabled !== false,
-    introVersion: normalizeIntroVersion(input.introVersion),
+    introVersion: normalizeSeenVersion(input.introVersion),
+    // 默认开（ADR-0039 决定二 informed opt-out）；真正的防线是下面的告知版本号，
+    // 它默认 0，意味着"没告知过"，发送闸门据此拦住存量用户升级后的静默上报。
+    telemetryEnabled: input.telemetryEnabled !== false,
+    telemetryNoticeAckedVersion: normalizeSeenVersion(input.telemetryNoticeAckedVersion),
+    telemetryAnonymousId: normalizeTelemetryAnonymousId(input.telemetryAnonymousId),
   }
 }
 

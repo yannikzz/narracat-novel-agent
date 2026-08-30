@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { canSetPrimaryModel, modelEntryKey, resolvePrimaryModel } from '@shared/lib/model-slots'
 import {
   clearProviderApiKeyMetadata,
@@ -26,6 +26,15 @@ import {
   normalizeResultNotification,
   upsertResultNotification,
 } from '../notifications.ts'
+import { writeFile } from 'node:fs/promises'
+import type { TelemetryState } from '@shared/types/telemetry'
+import {
+  acknowledgeTelemetryNotice,
+  getTelemetryState,
+  resetTelemetryAnonymousId,
+  setTelemetryEnabled,
+  telemetryQueuePath,
+} from '../telemetry/telemetry-runtime.ts'
 import { evaluateReleaseGuard } from '../release-guard-runtime.ts'
 import type { ReleaseGateVerdict } from '../release-guard.ts'
 import {
@@ -140,6 +149,25 @@ export function registerAppIpcHandlers(): void {
   // 内测软过期 + 远程急刹车（#354）：渲染端启动时查一次，命中则显示拦截页。
   ipcMain.handle('release-guard:check', async (): Promise<ReleaseGateVerdict> => {
     return evaluateReleaseGuard()
+  })
+
+  // ── 匿名使用统计（ADR-0039）────────────────────────────────────────
+  ipcMain.handle('telemetry:get-state', (): Promise<TelemetryState> => getTelemetryState())
+
+  ipcMain.handle('telemetry:set-enabled', (_event, enabled: unknown): Promise<TelemetryState> => {
+    return setTelemetryEnabled(enabled === true)
+  })
+
+  ipcMain.handle('telemetry:ack-notice', (): Promise<TelemetryState> => acknowledgeTelemetryNotice())
+
+  ipcMain.handle('telemetry:reset-id', (): Promise<TelemetryState> => resetTelemetryAnonymousId())
+
+  // 「已发送内容明文可查」的兑现处：把待发队列文件在文件管理器里点出来。
+  // 队列为空时文件可能还不存在，先建一个空的，避免点了没反应。
+  ipcMain.handle('telemetry:reveal-queue', async (): Promise<void> => {
+    const path = telemetryQueuePath()
+    await writeFile(path, '[]\n', { flag: 'wx' }).catch(() => {})
+    shell.showItemInFolder(path)
   })
 
   ipcMain.handle('updater:get-state', (event): UpdaterState => {

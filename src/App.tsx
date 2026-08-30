@@ -7,6 +7,7 @@ import { ReleaseBlockedScreen } from './components/ReleaseBlockedScreen.tsx'
 import { BrandLoading } from './components/brand/BrandLoading.tsx'
 import { WorkLocationStartupGate } from './components/WorkLocationStartupGate.tsx'
 import { useIntroGate } from './lib/use-intro-gate.ts'
+import { useTelemetryNotice } from './lib/use-telemetry-notice.ts'
 import { useReleaseGuard } from './lib/use-release-guard.ts'
 import { useTheme } from './lib/theme.ts'
 import { useAgentEventSubscription } from './lib/use-agent-events.ts'
@@ -17,6 +18,10 @@ const SettingsRoute = lazy(() => import('./routes/settings.tsx').then((route) =>
 // 首次介绍仅首启播一次，且携带 ogl/WebGL 重组件——懒加载，避免进每次启动的初始 chunk。
 const FirstRunIntro = lazy(() =>
   import('./components/onboarding/FirstRunIntro.tsx').then((m) => ({ default: m.FirstRunIntro })),
+)
+// 埋点告知屏同样只在"还没确认过"时出现，懒加载避免进每次启动的初始 chunk。
+const TelemetryNotice = lazy(() =>
+  import('./components/onboarding/TelemetryNotice.tsx').then((m) => ({ default: m.TelemetryNotice })),
 )
 
 function MainApp() {
@@ -55,6 +60,24 @@ function AllowedApp() {
     return (
       <Suspense fallback={<BrandLoading />}>
         <FirstRunIntro onDone={intro.complete} />
+      </Suspense>
+    )
+  }
+  return <IntroducedApp />
+}
+
+// 介绍看完之后、进首页之前：匿名使用统计的告知屏（ADR-0039）。
+// 存量用户没有介绍要看，会直接落在这一步——这正是"没告知就不埋"要覆盖的那批人。
+function IntroducedApp() {
+  const notice = useTelemetryNotice()
+
+  if (notice.status === 'loading') {
+    return <BrandLoading />
+  }
+  if (notice.status === 'notice') {
+    return (
+      <Suspense fallback={<BrandLoading />}>
+        <TelemetryNotice onAccept={notice.accept} onDecline={notice.decline} />
       </Suspense>
     )
   }

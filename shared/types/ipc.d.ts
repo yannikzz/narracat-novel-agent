@@ -18,6 +18,7 @@ import type {
   NarraCatAgentCoreDiagnostics,
 } from './narracat'
 import type { ProseBlockView } from './prose-block'
+import type { TelemetryState } from './telemetry'
 import type { AuthorRequest } from './author-request'
 import type {
   CapabilityPackSummary,
@@ -374,6 +375,14 @@ export interface ElectronApi {
   /** 在系统文件管理器中定位项目文件夹（损坏项目的自救入口，#38）。 */
   revealProjectFolder: (projectPath: string) => Promise<void>
   checkReleaseGuard: () => Promise<ReleaseGateVerdict>
+  /** 匿名使用统计（ADR-0039）：读当前开关、告知版本与匿名 ID。 */
+  getTelemetryState: () => Promise<TelemetryState>
+  setTelemetryEnabled: (enabled: boolean) => Promise<TelemetryState>
+  /** 用户看完告知屏点了确认；在此之前一个事件都不发。 */
+  acknowledgeTelemetryNotice: () => Promise<TelemetryState>
+  resetTelemetryAnonymousId: () => Promise<TelemetryState>
+  /** 在文件管理器里定位待发队列文件（"发了什么明文可查"的兑现入口）。 */
+  revealTelemetryQueue: () => Promise<void>
   getUpdaterState: () => Promise<UpdaterState>
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>

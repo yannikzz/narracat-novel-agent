@@ -47,6 +47,16 @@ export interface AppConfig {
   systemNotificationsEnabled: boolean
   /** 用户已看过的首次介绍版本；0=从未看过，介绍大改时递增以触发老用户重看一次 */
   introVersion: number
+  /** 匿名使用统计开关（ADR-0039）。默认开，但告知屏确认前不发任何事件。 */
+  telemetryEnabled: boolean
+  /**
+   * 已确认过的埋点告知屏版本；0=从未告知过。
+   * 小于 CURRENT_TELEMETRY_NOTICE_VERSION 时弹告知屏，且在确认前零发送——
+   * 这条是"没说就埋"的唯一防线（ADR-0039 决定八）。
+   */
+  telemetryNoticeAckedVersion: number
+  /** 本机匿名 ID（随机 UUID，与机器指纹无关）；空串=尚未生成，首次发送时补上。 */
+  telemetryAnonymousId: string
 }
 
 // F4（终审修复）：这三个默认值被大量测试 fixture 直接展开（`...POOL_DEFAULT_FIELDS` 等）；

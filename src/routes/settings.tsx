@@ -23,6 +23,7 @@ import { ModelProviderDetailPanel } from '@/components/settings/ModelProviderDet
 import { ModelProviderListPanel } from '@/components/settings/ModelProviderListPanel'
 import { MODEL_PROVIDERS, parseModelProviderParam } from '@/components/settings/model-providers'
 import { UpdateRow } from '@/components/settings/UpdateRow.tsx'
+import { TelemetryPanel } from '@/components/settings/TelemetryPanel'
 import { APP_CANVAS_CLASS, WORKSPACE_SHELL_CLASS } from '@/design-system'
 import {
   SettingsActionRow,
@@ -78,6 +79,7 @@ const ABOUT_BETA_NOTICE = [
   '内测版 · 请勿外传。软件按现状提供，模型费用由你自理，不对生成结果或 API 账单负责。',
   '稿件默认保存在本机小说目录，API Key 经系统钥匙串加密保存——NarraCat 不自建服务器保存它们。',
   '运行 Agent / 角色聊天时，必要内容会发送到你配置的模型服务商以生成结果。建议定期备份小说目录，以防误删或丢失。',
+  '匿名使用统计只上报版本、功能模块名与成败耗时区间，不含任何稿件内容；可在「安全与项目」里随时关闭。',
 ]
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -87,6 +89,9 @@ const DEFAULT_CONFIG: AppConfig = {
   recentNovelPaths: [],
   systemNotificationsEnabled: true,
   introVersion: 0,
+  telemetryEnabled: true,
+  telemetryNoticeAckedVersion: 0,
+  telemetryAnonymousId: '',
 }
 
 const SETTINGS_SECTIONS = [
@@ -788,6 +793,9 @@ export function SettingsRoute() {
                       保存项目设置
                     </Button>
                   </SettingsActionRow>
+
+                  {/* 匿名使用统计（ADR-0039）：自带即时生效，不走上面的「保存设置」。 */}
+                  <TelemetryPanel />
                 </SettingsCard>
               ) : null}
 

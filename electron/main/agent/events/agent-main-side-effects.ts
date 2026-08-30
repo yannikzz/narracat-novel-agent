@@ -15,6 +15,15 @@ import type {
   ResultNotificationStatus,
 } from '@shared/types/notifications'
 
+/**
+ * 写章节的埋点回调（ADR-0039）。这一层已经掌握了 run 的起止与终态（结果通知就靠它），
+ * 埋点复用同一处判定，避免在 run-manager 里再钉一套平行的生命周期钩子。
+ * 只在 command 为 write-next 时触发；不传即不埋（测试与非埋点场景）。
+ */
+export type ChapterWriteTelemetryEvent =
+  | { phase: 'started'; chapter?: number }
+  | { phase: 'finished'; outcome: 'success' | 'failed' | 'cancelled' | 'interrupted'; durationMs: number }
+
 export interface AgentMainSideEffectsDeps {
   upsertNotification: (notification: ResultNotification) => Promise<ResultNotificationList>
   markNotificationRead: (id: string, readAt: string) => Promise<ResultNotificationList>
@@ -22,6 +31,7 @@ export interface AgentMainSideEffectsDeps {
   showNativeNotification: (notification: ResultNotification) => void | Promise<void>
   resolveProjectName: (projectPath: string) => Promise<string>
   clearPendingMemorySync: (projectPath: string, chapter: number) => Promise<void>
+  onChapterWriteEvent?: (event: ChapterWriteTelemetryEvent) => void
 }
 
 function fallbackProjectName(projectPath: string | undefined): string {
@@ -54,6 +64,21 @@ function activityNotification(
 
 export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
   const runs = new Map<string, AgentRun>()
+
+  /** 埋点是旁路观察者：抛异常也不许影响通知与后续副作用。 */
+  function emitChapterWrite(run: AgentRun, event: ChapterWriteTelemetryEvent): void {
+    if (run.command !== 'write-next' || !deps.onChapterWriteEvent) return
+    try {
+      deps.onChapterWriteEvent(event)
+    } catch {}
+  }
+
+  /** run 起止时刻差；任一端解析不出来按 0 计（会落进最小的时长桶，不会伪造一个大数）。 */
+  function elapsedMs(run: AgentRun, finishedAt: string): number {
+    const start = Date.parse(run.startedAt)
+    const end = Date.parse(finishedAt)
+    return Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : 0
+  }
 
   async function projectNameFor(run: AgentRun): Promise<string> {
     if (!run.projectPath) return '未关联项目'
@@ -172,6 +197,11 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
       cancelled.readAt = payload.createdAt
       await upsertAndBroadcast(cancelled)
       runs.set(payload.runId, { ...run, status: 'cancelled', finishedAt: payload.createdAt })
+      emitChapterWrite(run, {
+        phase: 'finished',
+        outcome: 'cancelled',
+        durationMs: elapsedMs(run, payload.createdAt),
+      })
       return
     }
 
@@ -192,6 +222,11 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
       finishedAt: payload.createdAt,
     }
     runs.set(payload.runId, terminalRun)
+    emitChapterWrite(run, {
+      phase: 'finished',
+      outcome: payload.type === 'run.completed' ? 'success' : payload.type === 'run.interrupted' ? 'interrupted' : 'failed',
+      durationMs: elapsedMs(run, payload.createdAt),
+    })
     const notification = createResultNotificationDraft({
       run: terminalRun,
       status,
@@ -236,6 +271,7 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
         target: event.target,
       }
       runs.set(event.runId, run)
+      emitChapterWrite(run, { phase: 'started', chapter: run.selectedChapter })
       await upsertAndBroadcast(
         {
           ...activityNotification(run, 'running', event.createdAt, await projectNameFor(run)),
