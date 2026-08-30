@@ -44,3 +44,4 @@ bun --no-cache run ops:status
 - 新版本号必须严格大于 `HIGHEST_SHIPPED_VERSION`（已交付到用户手上的最高版本），否则那批机器收不到更新且无任何提示——`scripts/client-version.test.mjs` 钉住这条。**发版发出去之后要把那个常量抬上来。**
 - `bun --no-cache run ops:check` 检查版本解析逻辑存在、版本号是合法三段 semver，且与 `package.json.version` 一致。
 - 本地临时测试包要压过线上版本时用 `NARRACAT_CLIENT_VERSION=x.y.z`（打包链专用；正式发布链路不吃这个变量）。
+- **发版必须显式声明覆盖平台**：`release --with-win <目录>`（双平台）或 `--mac-only`（只发 mac），两个都不给直接炸。「不给就只发 mac」这个旧默认在 Windows 成为正式分发平台后是静默陷阱——命令照常成功，Windows 用户静默停在上一版。

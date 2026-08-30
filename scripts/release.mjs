@@ -434,25 +434,62 @@ export async function runRelease({ winDir, useExistingArtifacts = false } = {}) 
   )
 }
 
+/**
+ * 发版命令行参数解析（纯函数，便于测试——CLI 入口只负责把 process.argv 递进来）。
+ *
+ * **覆盖平台必须显式声明**：`--with-win <目录>` 发双平台，`--mac-only` 发单 mac，两个都不给就炸。
+ *
+ * 为什么不让「不给就只发 mac」当默认：那个默认在只有 mac 的时代是对的，Windows 成为正式分发
+ * 平台之后就变成了一个**静默陷阱**——命令照常跑完、照常发布成功，只是这一版没有 Windows 包，
+ * Windows 用户静默跳过这一版、收不到更新也不知道为什么。失败的表现不是报错，是安静地少做一件事
+ * （与 ADR-0038 治的那类问题同族）。发版确认界面确实会列出待传文件，但那是靠人在一堆文件名里
+ * 数数发现少了三个，不是闸。
+ *
+ * 两个都给则是矛盾指令，同样炸——不猜用户想要哪个。
+ */
+export function parseReleaseArgs(argv) {
+  const withWinIndex = argv.indexOf('--with-win')
+  const macOnly = argv.includes('--mac-only')
+
+  if (withWinIndex !== -1) {
+    const value = argv[withWinIndex + 1]
+    if (!value || value.startsWith('--')) {
+      throw new Error('--with-win 缺少取值（用法：--with-win <存放 CI Windows 产物的目录>）')
+    }
+  }
+
+  if (withWinIndex !== -1 && macOnly) {
+    throw new Error('--with-win 与 --mac-only 互斥：前者发双平台、后者只发 mac，不能同时给。')
+  }
+
+  if (withWinIndex === -1 && !macOnly) {
+    throw new Error(
+      [
+        '发版中止：没说这次发哪些平台。',
+        '',
+        '  双平台（常规）：bun --no-cache run release --with-win <存放 CI Windows 产物的目录>',
+        '      先跑 `gh workflow run windows-release-build.yml --ref main` 出包，',
+        '      再从 Actions 页把三件产物（exe / exe.blockmap / latest.yml）下载到那个目录。',
+        '',
+        '  只发 mac（需要主动选择）：bun --no-cache run release --mac-only',
+        '      这一版 Windows 用户收不到，会停在上一个版本。',
+      ].join('\n'),
+    )
+  }
+
+  return {
+    winDir: withWinIndex === -1 ? undefined : resolve(argv[withWinIndex + 1]),
+    useExistingArtifacts: argv.includes('--use-existing-artifacts'),
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   // 必须先加载 .env.local/.env 再跑：runPackageRc 内的 assertNotarizeCredentials /
   // assertCorpusCredentials 读的是 process.env，而 bun run → node 不会把 .env 传给子进程。
   // 漏这一步的后果是「凭证明明配好了却报缺失」，整条发布链在真机上打不通
   // （package-rc.mjs / notarize-dmg.mjs 的 CLI 入口是同款处置，见 package-rc.test.mjs 的回归测试）。
   loadEnvFiles()
-  // --with-win <目录>：CI 出的 Windows 三件产物下载到哪儿了。缺值必须炸，
-  // 不能静默退化成「只发 mac」——那会让人以为 Windows 也发出去了。
-  const withWinIndex = process.argv.indexOf('--with-win')
-  if (withWinIndex !== -1) {
-    const value = process.argv[withWinIndex + 1]
-    if (!value || value.startsWith('--')) {
-      throw new Error('--with-win 缺少取值（用法：--with-win <存放 CI Windows 产物的目录>）')
-    }
-  }
-  runRelease({
-    winDir: withWinIndex === -1 ? undefined : resolve(process.argv[withWinIndex + 1]),
-    useExistingArtifacts: process.argv.includes('--use-existing-artifacts'),
-  }).catch((error) => {
+  runRelease(parseReleaseArgs(process.argv)).catch((error) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     process.exit(1)
   })

@@ -13,6 +13,7 @@ import {
   assertManifestMatchesVersion,
   createReleasePlan,
   formatConfirmation,
+  parseReleaseArgs,
   publishRelease,
   readReleaseState,
 } from './release.mjs'
@@ -397,5 +398,64 @@ describe('版本号重复闸（ADR-0038 补的第二道）', () => {
     expect(
       readReleaseState('v0.3.0', { execFile: () => JSON.stringify({ isDraft: true }) }),
     ).toEqual({ isDraft: true })
+  })
+})
+
+describe('发版覆盖平台必须显式声明', () => {
+  // 「不给参数就只发 mac」这个默认在只有 mac 的时代是对的；Windows 成为正式分发平台后
+  // 它变成静默陷阱——命令照常成功，只是这一版没有 Windows 包，Windows 用户静默跳过、
+  // 收不到更新也不知道为什么。失败的表现不是报错，是安静地少做一件事。
+
+  test('什么都不给：炸，并把两条正确用法都写出来', () => {
+    let error
+    try {
+      parseReleaseArgs(['node', 'release.mjs'])
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain('--with-win')
+    expect(error.message).toContain('--mac-only')
+    // 只说「不许」没用，必须告诉人怎么拿到 Windows 产物
+    expect(error.message).toContain('windows-release-build.yml')
+    // 选了只发 mac 的代价要当场说清楚
+    expect(error.message).toContain('Windows 用户收不到')
+  })
+
+  test('--mac-only：放行，winDir 为空（这是主动选择，不是默认）', () => {
+    expect(parseReleaseArgs(['node', 'release.mjs', '--mac-only'])).toEqual({
+      winDir: undefined,
+      useExistingArtifacts: false,
+    })
+  })
+
+  test('--with-win <目录>：放行，目录解析成绝对路径', () => {
+    const parsed = parseReleaseArgs(['node', 'release.mjs', '--with-win', '/tmp/win-artifacts'])
+
+    expect(parsed.winDir).toBe('/tmp/win-artifacts')
+    expect(parsed.useExistingArtifacts).toBe(false)
+  })
+
+  test('两个都给：矛盾指令，炸而不是猜', () => {
+    expect(() =>
+      parseReleaseArgs(['node', 'release.mjs', '--mac-only', '--with-win', '/tmp/win']),
+    ).toThrow('互斥')
+  })
+
+  test('--with-win 缺值仍然炸——后面跟另一个 flag 不算取值', () => {
+    // 静默退化成「只发 mac」正是本组要杜绝的
+    expect(() =>
+      parseReleaseArgs(['node', 'release.mjs', '--with-win', '--use-existing-artifacts']),
+    ).toThrow('--with-win 缺少取值')
+    expect(() => parseReleaseArgs(['node', 'release.mjs', '--with-win'])).toThrow(
+      '--with-win 缺少取值',
+    )
+  })
+
+  test('--use-existing-artifacts 与覆盖平台正交', () => {
+    expect(
+      parseReleaseArgs(['node', 'release.mjs', '--mac-only', '--use-existing-artifacts']),
+    ).toEqual({ winDir: undefined, useExistingArtifacts: true })
   })
 })

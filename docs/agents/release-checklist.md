@@ -22,6 +22,28 @@ saves a signing + notarization round. After the release ships, raise `HIGHEST_SH
 Both platforms read the same `package.json`, so mac and Windows artifacts carry the same version
 by construction — that is the point of ADR-0038.
 
+## Step 1 — Decide The Platforms (mandatory, no default)
+
+The two platforms are built on separate paths and merged into one Release:
+
+| Platform | Built where | Why only there |
+| --- | --- | --- |
+| macOS arm64 | this Mac | signing reads the Developer ID cert from the local Keychain, then Apple notarization |
+| Windows x64 | GitHub CI | mac cannot cross-build a working Windows package (keytar / better-sqlite3 are mac-native binaries), and SignPath requires a verifiable build from source |
+
+```bash
+# 1. Windows artifacts (≈5 min), then download the three files from the Actions run
+gh workflow run windows-release-build.yml --ref main
+
+# 2. Package mac + publish both platforms into one Release
+bun --no-cache run release --with-win <dir with the three CI artifacts>
+```
+
+`release` **refuses to run without `--with-win <dir>` or `--mac-only`.** Shipping mac-only used to be
+the silent default; once Windows became a real distribution target that default turned into a trap —
+the command still succeeds, the release still publishes, and Windows users just silently stay on the
+previous version. Choosing `--mac-only` is now a deliberate act.
+
 ## Automatic Gate
 
 Before packaging or handing off an RC, run:
