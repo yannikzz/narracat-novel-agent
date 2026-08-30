@@ -221,18 +221,68 @@ export function assertZipMatchesManifest(plan) {
  * 产物不得早于 HEAD 提交——防的是「改完代码忘了重新打包，直接复用上一次的产物发版」。
  * 版本号校验挡不住这一类：同一个提交数下改动源码，版本号一模一样，清单也「新鲜」。
  */
-export function assertArtifactsNotStale(plan, { cwd = repoRoot, distDir = join(repoRoot, 'dist') } = {}) {
+/**
+ * 确定**不进 App 产物**的路径。改这些不该逼人重打一次二十到四十分钟的包。
+ *
+ * ⚠️ 方向性判断：这是**排除清单**而不是包含清单，因为两种漏写的代价完全不对称——
+ * 漏写一条排除项，最坏是多打一次包（安全）；漏写一条包含项，就会发出一份不含新代码的包
+ * 且无人察觉（危险）。所以只把**确定**不进产物的放进来，拿不准的一律不加、让它触发重打。
+ *
+ * `scripts/` 整体不排除：里面既有发版脚本（不进产物），也有 prepare-narracat-agent-core /
+ * prepare-embedding-model / package-rc 这些实打实决定产物内容的。只点名排除确知无关的几个。
+ */
+const NON_PRODUCT_PATHSPECS = [
+  ':(exclude)docs/',
+  ':(exclude).github/',
+  ':(exclude).claude/',
+  ':(exclude).agents/',
+  ':(exclude)workers/',
+  ':(exclude)*.md',
+  ':(exclude).gitignore',
+  ':(exclude)scripts/release.mjs',
+  ':(exclude)scripts/ops-*.mjs',
+  ':(exclude)*.test.mjs',
+  ':(exclude)*.test.ts',
+  ':(exclude)*.test.tsx',
+]
+
+/**
+ * 最后一次改动「可能进产物的文件」的提交时间。
+ *
+ * 为什么不直接用 HEAD：闸的语义是「产物不能比它所代表的代码旧」，而 HEAD 时间只是那个语义的
+ * 粗糙代理。发版前顺手改发版脚本、补文档、调 CI——这些都会推高 HEAD 却一个字节都不进产物，
+ * 于是闸会逼人重打一份逐字节相同的包（2026-08-30 实撞：#62 只改了发版脚本与文档，
+ * 却让一份刚验收过的 mac 包被判为「比当前提交还旧」）。
+ *
+ * 拿不到结果时回退 HEAD——宁可误判成需要重打，不可放过一份真的过期的产物。
+ */
+export function lastProductChangeIso({ cwd = repoRoot, execFile = execFileSync } = {}) {
+  const read = (args) => String(execFile('git', args, { cwd, encoding: 'utf8' })).trim()
+  try {
+    const scoped = read(['log', '-1', '--format=%cI', '--', '.', ...NON_PRODUCT_PATHSPECS])
+    if (scoped) return scoped
+  } catch {
+    // 落到下面的 HEAD 回退
+  }
+  return read(['log', '-1', '--format=%cI'])
+}
+
+export function assertArtifactsNotStale(
+  plan,
+  { cwd = repoRoot, distDir = join(repoRoot, 'dist'), readProductChangeIso = lastProductChangeIso } = {},
+) {
   const app = join(distDir, 'mac-arm64', 'NarraCat.app')
   if (!existsSync(app)) return
-  const headIso = execFileSync('git', ['log', '-1', '--format=%cI'], { cwd, encoding: 'utf8' }).trim()
-  const headTime = new Date(headIso).getTime()
+  const changeIso = readProductChangeIso({ cwd })
+  const changeTime = new Date(changeIso).getTime()
   const builtTime = statSync(app).mtimeMs
-  if (builtTime >= headTime) return
+  if (builtTime >= changeTime) return
   throw new Error(
     [
-      '产物比当前提交还旧，复用它等于发布一份不含最新代码的包：',
+      '产物比最后一次影响产物的代码改动还旧，复用它等于发布一份不含最新代码的包：',
       `  产物构建于：${new Date(builtTime).toISOString()}`,
-      `  HEAD 提交于：${headIso}`,
+      `  代码改动于：${changeIso}`,
+      '（只改文档 / CI / 发版脚本不算数，那些不进产物，见 NON_PRODUCT_PATHSPECS）',
       '请走完整打包发版（去掉 --use-existing-artifacts）。',
     ].join('\n'),
   )

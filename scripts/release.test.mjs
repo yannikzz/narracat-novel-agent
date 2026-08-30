@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import {
   assertArtifactsNotStale,
   assertWinAssetsInDraft,
+  lastProductChangeIso,
   assertArtifactsNotarized,
   assertInteractive,
   assertVersionNotAlreadyReleased,
@@ -324,7 +325,7 @@ describe('复用现成产物的三道加严闸（--use-existing-artifacts）', (
     }
   })
 
-  test('陈旧闸：产物早于 HEAD 提交就必须拒绝——防「改完代码忘了重新打包」', async () => {
+  test('陈旧闸：产物早于最后一次产物代码改动就必须拒绝——防「改完代码忘了重新打包」', async () => {
     const { dir, distDir, plan } = await makeDist()
     try {
       // 刚建出来的产物晚于 HEAD → 放行
@@ -332,7 +333,7 @@ describe('复用现成产物的三道加严闸（--use-existing-artifacts）', (
       // 把产物时间推回 2020 年 → 拒绝
       const app = join(distDir, 'mac-arm64', 'NarraCat.app')
       await utimes(app, new Date('2020-01-01'), new Date('2020-01-01'))
-      expect(() => assertArtifactsNotStale(plan, { distDir })).toThrow(/产物比当前提交还旧/)
+      expect(() => assertArtifactsNotStale(plan, { distDir })).toThrow(/不含最新代码/)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -587,5 +588,99 @@ describe('CI 直传 draft（--win-from-release）', () => {
         execFile: () => JSON.stringify({ assets: [{ name: 'a.exe', size: 5 }] }),
       }),
     ).toEqual([{ name: 'a.exe', size: 5 }])
+  })
+})
+
+describe('stale 闸比的是「最后一次影响产物的改动」而非 HEAD', () => {
+  // 2026-08-30 实撞：#62 只改了发版脚本与文档，却把一份刚验收过的 mac 包判成「比当前提交还旧」，
+  // 逼人重打一份逐字节相同的包（20-40 分钟，大部分在等 Apple 公证）。
+  // 闸的语义一直是「产物不能比它所代表的代码旧」，HEAD 时间只是那个语义的粗糙代理。
+
+  const { mkdtempSync, mkdirSync, utimesSync } = require('node:fs')
+  const { tmpdir } = require('node:os')
+
+  function fakeDist(builtAtMs) {
+    const dir = mkdtempSync(join(tmpdir(), 'narracat-stale-'))
+    const app = join(dir, 'mac-arm64', 'NarraCat.app')
+    mkdirSync(app, { recursive: true })
+    utimesSync(app, new Date(builtAtMs), new Date(builtAtMs))
+    return dir
+  }
+
+  const plan = () => createReleasePlan({ clientVersion: '0.3.0' })
+
+  test('产物晚于最后一次产物改动：放行', () => {
+    const distDir = fakeDist(Date.parse('2026-08-30T20:34:00+08:00'))
+    expect(() =>
+      assertArtifactsNotStale(plan(), {
+        distDir,
+        readProductChangeIso: () => '2026-08-30T17:32:28+08:00',
+      }),
+    ).not.toThrow()
+  })
+
+  test('产物早于最后一次产物改动：仍然拦（闸没被改松）', () => {
+    const distDir = fakeDist(Date.parse('2026-08-30T16:00:00+08:00'))
+    expect(() =>
+      assertArtifactsNotStale(plan(), {
+        distDir,
+        readProductChangeIso: () => '2026-08-30T17:32:28+08:00',
+      }),
+    ).toThrow('不含最新代码')
+  })
+
+  test('核心场景：只改文档/发版脚本之后，产物不该被判过期', () => {
+    // 产物 20:34 打的；之后 21:18 合了一个只动发版脚本与文档的提交。
+    // 旧实现拿 HEAD(21:18) 比 → 误拦；新实现拿最后一次产物改动(17:32) 比 → 放行。
+    const distDir = fakeDist(Date.parse('2026-08-30T20:34:00+08:00'))
+    expect(() =>
+      assertArtifactsNotStale(plan(), {
+        distDir,
+        readProductChangeIso: () => '2026-08-30T17:32:28+08:00',
+      }),
+    ).not.toThrow()
+  })
+
+  test('产物不存在时直接放行（没东西可复用，交给打包流程）', () => {
+    expect(() =>
+      assertArtifactsNotStale(plan(), {
+        distDir: join(tmpdir(), 'narracat-does-not-exist-' + Date.now()),
+        readProductChangeIso: () => '2999-01-01T00:00:00+08:00',
+      }),
+    ).not.toThrow()
+  })
+
+  test('排除清单确实把文档/CI/发版脚本/测试排掉了，且没排掉产物代码', () => {
+    let captured = null
+    lastProductChangeIso({
+      execFile: (_cmd, args) => {
+        captured = args
+        return '2026-08-30T17:32:28+08:00'
+      },
+    })
+
+    const spec = captured.join(' ')
+    // 确定不进产物的
+    for (const excluded of ['docs/', '.github/', '.claude/', 'workers/', '*.md', 'scripts/release.mjs', '*.test.mjs']) {
+      expect(spec).toContain(`:(exclude)${excluded}`)
+    }
+    // 决定产物内容的绝不能出现在排除清单里——漏一条就会发出不含新代码的包
+    for (const mustNotExclude of ['electron/', 'src/', 'shared/', 'agent-core/', 'resources/', 'package.json', 'electron.vite.config.ts', 'scripts/package-rc.mjs', 'scripts/prepare-']) {
+      expect(spec).not.toContain(`:(exclude)${mustNotExclude}`)
+    }
+  })
+
+  test('拿不到范围内的结果时回退 HEAD——宁可误判重打，不可放过真过期的产物', () => {
+    const calls = []
+    const iso = lastProductChangeIso({
+      execFile: (_cmd, args) => {
+        calls.push(args)
+        return calls.length === 1 ? '' : '2026-08-30T21:18:32+08:00'
+      },
+    })
+
+    expect(iso).toBe('2026-08-30T21:18:32+08:00')
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toEqual(['log', '-1', '--format=%cI']) // 第二次是不带 pathspec 的 HEAD
   })
 })
