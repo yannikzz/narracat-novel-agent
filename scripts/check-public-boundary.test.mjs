@@ -32,6 +32,16 @@ const TRACKED_ALLOWLIST = new Set([
   'agent-core/narracat/docs/plans/2026-06-13-legacy-capability-backlog.md',
   'agent-core/narracat/docs/reports/2026-03-28-system-audit-anti-template.md',
   'agent-core/narracat/docs/reports/2026-04-26-system-debt-analysis.md',
+  // 2026-08-30：`.claude/skills/` 下的工程工具（发版、内测门控）随代码入仓——它们是
+  // 团队工具而非上面注释所指的「私产」，且 scripts/release-skill-preflight.test.mjs
+  // 引用 release-app 的预检脚本，不跟踪的话那条守卫在 CI 上必红。
+  // 仍按文件粒度放行、不整目录开口：`.claude/` 里还有 settings.local.json 这类本机配置，
+  // 而 skill 正文最容易夹带本机绝对路径或内部端点。以下 4 份已过内容扫描，
+  // 今后新增的 skill 文件依旧会被前缀规则拦下，逼人再审一次——这正是本表的用法。
+  '.claude/skills/release-app/SKILL.md',
+  '.claude/skills/release-app/scripts/preflight.mjs',
+  '.claude/skills/release-guard/SKILL.md',
+  '.claude/skills/release-guard/scripts/status.mjs',
 ])
 // 允许 yannikzz；禁其余个人标识与私有基础设施标识。
 // Yannik Zhang / AHRB2HD27M（Apple Team ID）是 2026-08-16 人工扫描才发现的正则盲区，补入防复发。
