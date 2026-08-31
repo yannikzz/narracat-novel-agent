@@ -144,6 +144,11 @@ describe('ModelProviderDetailPanel（SSR 结构断言）', () => {
     expect(withoutError).not.toContain('网络超时')
   })
 
+  test('拉不到清单的渠道（Kimi）不渲染「刷新清单」按钮——不让用户去撞一个必然 404 的请求', () => {
+    expect(render()).toContain('data-model-refresh="true"')
+    expect(render({ provider: 'kimi' })).not.toContain('data-model-refresh="true"')
+  })
+
   test('anthropic 渠道：Base URL 输入 disabled', () => {
     const html = render({
       provider: 'anthropic',

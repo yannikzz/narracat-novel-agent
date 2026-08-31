@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { DEFAULT_PROVIDER_SETTINGS, PROVIDER_IDS } from '@shared/types/config'
 import type { ModelSlotView } from '@shared/lib/model-slots'
 import {
+  canListModels,
   MODEL_CATALOG,
   MODEL_PROVIDERS,
   parseModelProviderParam,
@@ -55,6 +56,18 @@ describe('MODEL_CATALOG（内置推荐目录）', () => {
     expect(Object.keys(MODEL_CATALOG).sort()).toEqual([...PROVIDER_IDS].sort())
     expect(MODEL_CATALOG.custom).toEqual([])
     expect(MODEL_CATALOG.deepseek.length).toBeGreaterThan(0)
+  })
+})
+
+describe('canListModels（该渠道有没有模型清单端点）', () => {
+  test('Kimi 拉不到清单——它的清单接口只在 OpenAI 侧，anthropic wire 上是 404', () => {
+    expect(canListModels('kimi')).toBe(false)
+  })
+
+  test('其余渠道默认可拉（不显式标记就是能拉）', () => {
+    for (const provider of PROVIDER_IDS.filter((id) => id !== 'kimi')) {
+      expect(canListModels(provider)).toBe(true)
+    }
   })
 })
 

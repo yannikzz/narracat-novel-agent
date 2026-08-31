@@ -9,7 +9,7 @@ import { cn } from '@/lib/cn'
 import { isEntryVerified, modelEntryKey } from '@shared/lib/model-slots'
 import type { WireId } from '@shared/types/config'
 import type { AppConfig, ConnectionTestResult, ModelPoolEntry, ProviderId } from '@shared/types/ipc'
-import { MODEL_CATALOG, MODEL_PROVIDERS } from './model-providers'
+import { canListModels, MODEL_CATALOG, MODEL_PROVIDERS } from './model-providers'
 
 /**
  * 渠道详情二级页（渠道两级 UI v2 T4）：四分组——Key 与连接 / 接口协议与地址 / 模型列表 / 添加自定义模型。
@@ -231,16 +231,19 @@ export function ModelProviderDetailPanel({
             </div>
             {fetchError ? <p className="mt-1 text-xs text-muted-foreground">{fetchError}</p> : null}
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy || fetchingModels}
-            onClick={() => void onRefreshModels()}
-          >
-            <RefreshCw className={cn('size-3.5', fetchingModels && 'animate-spin')} />
-            刷新清单
-          </Button>
+          {canListModels(provider) ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-model-refresh="true"
+              disabled={busy || fetchingModels}
+              onClick={() => void onRefreshModels()}
+            >
+              <RefreshCw className={cn('size-3.5', fetchingModels && 'animate-spin')} />
+              刷新清单
+            </Button>
+          ) : null}
         </div>
 
         {rows.map((modelId) => (
