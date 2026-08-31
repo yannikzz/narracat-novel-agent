@@ -7,8 +7,8 @@
 ## 开发环境
 
 - Node ^22.12、[bun](https://bun.sh)
-- 开发机：维护者日常在 **macOS（Apple Silicon）** 上开发。App 本身已双平台分发（Windows 10/11 x64 + macOS Apple Silicon），但 **Windows 侧的本地开发流程（`bun run dev`）未经系统性验证**——CI 在 Windows 上只跑设计守卫与打包 smoke，全套 typecheck/test 跑在 Linux 上。在 Windows 上开发踩到环境问题，欢迎开 issue，不必自我怀疑
-- 打包需要维护者的签名/公证凭据，fork 后跑不通打包属正常；`bun run dev` 与全套验证命令不受此限
+- 开发机：维护者日常在 **macOS（Apple Silicon）** 上开发。App 本身已双平台分发（Windows 10/11 x64 + macOS Apple Silicon），但 **Windows 侧的本地开发流程（`bun --no-cache run dev`）未经系统性验证**——CI 在 Windows 上只跑设计守卫与打包 smoke，全套 typecheck/test 跑在 Linux 上。在 Windows 上开发踩到环境问题，欢迎开 issue，不必自我怀疑
+- 打包需要维护者的签名/公证凭据，fork 后跑不通打包属正常；`bun --no-cache run dev` 与全套验证命令不受此限
 - 安装依赖：`bun install --no-cache`（所有 bun 命令都带 `--no-cache`）
 - 本地运行：`bun --no-cache run dev`
 - 验证：`bun --no-cache run typecheck && bun --no-cache run test`

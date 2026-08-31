@@ -93,7 +93,7 @@ export function ModelProviderDetailPanel({
         <SettingsRow
           align="start"
           title="API Key"
-          description={hasSavedKey ? '输入新 Key 会在保存时覆盖当前值' : '仅保存到系统钥匙串'}
+          description={hasSavedKey ? '输入新 Key 会在保存时覆盖当前值' : '仅保存到系统凭据库'}
         >
           <div className="grid gap-2">
             <div className="flex items-center gap-2">

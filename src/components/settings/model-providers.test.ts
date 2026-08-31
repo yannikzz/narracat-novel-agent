@@ -32,9 +32,21 @@ describe('MODEL_PROVIDERS（渠道元数据）', () => {
     expect(labels.custom).toBe('自定义')
   })
 
-  test('渠道齐全（每个 PROVIDER_IDS 都有一行），custom 恒在末位', () => {
+  // 两条断言各管一件事，别合并：顺序是 UI 契约（列表怎么排给用户看），
+  // 完整性是「加渠道时不会漏配元数据」。只留集合比较会让顺序随便漂。
+  test('渠道顺序固定：国产四家在前，Anthropic 次之，自定义末位', () => {
+    expect(MODEL_PROVIDERS.map((item) => item.id)).toEqual([
+      'deepseek',
+      'glm',
+      'minimax',
+      'kimi',
+      'anthropic',
+      'custom',
+    ])
+  })
+
+  test('PROVIDER_IDS 里每个渠道都有一行元数据', () => {
     expect([...MODEL_PROVIDERS.map((item) => item.id)].sort()).toEqual([...PROVIDER_IDS].sort())
-    expect(MODEL_PROVIDERS.at(-1)?.id).toBe('custom')
   })
 })
 

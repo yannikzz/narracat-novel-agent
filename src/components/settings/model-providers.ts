@@ -23,7 +23,11 @@ export const MODEL_CATALOG: Record<ProviderId, string[]> = {
   anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
   minimax: ['MiniMax-M3', 'MiniMax-M2.5', 'MiniMax-M2'],
   glm: ['glm-5.2[1m]', 'glm-5.2', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5-air', 'glm-4.5-flash'],
-  kimi: ['kimi-k3[1m]', 'kimi-k3', 'kimi-k2.6', 'kimi-k2.5'],
+  // ⚠️ Kimi 的模型清单端点在 OpenAI 侧（api.moonshot.cn/v1/models，Bearer 鉴权），
+  // anthropic wire 的 {base}/v1/models 实测 404 —— 所以「刷新模型清单」对 Kimi 拿不到东西，
+  // 这份内置目录是唯一来源（手填任意 model id 的路径不受影响）。
+  // 已排除 kimi-k2.5 与 moonshot-v1 系列：官方 2026-08-31 全平台下线且早已停止接新用户。
+  kimi: ['kimi-k3[1m]', 'kimi-k3', 'kimi-k2.6'],
   custom: [],
 }
 
