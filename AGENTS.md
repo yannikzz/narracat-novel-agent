@@ -38,7 +38,7 @@ NarraCat-app 是面向中国网文作者的桌面创作工作台，目标是把�
 ## 关键约束
 
 - Electron 主进程必须保持 ESM。pi 双包是纯 ESM，CJS 主进程无法 `require`。
-- API Key 永不落盘明文。使用 keytar，经 macOS Keychain 保存。
+- API Key 永不落盘明文。使用 keytar，经系统凭据库保存（macOS 钥匙串 / Windows 凭据管理器）。
 - 不写 `class`。React 用函数组件和 hooks。
 - import 风格优先命名导入；keytar 等 native 模块可用 default import。
 - 不主动 `git push`，除非用户明确要求。

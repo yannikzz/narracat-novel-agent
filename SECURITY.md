@@ -1,6 +1,6 @@
 # 安全政策
 
-NarraCat 在本地存储你的小说与 API Key（macOS Keychain），我们严肃对待任何安全问题。
+NarraCat 在本地存储你的小说与 API Key（系统凭据库：macOS 钥匙串 / Windows 凭据管理器），我们严肃对待任何安全问题。
 
 ## 报告漏洞
 

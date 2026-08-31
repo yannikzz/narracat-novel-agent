@@ -11,6 +11,7 @@
 [![CI](https://github.com/yannikzz/narracat-novel-agent/actions/workflows/app-ci.yml/badge.svg)](https://github.com/yannikzz/narracat-novel-agent/actions)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/yannikzz/narracat-novel-agent)](https://github.com/yannikzz/narracat-novel-agent/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)](https://github.com/yannikzz/narracat-novel-agent/releases)
 
 *在人类文明中，故事一直来自人的记忆、情感与想象。<br>
 从口述，到书写，再到数字时代，技术不断改变表达方式，但创造故事的，<br>
@@ -34,7 +35,9 @@ NarraCat 让智能先理解你的所想，再协助构建世界观、推进剧�
 
 ## 三步开始写
 
-1. **下载安装**：到 [Releases](https://github.com/yannikzz/narracat-novel-agent/releases) 下载最新 DMG（目前仅支持 **macOS Apple Silicon**；其他平台暂无时间表，欢迎关注）
+1. **下载安装**：到 [Releases](https://github.com/yannikzz/narracat-novel-agent/releases) 下载对应系统的安装包
+   - **Windows**（Windows 10 / 11，64 位）：下载 `NarraCat-x.y.z-win-x64.exe`。首次运行会弹出蓝色的「Windows 已保护你的电脑」——点**「更多信息」→「仍要运行」**即可。安装包**尚未代码签名**，所以会有这道提示；签名证书正在申请中（SignPath Foundation 开源计划）
+   - **macOS**（Apple Silicon，暂无 Intel 版）：下载 `NarraCat-x.y.z-mac-arm64.dmg`。已签名并通过 Apple 公证，双击即开
 2. **配置模型**：NarraCat 采用 BYOK（自带 API Key）。推荐 DeepSeek，几分钟即可申请，费用与配置见 [FAQ](./docs/faq.md)
 3. **开一本书**：新建小说 → 立项卡定题材与金手指 → 让 Agent 铺大纲、写第一章
 
@@ -48,7 +51,7 @@ NarraCat 让智能先理解你的所想，再协助构建世界观、推进剧�
 
 ## 隐私
 
-稿件永远留在你自己的机器上，API Key 存系统钥匙串。
+稿件永远留在你自己的机器上，API Key 存系统凭据库（macOS 钥匙串 / Windows 凭据管理器）。
 
 App 会收集一点**匿名使用统计**（哪个功能被打开过、写章节的成败与耗时区间、在用哪个模型渠道），
 用来判断哪些功能真的有人用。**小说正文、标题、大纲、人物设定、任何你输入的文字与 Key 都不在其中，

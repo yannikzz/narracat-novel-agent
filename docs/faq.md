@@ -2,7 +2,7 @@
 
 ## 为什么要自备 API Key（BYOK）？
 
-NarraCat 不经手你的模型调用——应用直连你选择的模型服务商，Key 存在 macOS 钥匙串里。你写的每个字只在你和服务商之间流动。
+NarraCat 不经手你的模型调用——应用直连你选择的模型服务商，Key 存在系统凭据库里（macOS 钥匙串 / Windows 凭据管理器）。你写的每个字只在你和服务商之间流动。
 
 ## 推荐哪家？怎么申请？
 
@@ -23,7 +23,8 @@ NarraCat 不经手你的模型调用——应用直连你选择的模型服务�
 
 ## Key 安全吗？
 
-Key 通过 macOS Keychain 存储，永不明文落盘；仓库代码可查证这一点（`electron/main/secrets.ts`）。
+Key 通过操作系统自带的凭据库存储（macOS 走钥匙串，Windows 走凭据管理器），永不明文落盘；
+仓库代码可查证这一点（`electron/main/secrets.ts`）。
 
 ## NarraCat 会收集我的数据吗？
 

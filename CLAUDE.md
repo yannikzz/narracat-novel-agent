@@ -74,7 +74,7 @@ narracat-decktop/
 ### 工程硬约束（不可逆，违反会炸）
 
 - **主进程必须 ESM**：pi 双包是纯 ESM，CJS 主进程无法 `require`。
-- **API Key 永不落盘明文**：用 keytar，经 macOS Keychain 保存。
+- **API Key 永不落盘明文**：用 keytar，经系统凭据库保存（macOS 钥匙串 / Windows 凭据管理器）。
 - **不写 `class`**：React 用函数组件 + hooks。
 - **`file://` 用 `HashRouter`**，不要换 `BrowserRouter`。
 - **包管理用 bun，命令必须带 `--no-cache`**。

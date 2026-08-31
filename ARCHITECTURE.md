@@ -23,7 +23,7 @@ App 只依赖引擎的稳定契约（`narracat.manifest.json`、命令、小说�
 ## 硬约束
 
 - 主进程必须 ESM；渲染路由必须 HashRouter（file:// 场景）
-- API Key 永不落盘明文（keytar → macOS Keychain）
+- API Key 永不落盘明文（keytar → macOS 钥匙串 / Windows 凭据管理器）
 - 不写 class；React 函数组件 + hooks
 - 包管理用 bun，命令带 `--no-cache`
 - 分层纪律由 `bun --no-cache run check:architecture` 强制（shared 单向依赖等）

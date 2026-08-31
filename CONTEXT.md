@@ -27,7 +27,7 @@
 - **Result notification / 结果通知**：Global notification center 中用于告知一次 Agent run 或系统任务到达结果状态的本机持久化轻量记录，包括成功、失败和等待用户确认；它只提供摘要和跳转，不承载完整 Agent 输出、长期消息历史或跨设备同步。
 - **Notification target / 通知跳转目标**：Result notification 点击后应恢复的具体结果位置。成功通知优先打开对应 Workbench 产物页，失败通知回到对应 Agent run 的错误上下文，等待用户确认通知回到对应 Agent 确认卡片；它不是只打开项目默认页。
 - **Unread notification / 未读通知**：用户尚未消费的 Result notification；打开通知面板不等于已读，点击通知跳转到 Notification target 或显式标为已读后才视为已读。
-- **Push notification / 系统推送通知**：由 macOS 本机通知中心展示的 NarraCat-app 结果提醒，只在 App 不活跃时提示 Result notification；它不是跨设备远程推送，也不依赖服务端通知。
+- **Push notification / 系统推送通知**：由本机操作系统通知中心（macOS 通知中心 / Windows 操作中心）展示的 NarraCat-app 结果提醒，只在 App 不活跃时提示 Result notification；它不是跨设备远程推送，也不依赖服务端通知。
 - **Character chat / 唠个嗑**：单本 Novel project 内独立的小说角色对话板块，让用户以作者身份和已出场角色进行半破第四墙交流；未来同一能力可以面向读者。它不是 Agent conversation 的换皮，也不是让角色替代创作 Agent 分析或执行小说工作流。
 - **Character contact / 角色联系人**：Character chat 中一个可对话的 Appeared character，以 Character UID 作为身份锚点，像联系人一样承载稳定装载的角色设定和本机一对一聊天记录。它不是 Agent profile，也不是群聊参与者；对话时可按需查询 NovelMemory 补充已完成剧情事实。
 - **Character chat knowledge boundary / 角色聊天知识边界**：Character chat 中角色可使用的故事知识上限，第一版固定为当前 Novel project 最新的 Chapter completed。它不包含未来大纲、未完成章节、尚未发生的剧情或创作 Agent 才知道的工作流意图。

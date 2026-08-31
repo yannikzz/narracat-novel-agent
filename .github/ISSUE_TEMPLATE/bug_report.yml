@@ -17,6 +17,16 @@ body:
     id: version
     attributes: { label: NarraCat 版本（设置页可查） }
     validations: { required: true }
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS（Apple Silicon）
+        - 其他
+    validations: { required: true }
   - type: input
     id: model
     attributes: { label: 使用的模型服务商与模型 }
