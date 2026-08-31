@@ -328,12 +328,24 @@ export function isAgentComposerChipDeleteKey({
   return (key === 'Backspace' || key === 'Delete') && hasChip && caretAtStart && !isComposing
 }
 
+/**
+ * 章节写作类动作：prompt **不作为命令参数**（write-next 的 $ARGUMENTS 是章号，由主进程从进度算出），
+ * 它唯一的去处是「桌面侧用户补充意图」——也就是作者对这一章说的话。
+ * 因此这两个动作的空输入**不补默认草稿**：补了，产品文案（「写下一章」/「写本章」）就会被引擎
+ * 当成作者提的要求——回报一条不存在的要求，还会让「连续几章没提要求」永远不成立。
+ * 气泡文案由 getVisibleRunPrompt 兜底，作者看到的仍是人话。
+ */
+const AUTHOR_INTENT_ONLY_ACTIONS = new Set<AgentQuickAction>(['write-next', 'recover-write'])
+
 export function resolveAgentRunPrompt({
   action,
+  origin,
   prompt,
   selectedChapter,
 }: {
   action?: AgentQuickAction | null
+  /** 'action' = 工作台按钮发起：prompt 是按钮自带文案，不是作者打的字。 */
+  origin?: 'action'
   prompt: string
   selectedChapter?: number
 }): string {
@@ -343,6 +355,11 @@ export function resolveAgentRunPrompt({
   const defaultDraft = getAgentQuickActionDraft(action)
   if ((action === 'review' || action === 'rewrite') && selectedChapter && selectedChapter > 0) {
     if (!trimmedPrompt || trimmedPrompt === defaultDraft) return String(selectedChapter)
+  }
+
+  if (AUTHOR_INTENT_ONLY_ACTIONS.has(action)) {
+    if (origin === 'action' || !trimmedPrompt || trimmedPrompt === defaultDraft) return ''
+    return trimmedPrompt
   }
 
   return trimmedPrompt || defaultDraft
@@ -370,7 +387,7 @@ export function createAgentRunRequest({
   selectedChapter?: number
   target?: AgentRunTarget
 }): AgentRunRequest {
-  const resolvedPrompt = resolveAgentRunPrompt({ action, prompt, selectedChapter })
+  const resolvedPrompt = resolveAgentRunPrompt({ action, origin, prompt, selectedChapter })
   const request: AgentRunRequest = action
     ? {
         threadId,

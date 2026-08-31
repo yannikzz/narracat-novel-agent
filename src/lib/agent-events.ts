@@ -180,6 +180,13 @@ function getVisibleRunPrompt(event: RunStartedEvent): string {
     }
   }
 
+  // 写章节没带作者补充意图时 prompt 是空的（见 resolveAgentRunPrompt：产品文案不当作者的话往下发），
+  // 气泡在这里补人话，不让作者看见一个空气泡。
+  if ((event.command === 'write-next' || event.command === 'recover-write') && !event.prompt.trim()) {
+    const chapterSuffix = event.selectedChapter ? `第 ${event.selectedChapter} 章` : '本章'
+    return event.command === 'recover-write' ? `继续完成${chapterSuffix}` : `写${chapterSuffix}`
+  }
+
   return event.prompt
 }
 

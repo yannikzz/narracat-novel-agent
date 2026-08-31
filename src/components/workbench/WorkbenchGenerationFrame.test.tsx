@@ -36,6 +36,8 @@ describe('WorkbenchGenerationFrame', () => {
     )
 
     expect(html).toContain('data-workbench-generation-waiting="true"')
+    // 主内容区空态用 primary empty 角色（docs/design.md），不回到硬写字号
+    expect(html).toContain('text-lg')
     expect(html).toContain('NarraCat 在等你回答')
     expect(html).toContain('这本书用第几人称讲？')
     expect(html).toContain('data-workbench-waiting-answer="question-1"')

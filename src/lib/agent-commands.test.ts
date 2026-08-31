@@ -174,6 +174,40 @@ describe('agent command helpers', () => {
     })
   })
 
+  // 回归钉：写章节的 prompt 唯一去处是「桌面侧用户补充意图」——引擎会把它当作者对本章提的要求。
+  // 一旦把产品默认文案当成作者的话发下去，引擎会回报一条作者从没提过的要求，
+  // 而「连续几章没提要求」永远不成立，那道确认门就再也关不掉。
+  test('never sends the placeholder draft as if the author had asked for something', () => {
+    const fromEmptyComposer = createAgentRunRequest({ threadId: 'thread-1', action: 'write-next', prompt: '' })
+    const fromDefaultDraft = createAgentRunRequest({
+      threadId: 'thread-1',
+      action: 'write-next',
+      prompt: getAgentQuickActionDraft('write-next'),
+    })
+    const fromWorkbenchButton = createAgentRunRequest({
+      threadId: 'thread-1',
+      action: 'write-next',
+      prompt: '写本章',
+      origin: 'action',
+    })
+
+    expect(fromEmptyComposer.prompt).toBe('')
+    expect(fromDefaultDraft.prompt).toBe('')
+    expect(fromWorkbenchButton.prompt).toBe('')
+  })
+
+  test('keeps what the author actually typed for the chapter', () => {
+    expect(
+      createAgentRunRequest({ threadId: 'thread-1', action: 'write-next', prompt: '这一章节奏快一点，少写心理' }).prompt,
+    ).toBe('这一章节奏快一点，少写心理')
+  })
+
+  test('still fills in the default draft for commands whose prompt is the argument', () => {
+    expect(createAgentRunRequest({ threadId: 'thread-1', action: 'world', prompt: '' }).prompt).toBe(
+      getAgentQuickActionDraft('world'),
+    )
+  })
+
   test('carries engineContext on freeform requests that need the NarraCat engine', () => {
     expect(
       createAgentRunRequest({

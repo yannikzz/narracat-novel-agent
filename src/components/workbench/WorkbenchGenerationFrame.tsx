@@ -1,6 +1,6 @@
 import { BrandIllustration } from '@/components/brand'
 import { Button } from '@/components/ui/button'
-import { WORKBENCH_GUIDE_ACTION_CLASS } from '@/design-system'
+import { EMPTY_PRIMARY_BODY_CLASS, EMPTY_PRIMARY_TITLE_CLASS, WORKBENCH_GUIDE_ACTION_CLASS } from '@/design-system'
 import { WorkbenchGenerationAnimation } from './WorkbenchGenerationAnimation'
 import type { WorkbenchGenerationState } from '@/lib/workbench-generation'
 
@@ -48,8 +48,8 @@ function WorkbenchWaitingUserState({
     <div className="flex h-full items-center justify-center" data-workbench-generation-waiting="true">
       <div className="mx-auto flex max-w-sm flex-col items-center text-center">
         <BrandIllustration purpose="agent-question" size="lg" decorative className="mb-4" />
-        <h2 className="text-sm font-semibold text-foreground">{generationState.statusText}</h2>
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+        <h2 className={EMPTY_PRIMARY_TITLE_CLASS}>{generationState.statusText}</h2>
+        <p className={`mt-2 ${EMPTY_PRIMARY_BODY_CLASS}`}>
           {pendingQuestion?.prompt
             ? pendingQuestion.prompt
             : `回答后会继续${generationState.label}，问题在右侧对话里。`}

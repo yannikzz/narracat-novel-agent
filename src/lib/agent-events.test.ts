@@ -981,3 +981,35 @@ describe('reduceAgentEvent', () => {
     expect(textPart?.status).toBe('complete')
   })
 })
+
+
+describe('write-next 气泡文案', () => {
+  // prompt 为空是正常态（作者没补充要求时，产品文案不当作者的话往下发），气泡不能因此空掉。
+  test('shows a human label when the author added nothing to say', () => {
+    const thread = reduceAgentEvent(createEmptyAgentThread('thread-1'), {
+      type: 'run.started',
+      runId: 'run-2',
+      threadId: 'thread-1',
+      command: 'write-next',
+      prompt: '',
+      selectedChapter: 29,
+      createdAt: '2026-04-27T00:00:00.000Z',
+    })
+
+    expect(thread.messages[0].parts[0]).toMatchObject({ type: 'text', text: '写第 29 章' })
+  })
+
+  test('shows what the author typed when they did say something', () => {
+    const thread = reduceAgentEvent(createEmptyAgentThread('thread-1'), {
+      type: 'run.started',
+      runId: 'run-3',
+      threadId: 'thread-1',
+      command: 'write-next',
+      prompt: '这一章节奏快一点',
+      selectedChapter: 29,
+      createdAt: '2026-04-27T00:00:00.000Z',
+    })
+
+    expect(thread.messages[0].parts[0]).toMatchObject({ type: 'text', text: '这一章节奏快一点' })
+  })
+})
