@@ -215,6 +215,28 @@ describe('NarraCat command run resolver', () => {
     }
   })
 
+  // 开写确认门是作者对「这一章怎么写」提要求的唯一入口。它曾被 automation_level 的全自动档整段
+  // 跳过，而新建小说默认就是全自动——作者因此从没见过它。这里钉住它不再受档位控制。
+  // 门内的实际表现（摘要够不够判断、冲突判得准不准）只有真机 dogfood 能验，测试只防回退。
+  test('keeps the pre-write gate out of automation_level control', async () => {
+    const commandRoot = join(process.cwd(), 'agent-core', 'narracat', 'commands')
+    const writeSource = await readFile(join(commandRoot, 'write.md'), 'utf-8')
+
+    // 三条路都在：开写 / 提要求 / 不写
+    expect(writeSource).toContain('我有要求')
+    expect(writeSource).toContain('先不写')
+    // 关得掉，且关掉的状态有落点
+    expect(writeSource).toContain('chapter_gate')
+    // 作者的要求必须进任务书（写手只读任务书），并在完成输出里回报落实情况
+    expect(writeSource).toContain('作者的要求（开写确认里提的，以及发起时「桌面侧用户补充意图」那句，两者同等对待）')
+    // 作者在输入框写的话一直以「桌面侧用户补充意图」传进 prompt（见 write-next.ts），
+    // 但命令里从没写过怎么处置它——写手只读任务书，没人接就等于作者白写。
+    expect(writeSource).toContain('桌面侧用户补充意图')
+    expect(writeSource).toContain('没做到就说没做到')
+    // 曾经把这道门整段关掉的那句判定不许回来
+    expect(writeSource).not.toContain('automation_level == "auto" 时跳过本步骤')
+  })
+
   test('requires continuity-editor to load WritingContextPack from the handoff path', async () => {
     const agentsRoot = join(process.cwd(), 'agent-core', 'narracat', 'agents')
     const continuityEditorSource = await readFile(join(agentsRoot, 'continuity-editor.md'), 'utf-8')

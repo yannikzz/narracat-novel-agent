@@ -1,7 +1,7 @@
 ---
 description: 写章节 — 核心创作循环（上下文聚合 → 正文生成 → 审校 → 入库收尾）
 argument-hint: <章节号>
-allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestion, mcp__narracat_memory__novel_build_writing_context_pack, mcp__narracat_memory__novel_get_review, mcp__narracat_memory__novel_get_arc, mcp__narracat_memory__novel_check_manuscript_contract, mcp__narracat_memory__novel_check_prose_hygiene, mcp__narracat_memory__novel_check_state_delivery, mcp__narracat_memory__novel_query, mcp__narracat_memory__novel_character_state, mcp__narracat_memory__novel_update_progress, mcp__narracat_memory__novel_checkpoint, mcp__narracat_memory__novel_mint_character_uid, mcp__narracat_memory__novel_list_candidate_characters, mcp__narracat_memory__novel_register_candidate_character, mcp__narracat_memory__novel_stage_extraction, mcp__narracat_memory__novel_commit_extraction_union, mcp__narracat_memory__novel_detect_conflicts]
+allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Edit, Glob, AskUserQuestion, mcp__narracat_memory__novel_build_writing_context_pack, mcp__narracat_memory__novel_get_review, mcp__narracat_memory__novel_get_arc, mcp__narracat_memory__novel_check_manuscript_contract, mcp__narracat_memory__novel_check_prose_hygiene, mcp__narracat_memory__novel_check_state_delivery, mcp__narracat_memory__novel_query, mcp__narracat_memory__novel_character_state, mcp__narracat_memory__novel_update_progress, mcp__narracat_memory__novel_checkpoint, mcp__narracat_memory__novel_mint_character_uid, mcp__narracat_memory__novel_list_candidate_characters, mcp__narracat_memory__novel_register_candidate_character, mcp__narracat_memory__novel_stage_extraction, mcp__narracat_memory__novel_commit_extraction_union, mcp__narracat_memory__novel_detect_conflicts]
 ---
 
 完成一个章节的完整写作流程。
@@ -22,7 +22,7 @@ allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestio
 ## 步骤 0：前置检查
 
 1. chapter_num = $ARGUMENTS，必须为正整数，否则报错并终止。
-2. Read `.narracat/config.yaml`（取 automation_level）与 `.narracat/state.yaml`（取 progress.completed_chapters、checkpoint）。
+2. Read `.narracat/config.yaml`（取 automation_level、chapter_gate、chapter_gate_skips——后两个缺省为 `"ask"` 与 0）与 `.narracat/state.yaml`（取 progress.completed_chapters、checkpoint）。
 3. chapter_num > 1 且 chapter_num-1 不在 progress.completed_chapters → 输出「请先完成第 {chapter_num-1} 章，或执行 /narracat:write {chapter_num-1}」，终止。
 4. chapter_num 已在 progress.completed_chapters → 输出「第 {chapter_num} 章已完成。如需修改请执行 /narracat:rewrite {chapter_num}」，终止。
 
@@ -45,9 +45,27 @@ allowed-tools: [Agent, TaskCreate, TaskUpdate, Read, Write, Glob, AskUserQuestio
 
 正文路径由工具返回，写作期间指向草稿区；主会话与 subagent 一律用返回的 manuscript_path，不自行拼路径。
 
-## 步骤 2：确认（仅协作模式）
+## 步骤 2：开写确认
 
-automation_level == "auto" 时跳过本步骤；**其余情况一律走确认门**（含 `.narracat/config.yaml` 里没有这个字段——缺省即协作，与 plan.md 同向）：向用户摘要本章细纲要点与上下文准备时的提醒，AskUserQuestion「开始写作」/「取消」；取消 → 终止。完成后 novel_checkpoint(step=2)。
+**一律走这道门，不受 automation_level 控制**：automation_level 管的是大纲那类结构决策要不要逐层过人，管不到「这一章我想怎么写」——而作者对本章的要求只有这一个入口，全自动档跳过它，等于把人从自己的书里请出去。唯一例外是作者亲手关过这道门（`chapter_gate == "off"`，见下方「连着几章没话说时」）：此时直接进步骤 3，不问、也不解释为什么没问。
+
+0. 先看作者**发起这次写作时有没有已经说了话**：prompt 里的「桌面侧用户补充意图」就是作者本人对这一章的要求，$ARGUMENTS 只有章号、不含这句话。有这句话时它已经是一条要求——摘要里回一句「你说的 {要求} 我记下了」，别装作没看见再问一遍；作者在门里补充的内容与它合并，一并按第 4 点判冲突、按 3a 带进任务书。
+1. 向作者摘要**这一章要写什么**：细纲要点（发生什么、要打出什么）、上一章欠着的钩子、步骤 1 上下文准备时的提醒。三五行，够作者判断即可，不复述整份细纲。
+2. AskUserQuestion（header 用「第 {chapter_num} 章」），三条路：
+   - **开始写** —— 按细纲写这一章。
+   - **我有要求** —— 这一章我有想法要交代（也可以直接写进下面的自定义回答框，一次说完，不必先点这条）。
+   - **先不写** —— 这次先不写。
+3. 按回答分路：
+   - 「先不写」→ 终止，不改任何文件、不动断点。
+   - 「开始写」且没写任何要求 → 进第 5 点计数，然后 novel_checkpoint(step=2)，进步骤 3。
+   - 写了自定义回答，或选「我有要求」→ 收下要求，进第 4 点。选了「我有要求」却没写具体内容时，用普通对话追问一句「这一章你想怎么写」，作者答完再继续。
+4. 收到要求后判**冲突**：
+   - **判据**：只有当要求会推翻细纲里承载后续的东西——伏笔的埋或收、跨章的人物承诺、章末去向、已计划的状态变更——才算冲突。写法、节奏、详略、情绪浓度、对白多少、某段展开还是收着，**都不算冲突**，照办即可。
+   - **不冲突** → 一句废话都不多说，直接 novel_checkpoint(step=2) 进步骤 3，要求随任务书带给写手（见 3a）。
+   - **真冲突** → 先说清代价：这一拍原本在为哪一章的什么服务，改了之后什么会落空。再 AskUserQuestion 两条路：**按细纲写**（放弃这条要求，其余要求照办）/ **按我的要求写**（本章偏离细纲，大纲与后续伏笔可能要跟着调，完成输出里会再提醒一次）。作者选定后进步骤 3。
+5. **计数**（只用于第 6 点，属控制状态，不说给作者听）：作者选「开始写」且一条要求没提 → `.narracat/config.yaml` 的 `chapter_gate_skips` 加 1（字段不存在按 0 起算），用 Edit 写回；作者提了要求（无论最后按谁的写）→ 归 0。本次已按第 6 点问过要不要关门的，无论作者选哪条都归 0，不再加 1。
+6. **连着几章没话说时**：进本步骤时若 `chapter_gate_skips >= 3`，本次的 AskUserQuestion 多给第四条选项 **以后别问了，直接开写**——这道门是为「作者想说话」准备的，作者连着三章一句要求都没提，它就只是一次多余的点击。选中即把 `chapter_gate` 写成 `"off"`、`chapter_gate_skips` 归 0，并告诉作者：以后写章节我直接开写；想让我恢复开写前先问你，写章节时在输入框里说一句「写之前先问我」就行。（作者这次选了其它三条中的任意一条 → 计数归 0：已经问过一遍，别每章都来。）
+7. 作者在这一句里要求恢复开写前确认（「写之前先问我」「恢复开写确认」这类）→ 把 `chapter_gate` 写回 `"ask"`、`chapter_gate_skips` 归 0，本次照常走这道门（门已关时也照此恢复）。
 
 ## 步骤 3：正文生成
 
@@ -66,6 +84,7 @@ automation_level == "auto" 时跳过本步骤；**其余情况一律走确认门
    - `warnings` 里影响本章的项翻译成自然语言提醒写进对应段落，其余丢弃。
    - 第四段是**给这一章的**写法指示，不是通用写作原则的转述。素材库条目、persona 手感、本书声音都要落到「这一章的哪一段、怎么写」——写成通用原则时写手只当灵感参考，指名到本章场景才会照做。其中两件事每章都要点名到具体段落说清楚：**①哪里该展开、哪里该收**（心里绕弯子、算账、铺关系的地方敢用长句一口气把因果和情绪交清楚；要砸的地方再收短）**②这一章的对白怎么给**（谁跟谁说、几句关键台词各是什么调门、说话人怎么交待、哪句台词底下藏着别的意思）。
    - 第四段里**不许出现句长处方**（「短句」「段落实短」「描写精简」这类）：本书声音里的节奏诉求翻成钩子密度、场景切换速度、对白占比来表达。
+   - **作者的要求（开写确认里提的，以及发起时「桌面侧用户补充意图」那句，两者同等对待），按内容归进对应段落如实承载**：剧情与事件类进第二段、人物类进第三段、写法与节奏与对白类进第四段、章末落点类进第五段。写手只读这份任务书，要求必须长在它该在的地方——单独另起一段会变成一句谁都不认领的口号。原话的意思不打折、不概括成「作者希望写得更精彩」；与本章无关的宽泛感想不硬塞。逐条记下每条要求落进了哪一段，完成输出要回报。冲突后作者选了「按细纲写」的那条不写进任务书，也记下来。
 
 任务书五段结构：
 
@@ -221,6 +240,8 @@ novel_update_progress 会先核对交付合同并把草稿区正文原子搬进�
 ## 完成输出
 
 一行汇报：「第 {chapter_num} 章完成。」并附下一步建议：/narracat:write {chapter_num+1}。协作模式可另附上下文准备时的提醒与审校 note 条数。
+
+**若本章开写前作者提过要求**（步骤 2），另起一段逐条回报它们落到哪儿了：先 Read {manuscript_path}（只在有要求时读，没要求的章不读、不多花这一趟），逐条说这条要求写在正文的哪一段、怎么体现的。做到就说做到，**没做到就说没做到**——写手没接住、或与细纲冲突后按细纲写了，都如实说，不用「已充分考虑」这类话糊过去。作者据此才知道下次还值不值得提要求。冲突后按作者要求写的，这里再提醒一句：本章已偏离细纲的哪一点，后续大纲或伏笔可能要跟着调。
 
 若步骤 6 的 novel_detect_conflicts 检出冲突（conflict_count > 0），另起一段原样呈现其 `report`，标明为待人工确认的潜在时序 / 设定矛盾（只标注、未改动记忆，可执行 /narracat:revise-premise 或后续 /narracat:rewrite 修订）。
 

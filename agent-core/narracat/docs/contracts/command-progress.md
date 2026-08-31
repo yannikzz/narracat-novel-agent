@@ -17,6 +17,7 @@
 下列是命令内部控制流，只用于自身分支判断，不得复述进面向作者的 assistant 文本，也不写进 TaskUpdate 的步骤名：
 
 - automation_level 取值（auto / collaborative）
+- 开写确认门的状态与计数（chapter_gate / chapter_gate_skips）——作者只该看见「问不问他」，不该看见字段名与攒了几次
 - 模式判定结果（新建 / 修改 / 补卷 / 补纲）
 - 前置检查的逐项过/未过流水账（「config 已读」「master-outline.md 不存在」）
 - 内部步骤编号（步骤 0 / 1.5 / 2）
