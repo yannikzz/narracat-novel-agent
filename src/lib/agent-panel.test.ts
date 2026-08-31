@@ -5,6 +5,7 @@ import {
   formatAgentRunElapsed,
   getAgentPanelStatus,
   getAgentSteps,
+  getPendingAgentQuestion,
   isAgentRunStalled,
   stripStepNumberPrefix,
 } from './agent-panel'
@@ -252,5 +253,54 @@ describe('stripStepNumberPrefix', () => {
 
   test('非步骤前缀的标题保持不变', () => {
     expect(stripStepNumberPrefix('读取现有设定')).toBe('读取现有设定')
+  })
+})
+
+
+describe('getPendingAgentQuestion', () => {
+  const asked: AgentEvent = {
+    type: 'question.requested',
+    runId: 'run-1',
+    messageId: 'assistant-run-1',
+    questionRequestId: 'question-1',
+    toolCallId: 'tool-1',
+    questions: [
+      {
+        question: '这本书用第几人称讲？',
+        header: '叙述人称',
+        options: [
+          { label: '第一人称', description: '主角自述' },
+          { label: '第三人称·跟随主角', description: '贴着主角写' },
+        ],
+      },
+    ],
+    createdAt: '2026-04-27T00:01:00.000Z',
+  }
+
+  function threadAfter(events: AgentEvent[]) {
+    return events.reduce((thread, event) => reduceAgentEvent(thread, event), createEmptyAgentThread('thread-1'))
+  }
+
+  test('points at the question the author still owes an answer', () => {
+    expect(getPendingAgentQuestion(threadAfter([started, asked]))).toEqual({
+      questionRequestId: 'question-1',
+      prompt: '这本书用第几人称讲？',
+    })
+  })
+
+  test('goes quiet once the question is answered and the run resumes', () => {
+    const answered: AgentEvent = {
+      type: 'question.answered',
+      runId: 'run-1',
+      questionRequestId: 'question-1',
+      answers: { 叙述人称: '第一人称' },
+      createdAt: '2026-04-27T00:02:00.000Z',
+    }
+
+    expect(getPendingAgentQuestion(threadAfter([started, asked, answered]))).toBeNull()
+  })
+
+  test('goes quiet while the Agent is merely running', () => {
+    expect(getPendingAgentQuestion(threadAfter([started]))).toBeNull()
   })
 })

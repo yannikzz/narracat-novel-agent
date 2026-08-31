@@ -4,8 +4,16 @@ import { WorkbenchGenerationAnimation } from './WorkbenchGenerationAnimation'
 import { WorkbenchGenerationEmptyState } from './WorkbenchGenerationFrame'
 
 const generationState = {
+  phase: 'running' as const,
   label: '参考作品',
   statusText: '正在生成参考作品',
+}
+
+const waitingState = {
+  phase: 'waiting-user' as const,
+  label: '核心设定',
+  statusText: 'NarraCat 在等你回答',
+  pendingQuestion: { questionRequestId: 'question-1', prompt: '这本书用第几人称讲？' },
 }
 
 describe('WorkbenchGenerationFrame', () => {
@@ -19,6 +27,29 @@ describe('WorkbenchGenerationFrame', () => {
     expect(html).toContain('正在生成参考作品')
     expect(html).toContain('完成后会自动刷新当前页面。')
     expect(html).not.toContain('animate-spin')
+  })
+
+  // 等作者回答时机器没在跑：不放生成动画（会假装还在干活），也绝不退回空态（会假装无事发生）。
+  test('swaps the running animation for a jump-to-question prompt while waiting on the author', () => {
+    const html = renderToStaticMarkup(
+      <WorkbenchGenerationEmptyState generationState={waitingState} onAnswerQuestion={() => {}} />,
+    )
+
+    expect(html).toContain('data-workbench-generation-waiting="true"')
+    expect(html).toContain('NarraCat 在等你回答')
+    expect(html).toContain('这本书用第几人称讲？')
+    expect(html).toContain('data-workbench-waiting-answer="question-1"')
+    expect(html).toContain('去回答')
+    expect(html).not.toContain('data-workbench-generation-animation')
+  })
+
+  test('still holds the area, minus the jump button, when the question pointer is missing', () => {
+    const { pendingQuestion: _omitted, ...withoutPointer } = waitingState
+    const html = renderToStaticMarkup(<WorkbenchGenerationEmptyState generationState={withoutPointer} />)
+
+    expect(html).toContain('data-workbench-generation-waiting="true"')
+    expect(html).toContain('回答后会继续核心设定，问题在右侧对话里。')
+    expect(html).not.toContain('data-workbench-waiting-answer')
   })
 
   // 生成中的内联指示已挪到 titlebar 标题右侧（见 WorkbenchObjectHeader），

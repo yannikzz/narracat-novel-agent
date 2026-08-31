@@ -107,9 +107,53 @@ describe('workbench generation state', () => {
         selectedSectionId: 'blueprint',
       }),
     ).toEqual({
+      phase: 'running',
       label: '全局大纲',
       statusText: '正在生成全局大纲',
     })
+  })
+
+  // 回归钉：Agent 一发问 run 就转 waiting-user，原判定只认 running 会让内容区退回空态，
+  // 作者看到的是「点了按钮又变回原样」，而 Agent 正在右侧干等。
+  test('keeps holding the content area while the Agent waits for the author', () => {
+    expect(
+      resolveWorkbenchGenerationState({
+        activeRun: { ...runningPlan, status: 'waiting-user' },
+        activeTab: masterOutlineTab,
+        pendingQuestion: { questionRequestId: 'question-1', prompt: '这本书的叙述人称用第几人称？' },
+        selectedItem: masterOutlineItem,
+        selectedSectionId: 'blueprint',
+      }),
+    ).toEqual({
+      phase: 'waiting-user',
+      label: '全局大纲',
+      statusText: 'NarraCat 在等你回答',
+      pendingQuestion: { questionRequestId: 'question-1', prompt: '这本书的叙述人称用第几人称？' },
+    })
+  })
+
+  test('still holds the content area when the pending question pointer is missing', () => {
+    expect(
+      resolveWorkbenchGenerationState({
+        activeRun: { ...runningPlan, status: 'waiting-user' },
+        activeTab: masterOutlineTab,
+        selectedItem: masterOutlineItem,
+        selectedSectionId: 'blueprint',
+      }),
+    ).toEqual({
+      phase: 'waiting-user',
+      label: '全局大纲',
+      statusText: 'NarraCat 在等你回答',
+    })
+  })
+
+  test('keeps the sidebar marker while waiting, flagged as waiting rather than generating', () => {
+    expect(
+      resolveWorkbenchSidebarGenerationTarget({
+        activeRun: { ...runningPlan, status: 'waiting-user' },
+        project,
+      }),
+    ).toEqual({ phase: 'waiting-user', kind: 'primary', id: 'blueprint' })
   })
 
   test('ignores running Agent targets for a different workbench page', () => {
@@ -146,7 +190,7 @@ describe('workbench generation state', () => {
         },
         project,
       }),
-    ).toEqual({ kind: 'chapter', id: 'chapter-2' })
+    ).toEqual({ phase: 'running', kind: 'chapter', id: 'chapter-2' })
   })
 
   test('maps a running volume outline target to the parent sidebar volume row', () => {
@@ -162,11 +206,12 @@ describe('workbench generation state', () => {
         },
         project,
       }),
-    ).toEqual({ kind: 'volume', id: 'volume-1' })
+    ).toEqual({ phase: 'running', kind: 'volume', id: 'volume-1' })
   })
 
   test('maps non-directory targets to their primary sidebar section', () => {
     expect(resolveWorkbenchSidebarGenerationTarget({ activeRun: runningPlan, project })).toEqual({
+      phase: 'running',
       kind: 'primary',
       id: 'blueprint',
     })
@@ -183,7 +228,7 @@ describe('workbench generation state', () => {
         },
         project,
       }),
-    ).toEqual({ kind: 'primary', id: 'settings' })
+    ).toEqual({ phase: 'running', kind: 'primary', id: 'settings' })
     expect(
       resolveWorkbenchSidebarGenerationTarget({
         activeRun: {
@@ -197,7 +242,7 @@ describe('workbench generation state', () => {
         },
         project,
       }),
-    ).toEqual({ kind: 'primary', id: 'reference-works' })
+    ).toEqual({ phase: 'running', kind: 'primary', id: 'reference-works' })
   })
 
   test('ignores completed runs and runs for a different project in the sidebar', () => {

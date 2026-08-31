@@ -1,4 +1,5 @@
 import type { AgentRun, AgentTaskPlanItem, AgentThread } from '@shared/types/agent'
+import type { WorkbenchPendingQuestion } from './workbench-generation'
 
 // 运行中超过该时长没有任何新事件 → UI 提示「可能卡住、可停止」。早于主进程 30 分钟空闲看门狗，
 // 让用户在自动收尾前就能主动中止；判据是「距最后事件的间隔」而非「总运行时长」，不误伤活跃长任务。
@@ -130,4 +131,27 @@ function getTaskPlanStatusLabel(status: AgentTaskPlanItem['status']): string {
     case 'failed':
       return '失败'
   }
+}
+
+/**
+ * 取当前等作者回答的问题：run 转 waiting-user 时，question.requested 会写入一条 status='running'
+ * 的 question part（回答后由 question.answered 置 complete）。倒序找最近一条即当前待答问题。
+ * 供工作台内容区/侧边栏在等待期占住画面并给出直达按钮，见 workbench-generation。
+ */
+export function getPendingAgentQuestion(thread: AgentThread | undefined): WorkbenchPendingQuestion | null {
+  if (thread?.activeRun?.status !== 'waiting-user') return null
+
+  for (let messageIndex = thread.messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const parts = thread.messages[messageIndex].parts
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const part = parts[partIndex]
+      if (part.type !== 'question' || part.status !== 'running') continue
+      return {
+        questionRequestId: part.questionRequestId,
+        prompt: part.questions[0]?.question.trim() ?? '',
+      }
+    }
+  }
+
+  return null
 }

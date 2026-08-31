@@ -1,5 +1,6 @@
 import { WorkbenchObjectView } from './WorkbenchObjectView'
 import { useAgentStore } from '@/lib/agent-store'
+import { getPendingAgentQuestion } from '@/lib/agent-panel'
 import { useNovelStore } from '@/lib/novel-store'
 import type { WorkbenchAction } from '@/lib/workbench-actions'
 import { resolveCurrentStageChapterId } from '@/lib/workbench-chapter-state'
@@ -114,6 +115,10 @@ export function WorkbenchContentView({
   const activeThreadId = useAgentStore((state) => state.activeThreadId)
   const scopedThreadId = agentThreadId ?? activeThreadId
   const activeRun = useAgentStore((state) => state.threadsById[scopedThreadId]?.activeRun ?? null)
+  // selector 只取线程引用，派生对象在组件里算：selector 每次返回新对象会让 useSyncExternalStore 快照恒变。
+  const scopedThread = useAgentStore((state) => state.threadsById[scopedThreadId])
+  const focusQuestionRequest = useAgentStore((state) => state.focusQuestionRequest)
+  const pendingQuestion = getPendingAgentQuestion(scopedThread)
   const { activeTab, artifacts, selectedItem, tabs } = resolveWorkbenchContentSelection({
     activeWorkbenchArtifacts,
     project,
@@ -125,6 +130,7 @@ export function WorkbenchContentView({
   const generationState = resolveWorkbenchGenerationState({
     activeRun,
     activeTab,
+    pendingQuestion,
     selectedItem,
     selectedSectionId,
   })
@@ -145,6 +151,7 @@ export function WorkbenchContentView({
       emptyGuideAction={emptyGuideAction}
       generationState={generationState}
       loading={loading}
+      onAnswerPendingQuestion={(questionRequestId) => focusQuestionRequest(questionRequestId, scopedThreadId)}
       onChapterViewChange={onChapterViewChange}
       onEmptyGuideAction={onEmptyGuideAction}
       onReferenceChanged={onReferenceChanged}

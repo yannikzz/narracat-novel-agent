@@ -11,6 +11,7 @@ import {
   ListChevronsUpDown,
   ListCollapse,
   Loader2,
+  MessageCircleQuestion,
   MessagesSquare,
   NotebookTabs,
   Package,
@@ -229,6 +230,7 @@ function WorkbenchChapterDirectory({
                 (!expanded && Boolean(generatingChapter))
               const volumeGenerationLabel = generatingChapter?.title ?? group.volume.title
               const volumeGenerationTargetId = generatingChapter?.id ?? group.volume.id
+              const volumeGenerationPhase = generationTarget?.phase ?? 'running'
 
               return (
                 <div key={group.volume.id} className="space-y-1">
@@ -249,7 +251,11 @@ function WorkbenchChapterDirectory({
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
                       {volumeGenerating ? (
-                        <SidebarGenerationPill label={volumeGenerationLabel} targetId={volumeGenerationTargetId} />
+                        <SidebarGenerationPill
+                          label={volumeGenerationLabel}
+                          phase={volumeGenerationPhase}
+                          targetId={volumeGenerationTargetId}
+                        />
                       ) : volumeTag ? (
                         <span
                           className={cn(
@@ -343,7 +349,11 @@ function WorkbenchChapterDirectory({
                                     )}
                                 </span>
                                 {chapterGenerating ? (
-                                  <SidebarGenerationPill label={chapter.title} targetId={chapter.id} />
+                                  <SidebarGenerationPill
+                                    label={chapter.title}
+                                    phase={generationTarget.phase}
+                                    targetId={chapter.id}
+                                  />
                                 ) : tag ? (
                                   <span
                                     className={cn(
@@ -532,7 +542,7 @@ export function WorkbenchPrimarySidebar({
                     <span className="truncate">{section.title}</span>
                   </span>
                   {sectionGenerating ? (
-                    <SidebarGenerationPill label={section.title} targetId={section.id} />
+                    <SidebarGenerationPill label={section.title} phase={generationTarget.phase} targetId={section.id} />
                   ) : section.pending ? (
                     <span className={cn(WARNING_PILL_CLASS, 'shrink-0')}>待设定</span>
                   ) : null}
@@ -564,15 +574,34 @@ export function WorkbenchPrimarySidebar({
   )
 }
 
-function SidebarGenerationPill({ label, targetId }: { label: string; targetId: string }) {
+/**
+ * 侧边栏进行中标记。waiting-user 时机器没在跑、活儿停在作者这边：转圈说「生成中」是假信息，
+ * 改成静态的「等你回答」，与内容区等待态同一口径。
+ */
+function SidebarGenerationPill({
+  label,
+  phase,
+  targetId,
+}: {
+  label: string
+  phase: WorkbenchSidebarGenerationTarget['phase']
+  targetId: string
+}) {
+  const waiting = phase === 'waiting-user'
+
   return (
     <span
-      aria-label={`正在生成${label}`}
+      aria-label={waiting ? `${label}：Agent 在等你回答` : `正在生成${label}`}
       className="inline-flex h-5 shrink-0 items-center gap-1 rounded-row bg-brand/10 px-1.5 text-[11px] font-medium leading-none text-brand"
       data-workbench-sidebar-generation={targetId}
+      data-workbench-sidebar-generation-phase={phase}
     >
-      <Loader2 aria-hidden="true" className="size-3 animate-spin" />
-      <span>生成中</span>
+      {waiting ? (
+        <MessageCircleQuestion aria-hidden="true" className="size-3" />
+      ) : (
+        <Loader2 aria-hidden="true" className="size-3 animate-spin" />
+      )}
+      <span>{waiting ? '等你回答' : '生成中'}</span>
     </span>
   )
 }

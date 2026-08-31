@@ -673,6 +673,7 @@ function renderObjectBody({
   emptyGuideAction,
   generationState,
   loading,
+  onAnswerPendingQuestion,
   onCharacterTabChange,
   onEmptyGuideAction,
   onEvaluateManuscriptImpact,
@@ -696,6 +697,8 @@ function renderObjectBody({
   emptyGuideAction?: WorkbenchAction | null
   generationState?: WorkbenchGenerationState | null
   loading: boolean
+  /** 内容区等待态的「去回答」：把右侧对话滚到那条待答问题（agent-store 的 focusQuestionRequest）。 */
+  onAnswerPendingQuestion?: (questionRequestId: string) => void
   onCharacterTabChange: (tab: CharacterDocTab) => void
   onEmptyGuideAction?: (action: WorkbenchAction) => void
   onEvaluateManuscriptImpact?: (input: { prompt: string; chapter: number }) => void
@@ -742,7 +745,7 @@ function renderObjectBody({
       )
 
       if (generationState && !artifacts?.referenceWorksSummary?.guidance?.content?.trim()) {
-        return <WorkbenchGenerationEmptyState generationState={generationState} />
+        return <WorkbenchGenerationEmptyState generationState={generationState} onAnswerQuestion={onAnswerPendingQuestion} />
       }
 
       return referenceWorksView
@@ -752,7 +755,7 @@ function renderObjectBody({
     const artifact = objectArtifacts[0]
     if (!artifact?.exists) {
       if (generationState) {
-        return <WorkbenchGenerationEmptyState generationState={generationState} />
+        return <WorkbenchGenerationEmptyState generationState={generationState} onAnswerQuestion={onAnswerPendingQuestion} />
       }
 
       if (!artifacts && (loading || selectedItem.exists !== false)) {
@@ -831,7 +834,7 @@ function renderObjectBody({
   if (chapterView === 'text') {
     if (!manuscriptArtifact?.exists) {
       if (generationState) {
-        chapterBody = <WorkbenchGenerationEmptyState generationState={generationState} />
+        chapterBody = <WorkbenchGenerationEmptyState generationState={generationState} onAnswerQuestion={onAnswerPendingQuestion} />
       } else if (showRecoverablePrompt) {
         chapterBody = (
           <WorkbenchEmptyGuide
@@ -924,7 +927,7 @@ function renderObjectBody({
   if (chapterView === 'outline') {
     if (!outlineArtifact?.exists) {
       chapterBody = generationState ? (
-        <WorkbenchGenerationEmptyState generationState={generationState} />
+        <WorkbenchGenerationEmptyState generationState={generationState} onAnswerQuestion={onAnswerPendingQuestion} />
       ) : (
         <WorkbenchEmptyGuide
           title="章节大纲尚未规划"
@@ -979,7 +982,7 @@ function renderObjectBody({
     hasVisibleChapterArtifact = hasLightReview || hasDeepReview
     chapterBody =
       generationState && !hasVisibleChapterArtifact ? (
-        <WorkbenchGenerationEmptyState generationState={generationState} />
+        <WorkbenchGenerationEmptyState generationState={generationState} onAnswerQuestion={onAnswerPendingQuestion} />
       ) : !hasVisibleChapterArtifact ? (
         <WorkbenchEmptyGuide
           title="审修报告尚未生成"
@@ -1096,6 +1099,7 @@ export function WorkbenchObjectView({
   emptyGuideAction,
   generationState,
   loading = false,
+  onAnswerPendingQuestion,
   onChapterViewChange,
   onEmptyGuideAction,
   onEvaluateManuscriptImpact,
@@ -1121,6 +1125,7 @@ export function WorkbenchObjectView({
   emptyGuideAction?: WorkbenchAction | null
   generationState?: WorkbenchGenerationState | null
   loading?: boolean
+  onAnswerPendingQuestion?: (questionRequestId: string) => void
   onChapterViewChange: (value: WorkbenchChapterView) => void
   onEmptyGuideAction?: (action: WorkbenchAction) => void
   onEvaluateManuscriptImpact?: (input: { prompt: string; chapter: number }) => void
@@ -1213,6 +1218,7 @@ export function WorkbenchObjectView({
             emptyGuideAction,
             generationState,
             loading,
+            onAnswerPendingQuestion,
             onCharacterTabChange: setCharacterTab,
             onEmptyGuideAction,
             onEvaluateManuscriptImpact,

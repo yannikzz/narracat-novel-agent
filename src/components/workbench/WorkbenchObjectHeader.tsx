@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react'
 import { Link } from 'react-router'
-import { Ellipsis } from 'lucide-react'
+import { Ellipsis, MessageCircleQuestion } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -19,14 +19,27 @@ import { getWorkbenchActionIcon } from './workbench-action-icons'
 import { WorkbenchGenerationAnimation } from './WorkbenchGenerationAnimation'
 
 function TitlebarGenerationIndicator({ generationState }: { generationState: WorkbenchGenerationState }) {
+  // waiting-user 时机器没在跑：不能继续转动画、也不能承诺「完成后自动刷新」，等的是作者。
+  const waiting = generationState.phase === 'waiting-user'
+
   return (
-    <IconTooltip label={generationState.statusText} description="完成后自动刷新" side="bottom" align="start">
+    <IconTooltip
+      label={generationState.statusText}
+      description={waiting ? '在右侧对话里回答后继续' : '完成后自动刷新'}
+      side="bottom"
+      align="start"
+    >
       <span
         className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground [-webkit-app-region:no-drag]"
         data-workbench-titlebar-generation="true"
+        data-workbench-titlebar-generation-phase={generationState.phase}
       >
-        <WorkbenchGenerationAnimation size="mini" />
-        <span>正在生成</span>
+        {waiting ? (
+          <MessageCircleQuestion aria-hidden="true" className="size-3.5" />
+        ) : (
+          <WorkbenchGenerationAnimation size="mini" />
+        )}
+        <span>{waiting ? '等你回答' : '正在生成'}</span>
       </span>
     </IconTooltip>
   )
