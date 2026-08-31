@@ -25,6 +25,7 @@ import {
   type ScrubRoot,
 } from '@shared/lib/agent-path-scrub'
 import { applyTaskToolCall } from './task-plan-from-tools.ts'
+import { resolveRunVisiblePrompt } from '@shared/lib/run-visible-prompt.ts'
 
 interface SegmentLiveState {
   segmentId: string
@@ -78,17 +79,6 @@ export interface AgentEventSinkOptions {
    * 开发机上引擎目录同样在用户目录下，不给根就会被脱敏整段抹掉。
    */
   agentCorePath?: string
-}
-
-function visiblePrompt(event: Extract<AgentEvent, { type: 'run.started' }>): string {
-  const displayPrompt = event.displayPrompt?.trim()
-  if (displayPrompt) return displayPrompt
-  if ((event.command === 'review' || event.command === 'rewrite') && event.selectedChapter) {
-    if (event.prompt.trim() === String(event.selectedChapter)) {
-      return `${event.command === 'review' ? '审修' : '重写'}第 ${event.selectedChapter} 章`
-    }
-  }
-  return event.prompt
 }
 
 function runIdForPayload(payload: AgentDurableEventV1 | AgentEvent): string | undefined {
@@ -340,7 +330,7 @@ export function createAgentEventSink(options: AgentEventSinkOptions): AgentEvent
                 type: 'run.accepted',
                 runId: event.runId,
                 command: event.command,
-                visiblePrompt: sanitizeDurableText(visiblePrompt(event)),
+                visiblePrompt: sanitizeDurableText(resolveRunVisiblePrompt(event)),
                 origin: event.origin,
                 selectedChapter: event.selectedChapter,
                 target: event.target,

@@ -9,6 +9,7 @@ import type {
   AgentThread,
   AgentTokenUsage,
 } from '@shared/types/agent'
+import { resolveRunVisiblePrompt } from '@shared/lib/run-visible-prompt'
 
 export function createEmptyAgentThread(id: string): AgentThread {
   return {
@@ -123,7 +124,7 @@ function createToolCompletionPatch(event: ToolCompletedEvent): ToolPatch {
 }
 
 function startRun(thread: AgentThread, event: RunStartedEvent): AgentThread {
-  const visiblePrompt = getVisibleRunPrompt(event)
+  const visiblePrompt = resolveRunVisiblePrompt(event)
   const userMessage: AgentMessage = {
     id: `user-${event.runId}`,
     role: 'user',
@@ -166,28 +167,6 @@ function startRun(thread: AgentThread, event: RunStartedEvent): AgentThread {
       target: event.target,
     },
   }
-}
-
-function getVisibleRunPrompt(event: RunStartedEvent): string {
-  // 显式干净文案优先：空页/预设动作把定位元信息塞进 prompt 给 Agent，气泡只显示 displayPrompt。
-  const displayPrompt = event.displayPrompt?.trim()
-  if (displayPrompt) return displayPrompt
-
-  if ((event.command === 'review' || event.command === 'rewrite') && event.selectedChapter) {
-    const promptIsChapterArgument = event.prompt.trim() === String(event.selectedChapter)
-    if (promptIsChapterArgument) {
-      return `${event.command === 'review' ? '审修' : '重写'}第 ${event.selectedChapter} 章`
-    }
-  }
-
-  // 写章节没带作者补充意图时 prompt 是空的（见 resolveAgentRunPrompt：产品文案不当作者的话往下发），
-  // 气泡在这里补人话，不让作者看见一个空气泡。
-  if ((event.command === 'write-next' || event.command === 'recover-write') && !event.prompt.trim()) {
-    const chapterSuffix = event.selectedChapter ? `第 ${event.selectedChapter} 章` : '本章'
-    return event.command === 'recover-write' ? `继续完成${chapterSuffix}` : `写${chapterSuffix}`
-  }
-
-  return event.prompt
 }
 
 function appendTextDelta(message: AgentMessage, text: string): AgentMessage {

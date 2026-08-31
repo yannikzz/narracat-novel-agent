@@ -11,6 +11,31 @@ describe('normalizeAgentRunRequest', () => {
     ).toEqual({ threadId: 'thread-1', command: 'recover-write', prompt: '继续完成本章' })
   })
 
+  // 回归钉：作者没补充要求时渲染端传空 prompt（产品默认文案不当作者的话往下发）。
+  // 这道校验曾经一律要求非空，真机上表现为「任务启动失败，请重试」——而渲染端单测全绿，
+  // 因为缺陷正好落在两个进程的接缝上。
+  test('accepts an empty prompt for chapter writing, where prompt is the author note not the task', () => {
+    expect(normalizeAgentRunRequest({ threadId: 'thread-1', command: 'write-next', prompt: '' })).toEqual({
+      threadId: 'thread-1',
+      command: 'write-next',
+      prompt: '',
+    })
+    expect(normalizeAgentRunRequest({ threadId: 'thread-1', command: 'recover-write', prompt: '' })).toEqual({
+      threadId: 'thread-1',
+      command: 'recover-write',
+      prompt: '',
+    })
+  })
+
+  test('still rejects an empty prompt where the prompt IS the task', () => {
+    expect(() => normalizeAgentRunRequest({ threadId: 'thread-1', command: 'freeform', prompt: '   ' })).toThrow(
+      'Agent 任务缺少 prompt。',
+    )
+    expect(() => normalizeAgentRunRequest({ threadId: 'thread-1', command: 'world', prompt: '' })).toThrow(
+      'Agent 任务缺少 prompt。',
+    )
+  })
+
   test('accepts NarraCat command workflow requests', () => {
     expect(
       normalizeAgentRunRequest({

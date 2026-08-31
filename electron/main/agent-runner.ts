@@ -33,6 +33,9 @@ const AGENT_COMMANDS = new Set<AgentRunRequest['command']>([
 ])
 const AGENT_TARGET_SECTIONS = new Set(['blueprint', 'settings', 'reference-works'])
 
+/** prompt 允许为空的命令：见下方校验处的理由。与渲染端 resolveAgentRunPrompt 的同名集合成对。 */
+const AUTHOR_INTENT_ONLY_COMMANDS = new Set<AgentRunRequest['command']>(['write-next', 'recover-write'])
+
 export function normalizeAgentRunRequest(input: unknown): AgentRunRequest {
   if (!input || typeof input !== 'object') throw new Error('Agent 任务参数非法。')
 
@@ -45,7 +48,13 @@ export function normalizeAgentRunRequest(input: unknown): AgentRunRequest {
   if (typeof command !== 'string' || !AGENT_COMMANDS.has(command as AgentRunRequest['command'])) {
     throw new Error('Agent 任务 command 非法。')
   }
-  if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('Agent 任务缺少 prompt。')
+  // 章节写作命令的 prompt 是「作者补充意图」而非任务内容——任务由章号与细纲决定（intent 恒为章号），
+  // 作者没补充时渲染端就传空串，避免产品默认文案（「写下一章」/「写本章」）被引擎当成作者提的要求。
+  // 其余命令的 prompt 就是 $ARGUMENTS，空仍然非法。
+  if (typeof prompt !== 'string') throw new Error('Agent 任务缺少 prompt。')
+  if (!prompt.trim() && !AUTHOR_INTENT_ONLY_COMMANDS.has(command as AgentRunRequest['command'])) {
+    throw new Error('Agent 任务缺少 prompt。')
+  }
 
   const normalized: AgentRunRequest = {
     ...(typeof requestId === 'string' ? { requestId: requestId.trim() } : {}),
