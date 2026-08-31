@@ -144,6 +144,15 @@ describe('ModelProviderDetailPanel（SSR 结构断言）', () => {
     expect(withoutError).not.toContain('网络超时')
   })
 
+  test('「测试连接」分组恒在最后——它要用到上面全部配置，分组顺序即配置顺序', () => {
+    const html = render()
+    const connection = html.indexOf('data-model-connection')
+    const catalog = html.indexOf('data-model-catalog')
+    expect(connection).toBeGreaterThan(-1)
+    expect(catalog).toBeGreaterThan(-1)
+    expect(connection).toBeGreaterThan(catalog)
+  })
+
   test('拉不到清单的渠道（Kimi）不渲染「刷新清单」按钮——不让用户去撞一个必然 404 的请求', () => {
     expect(render()).toContain('data-model-refresh="true"')
     expect(render({ provider: 'kimi' })).not.toContain('data-model-refresh="true"')

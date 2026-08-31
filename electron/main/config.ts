@@ -59,8 +59,9 @@ const LEGACY_DEFAULT_MODELS: Record<ProviderId, LegacyModelMapping> = {
     haiku: 'glm-4.5-air',
   },
   kimi: {
-    opus: 'kimi-k3[1m]',
-    sonnet: 'kimi-k3[1m]',
+    // 不用 `kimi-k3[1m]`：该 id 真机 404，详见 model-providers.ts 的目录注释。
+    opus: 'kimi-k3',
+    sonnet: 'kimi-k3',
     haiku: 'kimi-k2.6',
   },
   custom: {

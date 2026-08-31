@@ -45,7 +45,10 @@ export const MODEL_CATALOG: Record<ProviderId, string[]> = {
   // Kimi 拉不到清单（见上方 noModelListEndpoint），故这份目录 + 手填 model id 是它的全部来源，
   // 过期了要手工来改。已排除 kimi-k2.5 与 moonshot-v1 系列：官方 2026-08-31 全平台下线，
   // 且早已停止接新注册用户。
-  kimi: ['kimi-k3[1m]', 'kimi-k3', 'kimi-k2.6'],
+  // ⚠️ 不要加 `kimi-k3[1m]`：官方 Claude Code 接入页确实那样写，但真机实测该 id 直接 404
+  //（`Not found the model kimi-k3[1m] or Permission denied`）——那个后缀是 Claude Code 侧的
+  // 上下文标记约定，Moonshot 的 model 字段不认。kimi-k3 本身即 1M 上下文，无需后缀。
+  kimi: ['kimi-k3', 'kimi-k2.6'],
   custom: [],
 }
 

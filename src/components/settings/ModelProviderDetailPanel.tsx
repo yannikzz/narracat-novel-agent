@@ -136,23 +136,6 @@ export function ModelProviderDetailPanel({
             ) : null}
           </div>
         </SettingsRow>
-
-        <SettingsRow align="start" title="连接" description="用当前 Key 与已启用模型发一次真实测试请求">
-          <div className="grid gap-2">
-            <Button
-              type="button"
-              size="sm"
-              aria-label="测试连接"
-              disabled={testDisabled}
-              title={testTitle}
-              onClick={() => void onTestConnection()}
-            >
-              {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Wifi className="size-3.5" />}
-              测试连接
-            </Button>
-            <TestResultLine testResult={testResult} channelVerified={channelVerified} />
-          </div>
-        </SettingsRow>
       </section>
 
       <section className={GROUP_CLASS}>
@@ -274,6 +257,27 @@ export function ModelProviderDetailPanel({
             <Button type="button" size="sm" disabled={busy || addDisabled} onClick={handleAdd}>
               添加
             </Button>
+          </div>
+        </SettingsRow>
+      </section>
+
+      {/* 「测试连接」恒为最后一个分组：它要用到上面全部配置（Key、端点、已启用模型），
+          排在中间会让用户在还没选模型时就去点它。分组顺序即配置顺序。 */}
+      <section className={GROUP_CLASS} data-model-connection="true">
+        <SettingsRow align="start" title="连接" description="用当前 Key 与已启用模型发一次真实测试请求">
+          <div className="grid gap-2">
+            <Button
+              type="button"
+              size="sm"
+              aria-label="测试连接"
+              disabled={testDisabled}
+              title={testTitle}
+              onClick={() => void onTestConnection()}
+            >
+              {testing ? <Loader2 className="size-3.5 animate-spin" /> : <Wifi className="size-3.5" />}
+              测试连接
+            </Button>
+            <TestResultLine testResult={testResult} channelVerified={channelVerified} />
           </div>
         </SettingsRow>
       </section>
