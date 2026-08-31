@@ -58,6 +58,11 @@ const LEGACY_DEFAULT_MODELS: Record<ProviderId, LegacyModelMapping> = {
     sonnet: 'glm-5.2[1m]',
     haiku: 'glm-4.5-air',
   },
+  kimi: {
+    opus: 'kimi-k3[1m]',
+    sonnet: 'kimi-k3[1m]',
+    haiku: 'kimi-k2.6',
+  },
   custom: {
     opus: '',
     sonnet: '',

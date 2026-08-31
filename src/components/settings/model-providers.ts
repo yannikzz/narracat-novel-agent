@@ -11,6 +11,7 @@ export const MODEL_PROVIDERS: Array<{ id: ProviderId; label: string; detail: str
   { id: 'deepseek', label: 'DeepSeek', detail: '默认生产通道，兼容 Anthropic 协议。' },
   { id: 'glm', label: '智谱 GLM', detail: '智谱 BigModel，兼容 Anthropic 协议。' },
   { id: 'minimax', label: 'MiniMax', detail: 'MiniMax 海螺，兼容 Anthropic 协议。' },
+  { id: 'kimi', label: 'Kimi', detail: '月之暗面 Kimi，兼容 Anthropic 协议。' },
   { id: 'anthropic', label: 'Anthropic', detail: '官方 Claude 服务，直连时不需要填接口地址。' },
   { id: 'custom', label: '自定义', detail: '接入兼容 Anthropic/OpenAI 协议的服务或内部网关。' },
 ]
@@ -22,6 +23,7 @@ export const MODEL_CATALOG: Record<ProviderId, string[]> = {
   anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
   minimax: ['MiniMax-M3', 'MiniMax-M2.5', 'MiniMax-M2'],
   glm: ['glm-5.2[1m]', 'glm-5.2', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5-air', 'glm-4.5-flash'],
+  kimi: ['kimi-k3[1m]', 'kimi-k3', 'kimi-k2.6', 'kimi-k2.5'],
   custom: [],
 }
 

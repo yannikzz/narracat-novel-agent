@@ -1,11 +1,11 @@
 // 渠道一级列表面板测试（设置页渠道两级 UI v2 T3）。
 //
-// 本文件全部走 SSR（renderToStaticMarkup）：覆盖五渠道行渲染、状态副标题文案、槽位摘要行。
+// 本文件全部走 SSR（renderToStaticMarkup）：覆盖各渠道行渲染、状态副标题文案、槽位摘要行。
 // 行点击本身（onOpenProvider 实际收到的 provider 参数是否对得上）不在覆盖范围——SSR 静态 HTML
 // 不含事件绑定，接线正确性靠 code review 走查（同 ModelProviderDetailPanel.test.tsx 头注的既有取舍）。
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { DEFAULT_PROVIDER_SETTINGS } from '@shared/types/config'
+import { DEFAULT_PROVIDER_SETTINGS, PROVIDER_IDS } from '@shared/types/config'
 import type { AppConfig } from '@shared/types/ipc'
 import { ModelProviderListPanel } from './ModelProviderListPanel'
 
@@ -33,9 +33,9 @@ function rowHtml(html: string, provider: string): string {
 }
 
 describe('ModelProviderListPanel（SSR 结构断言）', () => {
-  test('五个渠道行都渲染', () => {
+  test('每个渠道都渲染出一行', () => {
     const html = render(baseConfig())
-    for (const id of ['deepseek', 'glm', 'minimax', 'anthropic', 'custom']) {
+    for (const id of PROVIDER_IDS) {
       expect(html).toContain(`data-model-provider-row="${id}"`)
     }
     expect(html).toContain('data-model-service-layout="providers"')

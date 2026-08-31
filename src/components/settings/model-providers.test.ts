@@ -1,6 +1,6 @@
 // 渠道元数据 + 状态派生纯函数测试（设置页渠道两级 UI v2 T3）。
 import { describe, expect, test } from 'bun:test'
-import { DEFAULT_PROVIDER_SETTINGS } from '@shared/types/config'
+import { DEFAULT_PROVIDER_SETTINGS, PROVIDER_IDS } from '@shared/types/config'
 import type { ModelSlotView } from '@shared/lib/model-slots'
 import {
   MODEL_CATALOG,
@@ -27,18 +27,20 @@ describe('MODEL_PROVIDERS（渠道元数据）', () => {
     expect(labels.deepseek).toBe('DeepSeek')
     expect(labels.glm).toBe('智谱 GLM')
     expect(labels.minimax).toBe('MiniMax')
+    expect(labels.kimi).toBe('Kimi')
     expect(labels.anthropic).toBe('Anthropic')
     expect(labels.custom).toBe('自定义')
   })
 
-  test('五渠道齐全，顺序与 PROVIDER_IDS 一致', () => {
-    expect(MODEL_PROVIDERS.map((item) => item.id)).toEqual(['deepseek', 'glm', 'minimax', 'anthropic', 'custom'])
+  test('渠道齐全（每个 PROVIDER_IDS 都有一行），custom 恒在末位', () => {
+    expect([...MODEL_PROVIDERS.map((item) => item.id)].sort()).toEqual([...PROVIDER_IDS].sort())
+    expect(MODEL_PROVIDERS.at(-1)?.id).toBe('custom')
   })
 })
 
 describe('MODEL_CATALOG（内置推荐目录）', () => {
-  test('五渠道均有键；custom 空数组兜底手填', () => {
-    expect(Object.keys(MODEL_CATALOG).sort()).toEqual(['anthropic', 'custom', 'deepseek', 'glm', 'minimax'])
+  test('每个渠道都有键；custom 空数组兜底手填', () => {
+    expect(Object.keys(MODEL_CATALOG).sort()).toEqual([...PROVIDER_IDS].sort())
     expect(MODEL_CATALOG.custom).toEqual([])
     expect(MODEL_CATALOG.deepseek.length).toBeGreaterThan(0)
   })

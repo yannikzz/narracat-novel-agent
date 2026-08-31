@@ -1,5 +1,5 @@
 /** 受支持的 Provider 单一事实源；新增 Provider 只改这里，归一化/遍历自动覆盖。 */
-export const PROVIDER_IDS = ['deepseek', 'anthropic', 'minimax', 'glm', 'custom'] as const
+export const PROVIDER_IDS = ['deepseek', 'anthropic', 'minimax', 'glm', 'kimi', 'custom'] as const
 export type ProviderId = (typeof PROVIDER_IDS)[number]
 
 /**
@@ -67,6 +67,9 @@ export const DEFAULT_PROVIDER_SETTINGS: Record<ProviderId, ProviderSettings> = O
   anthropic: Object.freeze({ baseUrl: '', wire: 'anthropic' }),
   minimax: Object.freeze({ baseUrl: 'https://api.minimaxi.com/anthropic', wire: 'anthropic' }),
   glm: Object.freeze({ baseUrl: 'https://open.bigmodel.cn/api/anthropic', wire: 'anthropic' }),
+  // 月之暗面官方 Anthropic 兼容端点（platform.kimi.com/docs/guide/claude-code-kimi，2026-08-31 核对）；
+  // 海外站是 https://api.moonshot.ai/anthropic，用户可在设置里自行改端点。
+  kimi: Object.freeze({ baseUrl: 'https://api.moonshot.cn/anthropic', wire: 'anthropic' }),
   custom: Object.freeze({ baseUrl: '', wire: 'anthropic' }),
 })
 
