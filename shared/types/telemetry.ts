@@ -19,8 +19,14 @@ export const TELEMETRY_SCHEMA_VERSION = 1
  * 首启/升级告知屏的版本号。**改告知文案必须 +1**，否则已确认过的用户永远看不到新版本文案
  * （与 CURRENT_INTRO_VERSION 同款门控，同款脚枪）。
  * config.telemetryNoticeAckedVersion < 此值 → 弹告知屏，且在确认前一个事件都不发。
+ *
+ * 版本沿革：
+ *   1 → 2（ADR-0040）：立项卡对话与规划大纲这两个动作此前一条事件都没发过，本次开始计入
+ *     「用过哪些功能」；新建项目也从 premise 拆成独立标签。没有新增字段、也没有新增数据种类
+ *     （仍只是功能名称），但**采集的行为集合确实变大了**，按本文件与 TelemetryNotice.tsx
+ *     的红线必须重新告知。
  */
-export const CURRENT_TELEMETRY_NOTICE_VERSION = 1
+export const CURRENT_TELEMETRY_NOTICE_VERSION = 2
 
 /**
  * 功能模块枚举。埋点只到模块级——不是 130 个 IPC 动作各埋各的，而是每个模块一天最多记一次

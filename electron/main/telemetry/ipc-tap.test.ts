@@ -3,7 +3,14 @@ import { createTappedHandle } from './ipc-tap.ts'
 
 type Listener = (...args: never[]) => unknown
 
-function harness(resolveModule: (channel: string) => string | null, record = () => {}) {
+function harness(
+  resolveModule: (channel: string) => string | null,
+  record = () => {},
+  argsResolution?: {
+    usesArgsResolution: (channel: string) => boolean
+    resolveModuleFromArgs: (channel: string, args: readonly unknown[]) => string | null
+  },
+) {
   const registered = new Map<string, Listener>()
   const handle = createTappedHandle<Listener>({
     handle: (channel, listener) => {
@@ -12,6 +19,7 @@ function harness(resolveModule: (channel: string) => string | null, record = () 
     },
     resolveModule,
     record,
+    ...argsResolution,
   })
   return { handle, registered }
 }
@@ -72,5 +80,50 @@ describe('IPC 埋点壳', () => {
     wrapped()
     wrapped()
     expect(seen).toEqual(['outline', 'outline'])
+  })
+
+  test('按参数判归属：静态归属为 null 也要包壳，记账取决于每次调用的参数', () => {
+    const seen: string[] = []
+    const { handle, registered } = harness(
+      () => null,
+      (module) => seen.push(module),
+      {
+        usesArgsResolution: (channel) => channel === 'agent:start-run',
+        resolveModuleFromArgs: (_channel, args) =>
+          (args[1] as { command?: string } | undefined)?.command === 'plan' ? 'outline' : null,
+      },
+    )
+
+    const listener = ((...args: never[]) => args.length) as Listener
+    handle('agent:start-run', listener)
+    const wrapped = registered.get('agent:start-run')!
+    // 静态归属是 null，但因为要看参数，仍然包了壳。
+    expect(wrapped).not.toBe(listener)
+
+    expect(wrapped(...([{}, { command: 'plan' }] as never[]))).toBe(2)
+    expect(wrapped(...([{}, { command: 'write-next' }] as never[]))).toBe(2)
+    expect(seen).toEqual(['outline'])
+  })
+
+  test('按参数判归属抛错时，业务 handler 照常执行', () => {
+    const { handle, registered } = harness(
+      () => null,
+      () => {},
+      {
+        usesArgsResolution: () => true,
+        resolveModuleFromArgs: () => {
+          throw new Error('boom')
+        },
+      },
+    )
+    handle('agent:start-run', (() => 'ok') as Listener)
+    expect(registered.get('agent:start-run')!(...([] as never[]))).toBe('ok')
+  })
+
+  test('没配 resolveModuleFromArgs 时不包壳——避免白包一层空壳', () => {
+    const listener = (() => 'ok') as Listener
+    const { handle, registered } = harness(() => null)
+    handle('agent:start-run', listener)
+    expect(registered.get('agent:start-run')).toBe(listener)
   })
 })

@@ -91,8 +91,8 @@ export function TelemetryNotice({
           </div>
 
           <p className="text-xs leading-6 text-muted-foreground">
-            发出去的只有功能名称、成败和耗时区间，连着一个本机随机 ID，我无法反查到人。
-            随时可在设置里关掉。
+            发出去的只有用过哪些功能（新建项目、立项卡对话、规划大纲这些步骤也在内）、成败和耗时区间，
+            连着一个本机随机 ID，我无法反查到人。随时可在设置里关掉。
             <a
               href={FAQ_URL}
               target="_blank"

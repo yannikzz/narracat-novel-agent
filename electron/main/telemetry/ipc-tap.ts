@@ -12,8 +12,15 @@ export type HandleFn<L> = (channel: string, listener: L) => unknown
 export interface IpcTapDeps<L extends (...args: never[]) => unknown> {
   /** 原始的注册函数。 */
   handle: HandleFn<L>
-  /** 通道 → 模块；返回 null 表示不计入，此时不包壳、原样注册。 */
+  /** 通道 → 模块；返回 null 表示没有静态归属。 */
   resolveModule: (channel: string) => string | null
+  /**
+   * 这个通道的归属要不要看调用参数。少数通道承载多种功能（所有 Agent 命令共用
+   * `agent:start-run` 一个通道），光看通道名分不出来。注册期用它决定包不包壳。
+   */
+  usesArgsResolution?: (channel: string) => boolean
+  /** 按调用参数判归属；返回 null 表示这一次调用不计入。仅对 usesArgsResolution 为真的通道调用。 */
+  resolveModuleFromArgs?: (channel: string, args: readonly unknown[]) => string | null
   /** 记一次模块使用。抛错会被吞掉——埋点不许影响业务。 */
   record: (module: string) => void
 }
@@ -26,11 +33,15 @@ export function createTappedHandle<L extends (...args: never[]) => unknown>(
   deps: IpcTapDeps<L>,
 ): HandleFn<L> {
   return (channel, listener) => {
-    const module = deps.resolveModule(channel)
-    if (module === null) return deps.handle(channel, listener)
+    const staticModule = deps.resolveModule(channel)
+    // 归属要看参数的通道，注册期还不知道会记成哪个模块，但必须先包上壳。
+    const needsArgs = Boolean(deps.resolveModuleFromArgs && deps.usesArgsResolution?.(channel))
+    if (staticModule === null && !needsArgs) return deps.handle(channel, listener)
+
     const wrapped = ((...args: Parameters<L>) => {
       try {
-        deps.record(module)
+        const module = needsArgs ? deps.resolveModuleFromArgs!(channel, args) : staticModule
+        if (module !== null) deps.record(module)
       } catch {
         // 记账失败绝不能连累业务 handler。
       }

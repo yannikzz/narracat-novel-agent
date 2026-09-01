@@ -4,6 +4,14 @@
 
 ## Current Branch
 
+**2026-09-01 追加（PR #71 外审修复轮，Codex 拦下 6 条）**：CI 全绿但**外审判「请求修改」，逐条查证后 6 条全部成立**，已全改。两条是真缺陷而本地 3391 条测试全绿：①**连载路径的完成高亮从不触发**——判据用 `action.id`，而那一路 id 恒为 `status-next-write`、章号只在 label 里，意味着我押的两个假设里 D（完成感）在最高频路径上根本没实现，且会污染下版复盘（会误以为 D 试过了）；②**「可跳过」只写在 `action.description` 里，而指针从不渲染 description**，作者看到的只有命令式 label。**共同病根 = 测试断言的是 action 数据、作者看见的是 DOM**（与「eager 预加载单测全绿、真机不触发」同款），补的 9 条回归测试一律改为断言渲染结果。
+
+其余四条：③损坏项目（`status=ready` + `problem`）仍显示写作指针，只挡了 `invalid`；④埋点副作用进了业务 IPC handler，违反 ADR-0039「业务代码零埋点」与 ADR-0036 的薄路由边界——修法是给 `createTappedHandle` 加 `usesArgsResolution`，`agent:start-run` 照常包壳、按参数判归属（`wrapped` 本来就拿得到 listener 参数，是「静态归属为 null 就不包壳」把这条路堵死了），`agent.ts` 里的埋点删干净；⑤`duration-300` 违反 `docs/design.md` 的 hover 统一 `duration-200`；⑥`resolveStatusLifecycleIndex` 与 `resolveStatusNextStep` 重复解释 `status + hasCharacters`，抽出 `needsCharacterSettings` 共用。
+
+⚠️ **最重要的一条是我的论证本身错了**：ADR-0040 初稿断言「修复漏采、采集行为集合没扩大、不需要 bump」，理由是 `outline`/`premise` 本就在 `TELEMETRY_MODULES` 里。**这混淆了「枚举里有这个值」和「这个用户行为被采集过」**——立项卡对话与规划大纲改动前一条事件都没发过，对用户就是新增采集项。已 **bump `CURRENT_TELEMETRY_NOTICE_VERSION` 1 → 2**（存量用户会重看一次告知屏、确认前零发送）、告知文案加限定语点名三样新增、`docs/faq.md` 模块数 16 → 17。`TELEMETRY_SCHEMA_VERSION` 不加（`module` 字段语义没变、只是取值多一个，Worker 白名单按 key 名校验，服务端无分辨需求）。ADR-0040 已更正该段并补记外审。
+
+**全量验证**：`typecheck` / `test` **3400 pass · 0 fail across 330 files**（+9 回归用例）/ `check:design` / `check:architecture` / `build` 全绿。**真机 smoke 仍欠着**（`docs/agents/verification.md` 对核心 Electron UI 要求真实窗口走查，本轮改的正是侧栏 + 导航 + 动态高亮）。
+
 **2026-09-01（首批遥测诊断 → 当前任务指针，ADR-0040，未提交）**：v0.3.2 上线后第一次读出真实数据（PostHog EU，读数 key 配在 `.env.local` 的 `POSTHOG_PERSONAL_API_KEY`）：**43 台设备，Windows 29 : macOS 14 ≈ 2:1，次日回访 36%**；漏斗 43 启动 → 32 新建项目 → **只有 9 台真的写了章节**，掉队的 25 台零报错、8 台停留 3 小时以上、22 台再没回来。⚠️ **两条读数陷阱**：Cloudflare 的 Worker 请求数不能当上报量（返回 400 的也记 `success`，9-01 那个 847 次尖峰实为外部扫描，PostHog 同小时只有 27 条）；**GitHub 下载量 ≈ 真实设备数的 3–4 倍**，别直接汇报下载数。
 
 诊断挖到两个比「入口藏得深」更根本的问题：①**引导其实早就存在**（状态页有生命周期 stepper + 按 status 切换的下一步按钮，且首次进工作台默认就落在那页），真正的病是**它只长在一个页面上，人一离开就再也看不到**；②**`project.status` 的四阶段与引擎的真实创作链不一致**——引擎前置检查定义的顺序是立项卡 → **世界观与角色** → 大纲 → 正文，而 status 对 world 这一步完全无感，照它做指针会「推一下、被引擎拦一下」。

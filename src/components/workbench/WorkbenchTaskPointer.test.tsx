@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { WorkbenchTaskPointer } from './WorkbenchTaskPointer'
+import { resolveStatusNextStep } from '@/lib/workbench-actions'
 import type { NovelProjectDetail, NovelChapterStatus, NovelProjectStatus } from '@shared/types/novel'
 
 function projectWith(
@@ -85,5 +86,46 @@ describe('WorkbenchTaskPointer', () => {
   test('首次渲染不带变化高亮——否则每次打开项目都闪一下，高亮就贬值成装饰', () => {
     const html = render(projectWith('needs-setup'))
     expect(html).not.toContain('data-workbench-task-pointer-changed')
+  })
+
+  /**
+   * 外审抓到的三个缺陷，各钉一条。共同点是「旧测试全绿但功能是坏的」——
+   * 旧用例断言的是 action 里的数据，而作者看见的是 DOM。
+   */
+
+  test('「可跳过」必须出现在 DOM 里，不能只躺在 action.description', () => {
+    const html = render(projectWith('needs-outline', [], false))
+    expect(html).toContain('可跳过')
+    // 反面：不可跳过的步骤不许出现这个标记，否则它就成了永久噪声。
+    expect(render(projectWith('needs-outline'))).not.toContain('可跳过')
+    expect(render(projectWith('needs-setup'))).not.toContain('可跳过')
+  })
+
+  test('连载路径的变化判据必须含章号：写第 1 章 → 写第 2 章 是「变了」', () => {
+    // id 恒为 status-next-write，章号只在 label 里；只看 id 的话高亮永远不触发。
+    const first = projectWith('in-progress', [{ n: 1, status: 'planned' }])
+    const second = projectWith('in-progress', [
+      { n: 1, status: 'completed' },
+      { n: 2, status: 'planned' },
+    ])
+    const keyOf = (project: NovelProjectDetail) => {
+      const step = resolveStatusNextStep(project)
+      return step?.kind === 'action' ? `${step.action.id}:${step.action.label}` : null
+    }
+    expect(keyOf(first)).not.toBe(keyOf(second))
+    // 同时确认 id 本身确实分不出来——这正是原实现失效的原因。
+    const idOf = (project: NovelProjectDetail) => {
+      const step = resolveStatusNextStep(project)
+      return step?.kind === 'action' ? step.action.id : null
+    }
+    expect(idOf(first)).toBe(idOf(second))
+  })
+
+  test('项目带 structure problem 时不指路，哪怕 status 还是 ready', () => {
+    const broken: NovelProjectDetail = {
+      ...projectWith('ready', [{ n: 1, status: 'planned' }]),
+      problem: '全书结构数据损坏',
+    }
+    expect(render(broken)).toBe('')
   })
 })

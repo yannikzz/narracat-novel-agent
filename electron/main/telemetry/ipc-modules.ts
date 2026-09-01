@@ -213,3 +213,25 @@ const AGENT_COMMAND_MODULES: Readonly<Record<string, TelemetryModule>> = Object.
 export function resolveModuleForAgentCommand(command: string): TelemetryModule | null {
   return AGENT_COMMAND_MODULES[command] ?? null
 }
+
+/** 归属要看调用参数的通道。目前只有一个：所有 Agent 命令都从这里进来。 */
+const AGENT_RUN_CHANNEL = 'agent:start-run'
+
+export function channelUsesArgsResolution(channel: string): boolean {
+  return channel === AGENT_RUN_CHANNEL
+}
+
+/**
+ * 从 `agent:start-run` 的调用参数判归属。args 形如 `[IpcMainInvokeEvent, input]`，
+ * input 来自渲染进程、不可信，所以逐层做形态检查，任何不对就返回 null（宁可少记一条）。
+ *
+ * 放在这里而不是业务 handler 里：埋点统一挂壳、业务代码零埋点是 ADR-0039 的设计，
+ * IPC handler 也只该做校验与转发（ADR-0036）。
+ */
+export function resolveModuleForIpcArgs(channel: string, args: readonly unknown[]): TelemetryModule | null {
+  if (channel !== AGENT_RUN_CHANNEL) return null
+  const input = args[1]
+  if (typeof input !== 'object' || input === null) return null
+  const command = (input as { command?: unknown }).command
+  return typeof command === 'string' ? resolveModuleForAgentCommand(command) : null
+}

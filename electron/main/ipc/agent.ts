@@ -16,8 +16,7 @@ import {
 } from '../agent/runs/agent-runtime-coordinator.ts'
 import { createAgentSessionCompatibilityFingerprint } from '../agent/runs/session-fingerprint.ts'
 import { createAgentMainSideEffects } from '../agent/events/agent-main-side-effects.ts'
-import { recordChapterWrite, recordFeatureUsed } from '../telemetry/telemetry-runtime.ts'
-import { resolveModuleForAgentCommand } from '../telemetry/ipc-modules.ts'
+import { recordChapterWrite } from '../telemetry/telemetry-runtime.ts'
 import { NARRACAT_AGENT_CORE_VERSION_LOCK } from '../engine/agent-core-contract.ts'
 import { resolveNarraCatAgentCorePath } from '../engine/engine.ts'
 import type {
@@ -142,11 +141,6 @@ export async function invalidateAgentSessions(reason: string): Promise<void> {
 export function registerAgentIpcHandlers(): void {
   ipcMain.handle('agent:start-run', async (event, input: unknown): Promise<AgentRunStarted> => {
     const request = normalizeAgentRunRequest(input)
-    // tap 层按通道判归属，看不见 command，而所有 Agent 命令共用这一个通道——「只有 Agent run 一条入口」
-    // 的功能（当前只有生成大纲）只能在这里补记，归属判断仍收口在 telemetry/ipc-modules.ts。
-    // 已知盲区：用户在输入框里自己打字要大纲，command 是 'freeform'，记不到。
-    const agentCommandModule = resolveModuleForAgentCommand(request.command)
-    if (agentCommandModule) recordFeatureUsed(agentCommandModule)
     subscribeAgentRuntimeSender(event.sender)
     return getAgentRuntimeCoordinator().startRun({
       ...request,

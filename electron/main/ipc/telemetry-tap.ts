@@ -12,7 +12,11 @@
  */
 import { ipcMain } from 'electron'
 import { createTappedHandle } from '../telemetry/ipc-tap.ts'
-import { resolveModuleForChannel } from '../telemetry/ipc-modules.ts'
+import {
+  channelUsesArgsResolution,
+  resolveModuleForChannel,
+  resolveModuleForIpcArgs,
+} from '../telemetry/ipc-modules.ts'
 import { recordFeatureUsed } from '../telemetry/telemetry-runtime.ts'
 import type { TelemetryModule } from '@shared/types/telemetry'
 
@@ -28,6 +32,9 @@ export function withIpcModuleTap<T>(register: () => T): T {
   const tapped = createTappedHandle<IpcHandleListener>({
     handle: (channel, listener) => original.call(ipcMain, channel, listener),
     resolveModule: resolveModuleForChannel,
+    // 所有 Agent 命令共用 agent:start-run 一个通道，光看通道名分不出立项卡 / 大纲 / 写章节。
+    usesArgsResolution: channelUsesArgsResolution,
+    resolveModuleFromArgs: resolveModuleForIpcArgs,
     record: (module) => recordFeatureUsed(module as TelemetryModule),
   })
 

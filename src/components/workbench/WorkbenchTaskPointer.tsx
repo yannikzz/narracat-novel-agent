@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Link } from 'react-router'
 import { cn } from '@/lib/cn'
-import { resolveStatusNextStep } from '@/lib/workbench-actions'
+import { isOptionalNextStep, resolveStatusNextStep } from '@/lib/workbench-actions'
 import { buildWorkbenchTargetHref } from '@/lib/workbench-selection'
 import { getWorkbenchActionIcon } from './workbench-action-icons'
 import type { NovelProjectDetail } from '@shared/types/novel'
@@ -34,26 +34,34 @@ export function WorkbenchTaskPointer({
 }) {
   const nextStep = resolveStatusNextStep(project)
   const action = nextStep?.kind === 'action' ? nextStep.action : null
-  const actionId = action?.id ?? null
+  /**
+   * 变化判据用 `id + label` 而不是 `id`：连载是最高频的路径，而那一路的 id 恒为
+   * `status-next-write`（章号只出现在 label 里）——只看 id 的话，「写第 1 章」变成
+   * 「写第 2 章」不会被认为变过，完成感恰恰在最需要它的地方失效。
+   */
+  const actionKey = action ? `${action.id}:${action.label}` : null
 
   const [justChanged, setJustChanged] = useState(false)
-  const previousActionId = useRef<string | null>(null)
+  const previousActionKey = useRef<string | null>(null)
 
   useEffect(() => {
-    const previous = previousActionId.current
-    previousActionId.current = actionId
+    const previous = previousActionKey.current
+    previousActionKey.current = actionKey
     // 首次渲染不算「变了」：否则每次打开项目都闪一下，高亮就贬值成了纯装饰。
-    if (previous === null || previous === actionId || !actionId) return
+    if (previous === null || previous === actionKey || !actionKey) return
 
     setJustChanged(true)
     const timer = setTimeout(() => setJustChanged(false), CHANGE_HIGHLIGHT_MS)
     return () => clearTimeout(timer)
-  }, [actionId])
+  }, [actionKey])
 
-  if (!project || !action?.target) return null
+  // 项目损坏（structure problem）时不指路：先让作者去处理损坏，别把人往写作里推。
+  // status 为 invalid 只是损坏的一种，带 problem 的 ready / in-progress 同样不该显示。
+  if (!project || project.problem || !action?.target) return null
 
   const { Icon } = getWorkbenchActionIcon(action)
   const href = buildWorkbenchTargetHref({ project, projectPath, target: action.target })
+  const optional = isOptionalNextStep(action)
 
   return (
     <Link
@@ -66,7 +74,7 @@ export function WorkbenchTaskPointer({
       className={cn(
         `
           mb-4 flex h-9 w-full items-center gap-2 rounded-md border px-2
-          transition-colors duration-300
+          transition-colors duration-200
         `,
         justChanged
           ? 'border-transparent bg-active text-foreground'
@@ -77,6 +85,9 @@ export function WorkbenchTaskPointer({
       <Icon className="size-4 shrink-0 text-hint-foreground" />
       {/* 侧栏可缩到 200px：文字 truncate 自然降级，图标与右箭头始终在，title 兜住被裁的部分。 */}
       <span className="min-w-0 flex-1 truncate text-left text-sm leading-none">{action.label}</span>
+      {/* 「可跳过」必须看得见。它此前只写在 action.description 里，而这一行从不渲染
+          description——作者看到的只有命令式的「创建主要角色」，读不出这是条建议。 */}
+      {optional ? <span className="shrink-0 text-xs leading-none text-hint-foreground">可跳过</span> : null}
       <ChevronRight className="size-3.5 shrink-0 text-hint-foreground" />
     </Link>
   )

@@ -11,7 +11,13 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { TELEMETRY_MODULES } from '@shared/types/telemetry'
-import { IPC_CHANNEL_MODULES, resolveModuleForAgentCommand, resolveModuleForChannel } from './ipc-modules.ts'
+import {
+  channelUsesArgsResolution,
+  IPC_CHANNEL_MODULES,
+  resolveModuleForAgentCommand,
+  resolveModuleForChannel,
+  resolveModuleForIpcArgs,
+} from './ipc-modules.ts'
 
 const IPC_DIR = fileURLToPath(new URL('../ipc', import.meta.url))
 
@@ -80,6 +86,29 @@ describe('IPC 通道 → 埋点模块归属表', () => {
     expect(resolveModuleForAgentCommand('freeform')).toBeNull()
     expect(resolveModuleForAgentCommand('review')).toBeNull()
     expect(resolveModuleForAgentCommand('')).toBeNull()
+  })
+
+  test('按调用参数判归属：agent:start-run 的 setup / plan 记账，其余不记', () => {
+    const args = (command: unknown) => [{ sender: {} }, { command, threadId: 't', prompt: 'p' }]
+    expect(resolveModuleForIpcArgs('agent:start-run', args('setup'))).toBe('premise')
+    expect(resolveModuleForIpcArgs('agent:start-run', args('plan'))).toBe('outline')
+    expect(resolveModuleForIpcArgs('agent:start-run', args('write-next'))).toBeNull()
+    expect(resolveModuleForIpcArgs('agent:start-run', args('freeform'))).toBeNull()
+  })
+
+  test('参数来自渲染进程、不可信：形态不对一律不记，绝不抛错', () => {
+    expect(resolveModuleForIpcArgs('agent:start-run', [])).toBeNull()
+    expect(resolveModuleForIpcArgs('agent:start-run', [{}, null])).toBeNull()
+    expect(resolveModuleForIpcArgs('agent:start-run', [{}, 'setup'])).toBeNull()
+    expect(resolveModuleForIpcArgs('agent:start-run', [{}, { command: 42 }])).toBeNull()
+    // 别的通道即便传了 command 也不按参数记账，避免误计。
+    expect(resolveModuleForIpcArgs('novel:create-project', [{}, { command: 'setup' }])).toBeNull()
+  })
+
+  test('只有 agent:start-run 走按参数判归属', () => {
+    expect(channelUsesArgsResolution('agent:start-run')).toBe(true)
+    expect(channelUsesArgsResolution('novel:create-project')).toBe(false)
+    expect(channelUsesArgsResolution('nope:whatever')).toBe(false)
   })
 
   test('命令表的归属值同样只能是已声明的模块', () => {
