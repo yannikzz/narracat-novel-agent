@@ -11,7 +11,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { TELEMETRY_MODULES } from '@shared/types/telemetry'
-import { IPC_CHANNEL_MODULES, resolveModuleForChannel } from './ipc-modules.ts'
+import { IPC_CHANNEL_MODULES, resolveModuleForAgentCommand, resolveModuleForChannel } from './ipc-modules.ts'
 
 const IPC_DIR = fileURLToPath(new URL('../ipc', import.meta.url))
 
@@ -65,5 +65,28 @@ describe('IPC 通道 → 埋点模块归属表', () => {
 
   test('未知通道不猜归属', () => {
     expect(resolveModuleForChannel('nope:whatever')).toBeNull()
+  })
+
+  test('生成大纲经 Agent 命令补记为 outline——所有命令共用一个通道，通道表看不见它', () => {
+    expect(resolveModuleForAgentCommand('plan')).toBe('outline')
+  })
+
+  test('写章节不在命令表里：它由 chapter_write_* 专用事件承担，补记就是重复计数', () => {
+    expect(resolveModuleForAgentCommand('write-next')).toBeNull()
+    expect(resolveModuleForAgentCommand('recover-write')).toBeNull()
+  })
+
+  test('其余命令与自由输入一律不计入，不猜归属', () => {
+    expect(resolveModuleForAgentCommand('freeform')).toBeNull()
+    expect(resolveModuleForAgentCommand('review')).toBeNull()
+    expect(resolveModuleForAgentCommand('')).toBeNull()
+  })
+
+  test('命令表的归属值同样只能是已声明的模块', () => {
+    const modules = new Set<string>(TELEMETRY_MODULES)
+    for (const command of ['plan']) {
+      const module = resolveModuleForAgentCommand(command)
+      expect(module === null || modules.has(module)).toBe(true)
+    }
   })
 })

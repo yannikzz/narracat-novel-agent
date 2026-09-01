@@ -7,6 +7,7 @@ import {
   readWorkbenchTabId,
   readWorkbenchObjectId,
   readWorkbenchChapterView,
+  chapterNumberFromObjectId,
   workbenchObjectIdForChapter,
 } from './workbench-selection'
 import type { NovelProjectDetail } from '@shared/types/novel'
@@ -63,6 +64,16 @@ describe('workbench selection helpers', () => {
 
   test('formats chapter object ids consistently', () => {
     expect(workbenchObjectIdForChapter(7)).toBe('chapter-7')
+  })
+
+  test('reads a chapter number back out of an object id, rejecting non-chapter ids', () => {
+    expect(chapterNumberFromObjectId(workbenchObjectIdForChapter(7))).toBe(7)
+    expect(chapterNumberFromObjectId('chapter-128')).toBe(128)
+    expect(chapterNumberFromObjectId('master-outline')).toBeNull()
+    expect(chapterNumberFromObjectId('chapter-0')).toBeNull()
+    expect(chapterNumberFromObjectId('chapter-')).toBeNull()
+    expect(chapterNumberFromObjectId('chapter-2b')).toBeNull()
+    expect(chapterNumberFromObjectId('')).toBeNull()
   })
 
   test('reads section query with blueprint fallback for unknown values', () => {

@@ -27,6 +27,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { SIDEBAR_ROW_CLASS, WARNING_PILL_CLASS } from '@/design-system'
 import { useAgentStore } from '@/lib/agent-store'
 import { cn } from '@/lib/cn'
+import { WorkbenchTaskPointer } from './WorkbenchTaskPointer'
 import { confirmLeaveManuscriptEditor, useManuscriptEditorGuard } from '@/lib/manuscript-editor-guard'
 import { useManuscriptDrafts } from '@/lib/use-manuscript-drafts'
 import { usePendingMemorySyncMap } from '@/lib/use-pending-memory-sync'
@@ -473,6 +474,8 @@ export function WorkbenchPrimarySidebar({
             {projectSubtitle(project, loading, error, hasProjectPath)}
           </div>
         </div>
+
+        <WorkbenchTaskPointer project={project} projectPath={projectPath} onNavigate={handleGuardedNavigation} />
 
         {sections.length > 0 ? (
           <nav aria-label="工作台主菜单" className="space-y-1" data-workbench-primary-menu="true">

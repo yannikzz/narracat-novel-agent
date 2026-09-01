@@ -42,11 +42,13 @@ import {
   type WorkbenchSelectionHandoffDescriptor,
 } from '@/lib/workbench-selection-handoff'
 import {
+  createGoToCurrentChapterAction,
   createRecoverCurrentChapterAction,
   createSequentialOutlineAction,
   createWriteCurrentChapterAction,
   disableAgentActionsWhileBusy,
 } from '@/lib/workbench-actions'
+import { chapterNumberFromObjectId } from '@/lib/workbench-selection'
 import type { WorkbenchAction } from '@/lib/workbench-actions'
 import type { WorkbenchPrimarySectionId, WorkbenchTabItem } from '@/lib/workbench-navigation'
 import type { AgentComposerHandoff } from '@/types/agent'
@@ -858,11 +860,21 @@ function renderObjectBody({
           />
         )
       } else {
+        // 不是当前章：给一条回到当前章的路，而不是只告诉用户「这里没有入口」（见 createGoToCurrentChapterAction）。
+        const goToCurrentChapterAction = currentChapterId
+          ? createGoToCurrentChapterAction(currentChapterId, chapterNumberFromObjectId(currentChapterId))
+          : null
         chapterBody = (
           <WorkbenchEmptyGuide
             title="正文尚未生成"
-            description="请按章节顺序写作。轮到本章时，这里会提供写作入口。"
+            description={
+              goToCurrentChapterAction
+                ? '本章还没轮到。写作按章节顺序推进，可以直接去当前该写的那一章。'
+                : '请按章节顺序写作。轮到本章时，这里会提供写作入口。'
+            }
             purpose="draft-needed"
+            action={goToCurrentChapterAction}
+            onAction={onEmptyGuideAction}
           />
         )
       }

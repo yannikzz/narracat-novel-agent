@@ -1090,7 +1090,12 @@ describe('workbench actions', () => {
 })
 
 describe('resolveStatusNextStep', () => {
-  function projectWith(status: NovelProjectStatus, chapters: Array<{ n: number; status: NovelChapterStatus }> = []): NovelProjectDetail {
+  function projectWith(
+    status: NovelProjectStatus,
+    chapters: Array<{ n: number; status: NovelChapterStatus }> = [],
+    // 默认「已有角色」：绝大多数用例测的是 world 之后的环节，不该被创作链那一格截胡。
+    hasCharacters = true,
+  ): NovelProjectDetail {
     const tocItems: NovelTocItem[] = chapters.map(({ n, status: chapterStatus }) => ({
       id: `chapter-${n}`,
       kind: 'chapter',
@@ -1107,6 +1112,7 @@ describe('resolveStatusNextStep', () => {
       wordCountLabel: '0 字',
       tocItems,
       treeItems: [],
+      hasCharacters,
     }
   }
 
@@ -1124,7 +1130,19 @@ describe('resolveStatusNextStep', () => {
     })
   })
 
-  test('有设定缺大纲 → 规划全书大纲（plan，导航全局大纲）', () => {
+  test('有设定缺大纲、且还没有角色 → 先建议创建主要角色（world）', () => {
+    const step = resolveStatusNextStep(projectWith('needs-outline', [], false))
+    expect(step?.kind).toBe('action')
+    if (step?.kind === 'action') {
+      expect(step.action.command).toBe('world')
+      expect(step.action.label).toBe('创建主要角色')
+      expect(step.action.target).toEqual({ sectionId: 'settings', tabId: 'characters', objectId: 'characters' })
+      // 只建议不阻塞：文案必须说得出「可以跳过」，否则读起来像硬门槛。
+      expect(step.action.description).toContain('跳过')
+    }
+  })
+
+  test('有设定缺大纲（已有角色）→ 规划全书大纲（plan，导航全局大纲）', () => {
     const step = resolveStatusNextStep(projectWith('needs-outline'))
     expect(step?.kind).toBe('action')
     if (step?.kind === 'action') {
@@ -1221,7 +1239,12 @@ describe('resolveStatusNextStep', () => {
 })
 
 describe('resolveStatusLifecycleIndex', () => {
-  function projectWith(status: NovelProjectStatus, chapters: Array<{ n: number; status: NovelChapterStatus }> = []): NovelProjectDetail {
+  function projectWith(
+    status: NovelProjectStatus,
+    chapters: Array<{ n: number; status: NovelChapterStatus }> = [],
+    // 默认「已有角色」：绝大多数用例测的是 world 之后的环节，不该被创作链那一格截胡。
+    hasCharacters = true,
+  ): NovelProjectDetail {
     return {
       id: 'novel-1',
       title: '星辰大海',
@@ -1237,16 +1260,26 @@ describe('resolveStatusLifecycleIndex', () => {
         status: chapterStatus,
       })),
       treeItems: [],
+      hasCharacters,
     }
   }
 
-  test('立项(0) / 大纲(1) / 连载(2) / 完结(3)', () => {
+  test('立项(0) / 设定(1) / 大纲(2) / 连载(3) / 完结(4)', () => {
     expect(resolveStatusLifecycleIndex(projectWith('needs-setup'), resolveStatusNextStep(projectWith('needs-setup')))).toBe(0)
-    expect(resolveStatusLifecycleIndex(projectWith('needs-outline'), resolveStatusNextStep(projectWith('needs-outline')))).toBe(1)
+    // 有立项卡但还没有角色档案 → 停在「设定」这一格。
+    const noCharacters = projectWith('needs-outline', [], false)
+    expect(resolveStatusLifecycleIndex(noCharacters, resolveStatusNextStep(noCharacters))).toBe(1)
+    expect(resolveStatusLifecycleIndex(projectWith('needs-outline'), resolveStatusNextStep(projectWith('needs-outline')))).toBe(2)
     const writing = projectWith('in-progress', [{ n: 1, status: 'planned' }])
-    expect(resolveStatusLifecycleIndex(writing, resolveStatusNextStep(writing))).toBe(2)
+    expect(resolveStatusLifecycleIndex(writing, resolveStatusNextStep(writing))).toBe(3)
     const done = projectWith('in-progress', [{ n: 1, status: 'completed' }])
-    expect(resolveStatusLifecycleIndex(done, resolveStatusNextStep(done))).toBe(3)
+    expect(resolveStatusLifecycleIndex(done, resolveStatusNextStep(done))).toBe(4)
+  })
+
+  test('跳过设定直接做大纲不会卡住：status 进 ready 后 stepper 顺势推到连载', () => {
+    // 没有角色档案，但大纲已经做完（planned > 0 → ready）——「设定」那一格算走过了，不倒退。
+    const skipped = projectWith('ready', [{ n: 1, status: 'planned' }], false)
+    expect(resolveStatusLifecycleIndex(skipped, resolveStatusNextStep(skipped))).toBe(3)
   })
 
   test('项目无效 / 缺失 → null（不渲染 stepper）', () => {

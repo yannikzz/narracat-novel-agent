@@ -15,7 +15,8 @@ import type { TelemetryModule } from '@shared/types/telemetry'
 
 export const IPC_CHANNEL_MODULES: Readonly<Record<string, TelemetryModule | null>> = Object.freeze({
   // ── 立项 ────────────────────────────────────────────────────────────
-  'novel:create-project': 'premise',
+  // 新建项目只是开坑，不等于用了立项卡；混在 premise 里会按天去重淹掉 setup 的信号（ADR-0040）。
+  'novel:create-project': 'project-create',
   'novel:submit-premise-edit': 'premise',
 
   // ── 大纲 ────────────────────────────────────────────────────────────
@@ -190,4 +191,25 @@ export const IPC_CHANNEL_MODULES: Readonly<Record<string, TelemetryModule | null
  */
 export function resolveModuleForChannel(channel: string): TelemetryModule | null {
   return IPC_CHANNEL_MODULES[channel] ?? null
+}
+
+/**
+ * Agent 命令 → 功能模块。
+ *
+ * 上面那张表按通道判归属，但**所有** Agent 命令共用 `agent:start-run` 一个通道，tap 层看不见 command，
+ * 于是「只有 Agent run 这一条入口」的功能在模块级使用度上是完全不可见的。生成大纲就是这么漏掉的：
+ * outline 模块此前只有「编辑大纲」两个通道，「规划全书大纲」一次都没被计过。
+ *
+ * 表里刻意只有一项。收进来的门槛是两条同时成立：①除 Agent run 外没有别的 IPC 入口（否则重复计数）；
+ * ②没有专用事件承担（write-next 走 chapter_write_*，比模块级准，故不在表内）。往这张表里加东西
+ * 等于扩大采集范围，要先过 ADR-0039 的告知流程。
+ */
+const AGENT_COMMAND_MODULES: Readonly<Record<string, TelemetryModule>> = Object.freeze({
+  setup: 'premise',
+  plan: 'outline',
+})
+
+/** 这次 Agent run 额外算哪个模块被用了；null = 不计入（绝大多数命令都是）。 */
+export function resolveModuleForAgentCommand(command: string): TelemetryModule | null {
+  return AGENT_COMMAND_MODULES[command] ?? null
 }

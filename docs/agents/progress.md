@@ -4,6 +4,14 @@
 
 ## Current Branch
 
+**2026-09-01（首批遥测诊断 → 当前任务指针，ADR-0040，未提交）**：v0.3.2 上线后第一次读出真实数据（PostHog EU，读数 key 配在 `.env.local` 的 `POSTHOG_PERSONAL_API_KEY`）：**43 台设备，Windows 29 : macOS 14 ≈ 2:1，次日回访 36%**；漏斗 43 启动 → 32 新建项目 → **只有 9 台真的写了章节**，掉队的 25 台零报错、8 台停留 3 小时以上、22 台再没回来。⚠️ **两条读数陷阱**：Cloudflare 的 Worker 请求数不能当上报量（返回 400 的也记 `success`，9-01 那个 847 次尖峰实为外部扫描，PostHog 同小时只有 27 条）；**GitHub 下载量 ≈ 真实设备数的 3–4 倍**，别直接汇报下载数。
+
+诊断挖到两个比「入口藏得深」更根本的问题：①**引导其实早就存在**（状态页有生命周期 stepper + 按 status 切换的下一步按钮，且首次进工作台默认就落在那页），真正的病是**它只长在一个页面上，人一离开就再也看不到**；②**`project.status` 的四阶段与引擎的真实创作链不一致**——引擎前置检查定义的顺序是立项卡 → **世界观与角色** → 大纲 → 正文，而 status 对 world 这一步完全无感，照它做指针会「推一下、被引擎拦一下」。
+
+本轮落地（全部未提交）：**当前任务指针**（`WorkbenchTaskPointer`，侧边栏固定区常驻，只导航不发起 run，状态变化短暂高亮，完结/无效即收起，永久常驻非新手引导）+ 创作链补上 world 一格（判据与 plan.md 逐字对齐：`bible/characters/*.md` 是否为空，新增契约字段 `NovelProjectDetail.hasCharacters`；只建议不阻塞，「跳过」零状态存储）+ **状态页 stepper 四格 → 五格**（立项 → 设定 → 大纲 → 连载 → 完结；只改指针不改 stepper 会让两处对不上）+ 修掉「本章还没轮到」那个没有按钮的死胡同。**顺带修三处埋点漏采**：`setup`/`plan` 是 Agent run、共用 `agent:start-run` 一个通道，此前完全没被计过；`novel:create-project` 从 `premise` 拆到新模块 `project-create`（否则按天去重会让新建项目淹掉立项卡的信号，`setup` 补了也白补）。三项都属修复漏采与归属错误，采集行为集合没扩大，**不需要 bump `CURRENT_TELEMETRY_NOTICE_VERSION`**。
+
+**全量验证**：`typecheck` exit 0 / `bun --no-cache run test` **3391 pass · 0 fail across 330 files** / `check:design` / `check:architecture` 0 violation / `build` 全绿。**⚠️ 真机未走查**（指针的实际观感、点击跳转、高亮时机只有真人能验）。**下一步**：真机走查 → 提 PR → 发版后回头验证押注——本轮是**在数据到齐前下的注**（押「下一步不跟随用户」+「没有完成感」两个假设），若真实根因是「卡在配模型」或「立项卡长对话中途放弃」，这套治不好，届时应 supersede ADR-0040 而不是打补丁。**已知盲区**：`world` 这一步仍没有埋点（指针会指向它，但做没做成看不见）；用户自己打字触发的命令是 `freeform`，命令表记不到。
+
 `main`（= `db5db0d`，已 push）。**2026-08-25 发布 `v0.2.65` 到线上**（距上一个正式版 `v0.1.1930` 11 天、27 个提交），feed 已切换、真机验收通过。
 
 **2026-08-25 追加**：PR #52 已合入 main（= `938abe7`）——#24 设计系统守卫在 Windows 恒红已修，`design-guard-windows` CI job 上线，#24 已关闭。

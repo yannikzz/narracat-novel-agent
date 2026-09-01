@@ -178,6 +178,13 @@ export function WorkbenchStage({
       refreshProject()
     }
 
+    // 纯导航：从「本章还没轮到」的空态跳到当前该写的那一章。当前视图必然是空态（没有正文可编辑），
+    // 故不需要走 confirmLeaveManuscriptEditor。
+    if (action.id === 'go-to-current-chapter' && project && action.target) {
+      navigate(buildWorkbenchTargetHref({ project, projectPath: project.path, target: action.target }))
+      return
+    }
+
     if (
       action.id === 'edit-manuscript' ||
       action.id === 'manuscript-history' ||

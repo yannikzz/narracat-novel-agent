@@ -13,6 +13,12 @@ export function workbenchObjectIdForChapter(chapter: number): string {
   return `chapter-${chapter}`
 }
 
+/** workbenchObjectIdForChapter 的反解；不是章节对象或章号非法时返回 null。 */
+export function chapterNumberFromObjectId(objectId: string): number | null {
+  const chapter = Number(/^chapter-(\d+)$/.exec(objectId)?.[1])
+  return Number.isInteger(chapter) && chapter > 0 ? chapter : null
+}
+
 export function readWorkbenchObjectId(params: URLSearchParams): string | null {
   const objectId = params.get('object')?.trim()
   if (objectId) return objectId

@@ -28,7 +28,8 @@ export const CURRENT_TELEMETRY_NOTICE_VERSION = 1
  * 给对应 IPC 通道挂上归属，否则守卫测试会红。
  */
 export const TELEMETRY_MODULES = [
-  'premise', // 立项卡
+  'project-create', // 新建小说项目（只是开坑，与立项卡是两件事）
+  'premise', // 立项卡（setup 对话 / 编辑）
   'outline', // 大纲（总纲 / 章纲）
   'write-chapter', // 写章节
   'manuscript-edit', // 正文编辑（草稿、修订、回滚）

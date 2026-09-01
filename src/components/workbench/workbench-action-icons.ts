@@ -27,6 +27,8 @@ export function getWorkbenchActionIcon(action: WorkbenchAction): { Icon: LucideI
   if (action.id === 'sync-chapter-memory-entry') return { Icon: DatabaseZap, key: 'sync-chapter-memory-entry' }
   if (action.id === 'manuscript-save') return { Icon: Check, key: 'manuscript-save' }
   if (action.id === 'manuscript-cancel') return { Icon: X, key: 'manuscript-cancel' }
+  // 必须排在下面的 client 兜底之前：兜底会把它画成刷新图标，语义不对。
+  if (action.id === 'go-to-current-chapter') return { Icon: PenLine, key: 'go-to-current-chapter' }
   if (action.kind === 'client') return { Icon: RotateCw, key: 'refresh' }
   if (action.id.startsWith('generate-empty-')) return { Icon: FilePlus2, key: 'generate' }
   if (action.command === 'reference') return { Icon: BookMarked, key: 'reference' }

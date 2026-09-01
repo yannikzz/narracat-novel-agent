@@ -46,8 +46,11 @@ const STATUS_HEADER_CLASS =
 // 统一卡片：圆角 + 边框 + 抬升表面 + 较松内边距（提高呼吸感）。
 const STATUS_CARD_CLASS = 'rounded-panel border border-border bg-surface px-5 py-5'
 
-// 创作生命周期：立项 → 大纲 → 连载 → 完结（stepper 当前阶段由 resolveStatusLifecycleIndex 给出）。
-const LIFECYCLE_STAGES = ['立项', '大纲', '连载', '完结'] as const
+// 创作生命周期：立项 → 设定 → 大纲 → 连载 → 完结（当前阶段由 resolveStatusLifecycleIndex 给出）。
+// 「设定」= 世界观与角色，是引擎创作链里真实的一步（ADR-0040）；此前 stepper 没有它，
+// 于是指针让作者去创建角色、状态页却显示当前在「大纲」，两处对不上。用词与工作台的
+// 「设定集」一致，点过去就是那里。
+const LIFECYCLE_STAGES = ['立项', '设定', '大纲', '连载', '完结'] as const
 
 // 下 4 组信息进 Tab 切换（上方「概览 + 进度 + 中断进度」固定）。
 const STATUS_TABS = [

@@ -439,6 +439,23 @@ export async function hasNovelSetupData(projectPath: string): Promise<boolean> {
   return isFilledMarkdownFile(join(projectPath, premisePath()))
 }
 
+/**
+ * `bible/characters/` 下有没有角色档案（ADR-0040）。
+ *
+ * 判据刻意与引擎 plan.md 的前置检查逐字对齐——只看有没有 `.md` 文件，不要求档案里已确认
+ * canonical 身份（那是 scanCharacterSettings 的口径，更严）。两处判据一旦分家，就会出现
+ * 「指针说该建角色、引擎说角色够了」这类自相矛盾。
+ */
+export async function hasNovelCharacters(projectPath: string): Promise<boolean> {
+  try {
+    const files = await readdir(join(projectPath, charactersDir()))
+    return files.some((file) => file.endsWith('.md'))
+  } catch {
+    // 目录不存在 / 读不了一律当作没有角色：指针只会多建议一次，不会挡路。
+    return false
+  }
+}
+
 async function resolveChapterStatus(
   projectPath: string,
   volume: number,
@@ -724,7 +741,7 @@ export async function loadNovelProjectDetail(
   const summary = await loadNovelProjectSummary(projectPath)
 
   if (summary.status === 'invalid') {
-    return { ...summary, tocItems: [], treeItems: [], selectedChapter, checkpoint: null }
+    return { ...summary, tocItems: [], treeItems: [], selectedChapter, checkpoint: null, hasCharacters: false }
   }
 
   const state = await readYamlFile(join(projectPath, narracatStatePath()))
@@ -784,6 +801,7 @@ export async function loadNovelProjectDetail(
     treeItems,
     selectedChapter: activeChapter,
     checkpoint: readCheckpoint(state),
+    hasCharacters: await hasNovelCharacters(projectPath),
   }
 }
 

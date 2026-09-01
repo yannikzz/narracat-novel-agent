@@ -180,6 +180,11 @@ export interface NovelProjectDetail extends NovelProjectSummary {
   treeItems: NovelWorkbenchTreeItem[]
   selectedChapter?: number
   checkpoint?: NovelCheckpoint | null
+  /**
+   * `bible/characters/` 下有没有角色档案。当前任务指针据此判断创作链是否缺「世界观与角色」
+   * 这一步（ADR-0040）——判据与引擎 plan.md 的前置检查一致：只看有没有 .md 文件。
+   */
+  hasCharacters: boolean
 }
 
 export interface NovelCheckpoint {

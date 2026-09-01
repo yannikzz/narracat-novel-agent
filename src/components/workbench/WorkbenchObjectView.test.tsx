@@ -1677,7 +1677,8 @@ describe('WorkbenchObjectView', () => {
     expect(html).not.toContain('data-workbench-recoverable-action="recover-current-chapter"')
   })
 
-  test('keeps future chapter manuscript empty states passive', () => {
+  // 未来章的空态不提供写作动作（那会破坏顺序写作），但也不能是死胡同——给一条回到当前章的路。
+  test('points a future chapter empty state back at the current chapter', () => {
     const selectedItem: NovelWorkbenchTreeItem = {
       id: 'chapter-5',
       kind: 'chapter',
@@ -1714,10 +1715,54 @@ describe('WorkbenchObjectView', () => {
     })
 
     expect(html).toContain('正文尚未生成')
-    expect(html).toContain('请按章节顺序写作')
+    expect(html).toContain('本章还没轮到')
     expect(html).toContain('data-brand-illustration="draft-needed"')
+    // 出路：跳到当前章（chapter-2），按钮文字带上章号。
+    expect(html).toContain('data-workbench-empty-guide-action="go-to-current-chapter"')
+    expect(html).toContain('去写第 2 章')
+    // 但绝不能在这一章上提供写作动作——顺序写作的约束仍然成立。
     expect(html).not.toContain('data-workbench-empty-guide-action="write-current-chapter"')
     expect(html).not.toContain('写本章')
+  })
+
+  test('falls back to the passive copy when there is no current chapter to point at', () => {
+    const selectedItem: NovelWorkbenchTreeItem = {
+      id: 'chapter-5',
+      kind: 'chapter',
+      title: '第 005 章 · 潜流',
+      level: 1,
+      chapterNumber: 5,
+      volumeNumber: 2,
+      status: 'planned',
+    }
+    const artifacts: NovelWorkbenchArtifacts = {
+      projectPath: '/novels/stars',
+      objectId: 'chapter-5',
+      objectKind: 'chapter',
+      title: '第 005 章 · 潜流',
+      artifacts: [
+        { id: 'chapter-outline', kind: 'chapter-outline', title: '章节大纲', exists: true, content: '大纲' },
+        { id: 'manuscript', kind: 'manuscript', title: '章节正文', exists: false },
+      ],
+    }
+
+    const html = renderWorkbenchObjectView({
+      sectionId: 'blueprint',
+      sectionTitle: '小说大纲',
+      projectPath: '/novels/stars',
+      tabs: blueprintTabs,
+      activeTab: null,
+      activeTabId: 'chapter-5',
+      selectedItem,
+      artifacts,
+      chapterView: 'text',
+      currentChapterId: null,
+      onChapterViewChange: () => {},
+      onEmptyGuideAction: () => {},
+    })
+
+    expect(html).toContain('请按章节顺序写作')
+    expect(html).not.toContain('data-workbench-empty-guide-action="go-to-current-chapter"')
   })
 
   test('keeps volume pages focused on the outline without an inline chapter list', () => {
