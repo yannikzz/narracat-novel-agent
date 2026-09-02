@@ -763,13 +763,15 @@ export function getWorkbenchActions({
     const recoverable = selectedItem.status === 'recoverable'
 
     if (chapterView === 'text') {
+      // 正文页的带文案主按钮让给「润色正文」：作者在这一页最常做的是读与润，手改是低频动作，
+      // 退成纯 icon（tooltip 仍是「编辑正文」）。
       const editManuscriptAction: WorkbenchAction = {
         id: 'edit-manuscript',
         kind: 'client',
         label: '编辑正文',
         description: '编辑当前章节正文内容。',
         enabled: true,
-        placement: 'primary',
+        placement: 'utility',
         disableWhileAgentBusy: true,
       }
       const manuscriptHistoryAction: WorkbenchAction = {
@@ -779,6 +781,15 @@ export function getWorkbenchActions({
         description: '查看、比较和恢复当前章节的已保存版本。',
         enabled: true,
         placement: 'utility',
+      }
+      const polishManuscriptAction: WorkbenchAction = {
+        id: 'polish-manuscript',
+        kind: 'client',
+        label: '润色正文',
+        description: '用你自己的要求直接改这一章的文字，可同时跑多版横向对比。',
+        enabled: true,
+        placement: 'primary',
+        disableWhileAgentBusy: true,
       }
       const syncChapterMemoryAction: WorkbenchAction = {
         id: 'sync-chapter-memory-entry',
@@ -792,6 +803,7 @@ export function getWorkbenchActions({
 
       const existingTextActions = manuscriptReady
         ? [
+            polishManuscriptAction,
             editManuscriptAction,
             manuscriptHistoryAction,
             {

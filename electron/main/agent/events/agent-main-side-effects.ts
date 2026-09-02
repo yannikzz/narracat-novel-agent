@@ -32,6 +32,11 @@ export interface AgentMainSideEffectsDeps {
   resolveProjectName: (projectPath: string) => Promise<string>
   clearPendingMemorySync: (projectPath: string, chapter: number) => Promise<void>
   onChapterWriteEvent?: (event: ChapterWriteTelemetryEvent) => void
+  /**
+   * 写章节成功收场后的钩子（ADR-0041 常驻润色的挂载点）。
+   * 复用这一层已有的 run 终态判定，不在 run-manager 里另钉一套生命周期。
+   */
+  onChapterWriteCompleted?: (input: { projectPath: string }) => void
 }
 
 function fallbackProjectName(projectPath: string | undefined): string {
@@ -249,6 +254,13 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
       operations.push(() =>
         retryOnce(() => deps.clearPendingMemorySync(projectPath, selectedChapter)),
       )
+    }
+    if (payload.type === 'run.completed' && run.command === 'write-next' && run.projectPath) {
+      const projectPath = run.projectPath
+      // 旁路：常驻润色失败绝不影响通知与写作链路收尾，故不进 runIndependentSideEffects。
+      try {
+        deps.onChapterWriteCompleted?.({ projectPath })
+      } catch {}
     }
     operations.push(() => deps.showNativeNotification(notification))
     await runIndependentSideEffects(operations)

@@ -139,6 +139,19 @@ const api = {
   readCharacterChatProfiles: (input: unknown) => ipcRenderer.invoke('character-chat:read-profiles', input),
   saveCharacterChatProfile: (input: unknown) => ipcRenderer.invoke('character-chat:save-profile', input),
   flushCharacterChatProfile: (input: unknown) => ipcRenderer.invoke('character-chat:flush-profile', input),
+  listPolishRecipes: () => ipcRenderer.invoke('polish:list-recipes'),
+  savePolishRecipe: (input: unknown) => ipcRenderer.invoke('polish:save-recipe', input),
+  getPolishSettings: (input: unknown) => ipcRenderer.invoke('polish:get-settings', input),
+  setStandingPolishSlot: (input: unknown) => ipcRenderer.invoke('polish:set-standing-slot', input),
+  startPolishRun: (input: unknown) => ipcRenderer.invoke('polish:start', input),
+  cancelPolishRun: (input: unknown) => ipcRenderer.invoke('polish:cancel', input),
+  adoptPolishedChapter: (input: unknown) => ipcRenderer.invoke('polish:adopt', input),
+  clearStandingPolishOutcome: (input: unknown) => ipcRenderer.invoke('polish:clear-standing-outcome', input),
+  onPolishEvent: (callback: (event: unknown) => void) => {
+    const listener = (_event: unknown, payload: unknown) => callback(payload)
+    ipcRenderer.on('polish:event', listener)
+    return () => ipcRenderer.removeListener('polish:event', listener)
+  },
   onCharacterChatEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: unknown, payload: unknown) => callback(payload)
     ipcRenderer.on('character-chat:event', listener)

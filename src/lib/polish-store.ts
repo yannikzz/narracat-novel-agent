@@ -1,0 +1,138 @@
+import { create } from 'zustand'
+import type {
+  PolishRunEvent,
+  PolishSlotId,
+  PolishVersionState,
+} from '@shared/types/prose-polish'
+import { cancelPolishRun, onPolishEvent, startPolishRun } from './ipc'
+
+/**
+ * 试验模式的运行态（ADR-0041 §10）。
+ *
+ * 只活在「正在润色 / 刚润完还没选」这段时间里：关掉面板即 reset，未采用的版本一律丢弃——
+ * 长期并存的「差点成为正文的东西」会让「正文是哪一版」变成处处要问的分支。
+ */
+
+export interface PolishRunState {
+  runId: string | null
+  chapter: number | null
+  /** 本轮参与的槽，按发起顺序 */
+  order: PolishSlotId[]
+  /** 本轮发起时刻（ms）。主力渠道首字要等一分多钟，界面得靠它显示「已等多久」。 */
+  startedAt: number | null
+  versions: Partial<Record<PolishSlotId, PolishVersionState>>
+  /** 还有版本在跑 */
+  running: boolean
+  start: (input: { projectPath: string; chapter: number; slotIds: PolishSlotId[] }) => Promise<void>
+  cancelOne: (slotId: PolishSlotId) => Promise<void>
+  cancelAll: () => Promise<void>
+  reset: () => void
+  applyEvent: (event: PolishRunEvent) => void
+}
+
+function emptyVersion(slotId: PolishSlotId): PolishVersionState {
+  return { slotId, status: 'pending', text: '' }
+}
+
+export const usePolishRun = create<PolishRunState>((set, get) => ({
+  runId: null,
+  chapter: null,
+  order: [],
+  startedAt: null,
+  versions: {},
+  running: false,
+
+  start: async ({ projectPath, chapter, slotIds }) => {
+    set({ runId: null, chapter, order: slotIds, startedAt: Date.now(), versions: {}, running: true })
+    try {
+      const { runId, versions } = await startPolishRun({ projectPath, chapter, slotIds })
+      // 只补还不存在的槽：事件可能先于 invoke 的返回到达，直接整片覆盖会把已收到的增量抹掉。
+      set((state) => ({
+        runId,
+        order: versions.map((version) => version.slotId),
+        versions: Object.fromEntries(
+          versions.map((version) => [version.slotId, state.versions[version.slotId] ?? version]),
+        ),
+      }))
+    } catch (error) {
+      set({ running: false })
+      throw error
+    }
+  },
+
+  cancelOne: async (slotId) => {
+    const { runId } = get()
+    if (!runId) return
+    await cancelPolishRun({ runId, slotId })
+  },
+
+  cancelAll: async () => {
+    const { runId } = get()
+    if (!runId) return
+    await cancelPolishRun({ runId })
+  },
+
+  reset: () =>
+    set({ runId: null, chapter: null, order: [], startedAt: null, versions: {}, running: false }),
+
+  applyEvent: (event) => {
+    const state = get()
+    // 面板已经开始新一轮时，旧 run 的迟到事件直接丢——它们属于一批已经被作者放弃的版本。
+    if (state.runId && 'runId' in event && event.runId !== state.runId) return
+
+    if (event.type === 'started') {
+      set((state) => ({
+        runId: event.runId,
+        chapter: event.chapter,
+        order: event.slotIds,
+        startedAt: state.startedAt ?? Date.now(),
+        versions: Object.fromEntries(
+          event.slotIds.map((slotId) => [slotId, state.versions[slotId] ?? emptyVersion(slotId)]),
+        ),
+        running: true,
+      }))
+      return
+    }
+
+    if (event.type === 'finished') {
+      set({ running: false })
+      return
+    }
+
+    const current = state.versions[event.slotId] ?? emptyVersion(event.slotId)
+    const next: PolishVersionState =
+      event.type === 'delta'
+        ? { ...current, status: 'streaming', text: current.text + event.text }
+        : event.type === 'version-done'
+          ? { ...current, status: 'done', drift: event.drift, usage: event.usage }
+          : event.type === 'version-failed'
+            ? { ...current, status: 'failed', error: event.message }
+            : { ...current, status: 'aborted' }
+
+    set({ versions: { ...state.versions, [event.slotId]: next } })
+  },
+}))
+
+/** 订阅主进程事件；调用方在组件挂载时接上，卸载时断开。 */
+export function subscribePolishEvents(): () => void {
+  return onPolishEvent((event) => usePolishRun.getState().applyEvent(event))
+}
+
+/** 版本是否已经可以被采用——流到一半不给采用按钮，想早退只能中止（ADR-0041 §10）。 */
+export function isAdoptable(version: PolishVersionState | undefined): boolean {
+  return version?.status === 'done' && version.text.trim().length > 0
+}
+
+/**
+ * 「已等多久」的人话。
+ *
+ * 主力渠道（deepseek anthropic 端点）实测**基本不做增量流式**：整章输入下首个文本 delta 要等
+ * 89 秒，之后 0.2 秒内全部到达。所以「还没收到第一个字」是常态而不是异常，界面必须显示一个还在
+ * 走的计时，否则一分半钟里它看起来就是死的——把这段标成「排队中」是错的。
+ */
+export function formatPolishElapsed(startedAt: number | null, now: number): string {
+  if (startedAt === null) return ''
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000))
+  if (seconds < 60) return `已等 ${seconds} 秒`
+  return `已等 ${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, '0')} 秒`
+}

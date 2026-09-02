@@ -27,6 +27,9 @@ import type {
 } from '@shared/types/agent'
 import { loadNovelProjectSummary } from '../novel/novel-project.ts'
 import { clearPendingMemorySync } from '../novel/pending-memory-sync.ts'
+import { openMemoryDbReadonly } from '../novel/memory-db.ts'
+import { runStandingPolish } from '../polish/standing-polish.ts'
+import { createHeadlessPolishRunManager } from './polish.ts'
 import { manuscriptRevisionStore } from '../novel/manuscript-revisions.ts'
 import {
   broadcastResultNotifications,
@@ -60,6 +63,14 @@ export function getAgentRuntimeCoordinator(): AgentRuntimeCoordinator {
       resolveProjectName: async (projectPath) => (await loadNovelProjectSummary(projectPath)).title,
       clearPendingMemorySync,
       onChapterWriteEvent: (event) => void recordChapterWrite(event),
+      // 常驻润色（ADR-0041 §8）：写完一章、记忆已入库之后，App 层追加的那一步。
+      // 完全旁路——失败只落进本章的「已跳过」留痕，绝不回头影响写作链路。
+      onChapterWriteCompleted: ({ projectPath }) => {
+        void runStandingPolish(projectPath, {
+          polishOnce: (input) => createHeadlessPolishRunManager().polishChapterOnce(input),
+          openMemoryDb: openMemoryDbReadonly,
+        }).catch((error) => console.error('[polish] 常驻润色失败', error))
+      },
     })
     _agentRuntimeCoordinator = createAgentRuntimeCoordinator({
       store,

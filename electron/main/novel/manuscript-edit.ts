@@ -90,12 +90,28 @@ export function applyManuscriptEdit({
   }
 }
 
+/**
+ * 分诊判据与 impact 处置的可替换接缝。
+ *
+ * 默认是 ADR-0031 的三信号 + 打「记忆待同步」标记。润色（ADR-0041）走同一条写入通道，但换掉
+ * 这两处：判据改成「改了什么」的集合比对（三信号对整章重述必然误报），处置按章龄分流
+ * （最新章打红点走同步；旧章记分家标识，因为 sync 不收旧章）。
+ */
+export interface ManuscriptEditSeams {
+  openMemoryDb?: OpenMemoryDb
+  revisionStore?: ManuscriptRevisionStore
+  classify?: (input: { oldText: string; newText: string; entityNames: string[] }) => ManuscriptTriage
+  onImpact?: (input: { projectPath: string; chapter: number; triage: ManuscriptTriage }) => Promise<void>
+}
+
 export async function submitManuscriptEdit(
   request: ManuscriptEditRequest,
   {
     openMemoryDb,
     revisionStore = manuscriptRevisionStore,
-  }: { openMemoryDb?: OpenMemoryDb; revisionStore?: ManuscriptRevisionStore } = {},
+    classify = triageManuscriptEdit,
+    onImpact,
+  }: ManuscriptEditSeams = {},
 ): Promise<ManuscriptSaveResult> {
   const filePath = await locateManuscriptFile(request.projectPath, request.chapter)
   if (!filePath) return { ok: false, message: '未找到该章正文文件。' }
@@ -165,7 +181,7 @@ export async function submitManuscriptEdit(
     } catch {
       entityNames = []
     }
-    triage = triageManuscriptEdit({
+    triage = classify({
       oldText: outcome.oldVisibleText,
       newText: request.newVisibleText,
       entityNames,
@@ -203,9 +219,13 @@ export async function submitManuscriptEdit(
   }
   if (triage.tier === 'impact') {
     try {
-      await markPendingMemorySync(request.projectPath, request.chapter, triage.reasons)
+      if (onImpact) {
+        await onImpact({ projectPath: request.projectPath, chapter: request.chapter, triage })
+      } else {
+        await markPendingMemorySync(request.projectPath, request.chapter, triage.reasons)
+      }
     } catch (error) {
-      console.error('[manuscript-edit] 写待同步标记失败', error)
+      console.error('[manuscript-edit] impact 处置失败', error)
     }
   }
 

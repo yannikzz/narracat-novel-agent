@@ -75,6 +75,12 @@ function resolveEntry(view: ModelSlotView, entry: ModelPoolEntry): ResolvedModel
   }
 }
 
+/** 按池条目主键解析；键为空或条目已不在池里返回 null（调用方自行决定回落策略）。 */
+export function resolveModelByKey(view: ModelSlotView, key: string | null): ResolvedModel | null {
+  const entry = findPoolEntry(view, key)
+  return entry ? resolveEntry(view, entry) : null
+}
+
 export function resolvePrimaryModel(view: ModelSlotView): ResolvedModel | null {
   const entry = findPoolEntry(view, view.primaryModelKey) ?? view.modelPool[0] ?? null
   return entry ? resolveEntry(view, entry) : null

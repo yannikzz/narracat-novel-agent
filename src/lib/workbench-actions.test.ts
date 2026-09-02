@@ -750,13 +750,22 @@ describe('workbench actions', () => {
 
     const actions = getWorkbenchActions({ project, selectedItem, artifacts, chapterView: 'text' })
 
-    // 「编辑正文」占 titlebar primary 槽（统一交互入口），「调整内容」让位收进「更多」。
+    // 「润色正文」占 titlebar primary 槽（正文页最常做的是读与润），「编辑正文」退成纯 icon，
+    // 「调整内容」让位收进「更多」。
+    expect(actions).toContainEqual(
+      expect.objectContaining({
+        id: 'polish-manuscript',
+        kind: 'client',
+        label: '润色正文',
+        placement: 'primary',
+      }),
+    )
     expect(actions).toContainEqual(
       expect.objectContaining({
         id: 'edit-manuscript',
         kind: 'client',
         label: '编辑正文',
-        placement: 'primary',
+        placement: 'utility',
       }),
     )
     expect(actions).toContainEqual(

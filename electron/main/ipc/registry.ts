@@ -18,6 +18,7 @@ import {
 import { registerPacksIpcHandlers } from './packs.ts'
 import { registerSkillsIpcHandlers } from './skills.ts'
 import { registerChatIpcHandlers } from './chat.ts'
+import { registerPolishIpcHandlers } from './polish.ts'
 import { withIpcModuleTap } from './telemetry-tap.ts'
 
 export { reconcileAgentRuntimeStartup, settleAgentRuntimeBeforeQuit, hasActiveAgentRuntimeRuns }
@@ -32,5 +33,6 @@ export function registerAllIpcHandlers(): void {
     registerPacksIpcHandlers()
     registerSkillsIpcHandlers()
     registerChatIpcHandlers()
+    registerPolishIpcHandlers()
   })
 }

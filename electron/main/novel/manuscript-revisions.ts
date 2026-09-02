@@ -27,6 +27,7 @@ const REVISION_SOURCES = new Set<ManuscriptRevisionSource>([
   'agent-write',
   'agent-rewrite',
   'revision-restore',
+  'llm-polish',
 ])
 
 interface ManuscriptRevisionRecordV1 {

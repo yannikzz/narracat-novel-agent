@@ -21,6 +21,16 @@ import type { ProseBlockView } from './prose-block'
 import type { TelemetryState } from './telemetry'
 import type { AuthorRequest } from './author-request'
 import type {
+  PolishAdoptOutcome,
+  PolishAdoptRequest,
+  PolishRecipeFile,
+  PolishRunEvent,
+  PolishRunRequest,
+  PolishSlotId,
+  PolishVersionState,
+  ProjectPolishSettings,
+} from './prose-polish'
+import type {
   CapabilityPackSummary,
   ChapterCapabilityReceiptData,
   CompiledCardMeta,
@@ -528,6 +538,29 @@ export interface ElectronApi {
   saveManuscriptDraft: (input: SaveManuscriptDraftInput) => Promise<{ ok: true }>
   discardManuscriptDraft: (input: ManuscriptDraftInput) => Promise<{ ok: true }>
   listManuscriptDrafts: (projectPath: string) => Promise<ManuscriptDraftSummary[]>
+  listPolishRecipes: () => Promise<PolishRecipeFile>
+  savePolishRecipe: (input: {
+    slotId: PolishSlotId
+    prompt: string
+    modelKey: string | null
+    thinking: boolean
+  }) => Promise<PolishRecipeFile>
+  getPolishSettings: (input: { projectPath: string }) => Promise<ProjectPolishSettings>
+  setStandingPolishSlot: (input: {
+    projectPath: string
+    slotId: PolishSlotId | null
+  }) => Promise<ProjectPolishSettings>
+  startPolishRun: (input: PolishRunRequest) => Promise<{ runId: string; versions: PolishVersionState[] }>
+  cancelPolishRun: (input: { runId: string; slotId?: PolishSlotId }) => Promise<{ cancelled: boolean }>
+  adoptPolishedChapter: (input: PolishAdoptRequest) => Promise<
+    | { ok: true; outcome: PolishAdoptOutcome }
+    | { ok: false; conflict?: boolean; needsDivergenceAck?: boolean; message: string }
+  >
+  clearStandingPolishOutcome: (input: {
+    projectPath: string
+    chapter: number
+  }) => Promise<ProjectPolishSettings>
+  onPolishEvent: (callback: (event: PolishRunEvent) => void) => () => void
   getPendingMemorySync: (projectPath: string) => Promise<Record<string, PendingMemorySyncEntry>>
   clearPendingMemorySync: (input: { projectPath: string; chapter: number }) => Promise<{ ok: boolean }>
   pasteReferenceSource: (input: PasteReferenceSourceInput) => Promise<ReferenceWorksSummary>

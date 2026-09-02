@@ -45,6 +45,8 @@
 | [0037](0037-agent-runtime-pi-migration.md) | Agent Runtime 从 Claude Code SDK 迁移至 Pi（方案 A：先立骨架再换心脏） | Accepted, migration completed | 迁移已走完：pi 是唯一 runtime，旧 SDK adapter 目录已删、旧包被 `check:architecture` 全仓零容忍；supersedes 0009 与 0027。 |
 | [0038](0038-client-version-is-declared-not-derived.md) | 客户端版本号由人在 package.json 声明 | Accepted | Current client version policy; supersedes 0006. |
 | [0039](0039-anonymous-telemetry-informed-opt-out.md) | 匿名使用统计——先告知的默认开，红线由代码机械执行 | Accepted | Current telemetry policy；采集边界、模块级粒度、自有域名反代与「告知前零发送」闸门的长期真相；覆盖 0026 中未落地的 crash 上报设想并收窄为不做自动捕获。 |
+| [0040](0040-current-task-pointer.md) | 当前任务指针——把「下一步」从状态页提升为侧边栏常驻 | Accepted | Current 引导基线；「下一步」是全局常驻单一出口，由遥测漏斗断点（32 建项目 → 9 写章节）驱动。 |
+| [0041](0041-author-owned-prose-polish.md) | 作者自持的正文润色通道（非 Agent 直连大模型） | Accepted | Current 润色边界；定位为不承诺效果的自主权通道（出厂零模板），入库后 App 层追加、引擎零改动，护栏判「改了什么」而非「改了多少」；[0029](0029-two-tier-editing-direct-vs-agent-cascade.md)/[0031](0031-manuscript-editing-save-first-two-tier.md) 框架内的第三种正文写入来源。 |
 
 ## Status Vocabulary
 

@@ -14,6 +14,7 @@ import {
   RotateCw,
   SearchCheck,
   Trash2,
+  Wand2,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -24,6 +25,7 @@ export function getWorkbenchActionIcon(action: WorkbenchAction): { Icon: LucideI
   if (action.id === 'copy-visible-document') return { Icon: Copy, key: 'copy' }
   if (action.id === 'edit-manuscript') return { Icon: Pencil, key: 'edit-manuscript' }
   if (action.id === 'manuscript-history') return { Icon: History, key: 'manuscript-history' }
+  if (action.id === 'polish-manuscript') return { Icon: Wand2, key: 'polish-manuscript' }
   if (action.id === 'sync-chapter-memory-entry') return { Icon: DatabaseZap, key: 'sync-chapter-memory-entry' }
   if (action.id === 'manuscript-save') return { Icon: Check, key: 'manuscript-save' }
   if (action.id === 'manuscript-cancel') return { Icon: X, key: 'manuscript-cancel' }

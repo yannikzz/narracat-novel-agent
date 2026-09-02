@@ -59,6 +59,19 @@ const CHARACTER_CHAT_HISTORY_TURNS = 12
 /** 单段流式回复 max_tokens（角色闲聊回复短，足够且省钱）。 */
 const CHARACTER_CHAT_MAX_OUTPUT_TOKENS = 4096
 
+/**
+ * **必须显式关掉扩展思考。**
+ *
+ * 根因见 ADR-0041：deepseek 等渠道经 anthropic 端点默认开着 thinking，而 **thinking token 与
+ * 回复共用同一个 `max_tokens` 预算**。润色那边实测过一次 `thinking_delta × 15994` /
+ * `text_delta × 0`——预算被思考烧光、一个字都没产出，而且是随机的（同一请求有时只想几下就
+ * 动笔），表现为「时灵时不灵」。
+ *
+ * 角色聊天的预算只有 4096，比润色小得多，被烧光的概率只会更高，症状是偶尔回一句空的。
+ * 扮演角色说话不是推理任务，思考对它零收益。
+ */
+const CHARACTER_CHAT_THINKING = { type: 'disabled' } as const
+
 export interface CharacterChatRunManagerDeps {
   readConfig: () => Promise<AppConfig>
   getApiKey: (provider: ProviderId) => Promise<string | null>
@@ -122,6 +135,7 @@ export interface AnthropicLike {
         messages: MessageParam[]
         tools?: Tool[]
         max_tokens: number
+        thinking: { type: 'disabled' }
       },
       options?: { signal?: AbortSignal },
     ) => AnthropicMessageStreamLike
@@ -471,6 +485,7 @@ export function createCharacterChatRunManager(deps: CharacterChatRunManagerDeps)
             messages,
             tools: tools.length > 0 ? tools : undefined,
             max_tokens: CHARACTER_CHAT_MAX_OUTPUT_TOKENS,
+            thinking: CHARACTER_CHAT_THINKING,
           },
           { signal: abortController.signal },
         )

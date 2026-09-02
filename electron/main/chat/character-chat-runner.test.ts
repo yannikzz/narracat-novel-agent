@@ -627,6 +627,9 @@ describe('createCharacterChatRunManager', () => {
     expect(completedText(events)).toBe('你好')
     // 降级：本轮请求不带 tools（无工具纯聊天）
     expect(captures[0].body.tools).toBeUndefined()
+    // 扮演角色说话不是推理任务；thinking 与回复共用 max_tokens（只有 4096），开着会被烧光
+    // 而返回空回复——润色那边实测过 thinking_delta × 15994 / text_delta × 0（ADR-0041）。
+    expect(captures[0].body.thinking).toEqual({ type: 'disabled' })
     // 即便降级也收尾 close（曾构造过 client）
     expect(record.closed).toBe(1)
   })

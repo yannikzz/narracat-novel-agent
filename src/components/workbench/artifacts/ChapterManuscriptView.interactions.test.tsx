@@ -77,9 +77,19 @@ const toastInfoMock = mock(() => {})
 const toastSuccessMock = mock(() => {})
 
 // window.electron 在真机由 preload 经 contextBridge 注入；测试环境（happy-dom）没有 Electron
-// 进程，只挂被 ChapterManuscriptView 实际调用到的两个 IPC 出口（saveChapterManuscript /
-// getPendingMemorySync，经 @/lib/ipc 转发），其余 ElectronApi 字段本组件用不到，不补全 mock。
+// 进程，只挂被 ChapterManuscriptView 实际调用到的那几个 IPC 出口（经 @/lib/ipc 转发），
+// 其余 ElectronApi 字段本组件用不到，不补全 mock。
 ;(window as unknown as { electron: Partial<ElectronApi> }).electron = {
+  // 润色（ADR-0041）：版本活在正文页，故正文视图挂载即订阅一次润色事件；
+  // 同时读一次本书润色设置，用来决定要不要显示常驻结果横幅。
+  onPolishEvent: (() => () => {}) as unknown as ElectronApi['onPolishEvent'],
+  // 润色（ADR-0041）：阅读态挂载即读一次本书润色设置，用来决定要不要显示常驻结果横幅。
+  getPolishSettings: (async () => ({
+    version: 1,
+    standingSlotId: null,
+    standingOutcomes: {},
+    divergedChapters: [],
+  })) as unknown as ElectronApi['getPolishSettings'],
   saveChapterManuscript: saveChapterManuscriptMock as unknown as ElectronApi['saveChapterManuscript'],
   getManuscriptDraft: getManuscriptDraftMock as unknown as ElectronApi['getManuscriptDraft'],
   saveManuscriptDraft: saveManuscriptDraftMock as unknown as ElectronApi['saveManuscriptDraft'],

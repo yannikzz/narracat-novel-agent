@@ -3,6 +3,8 @@ export type ManuscriptRevisionSource =
   | 'agent-write'
   | 'agent-rewrite'
   | 'revision-restore'
+  /** 作者自持的润色通道采用了某一版（ADR-0041） */
+  | 'llm-polish'
 
 export interface ManuscriptRevisionSummary {
   addedChars: number

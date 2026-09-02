@@ -11,6 +11,7 @@ export interface ManuscriptEditorHandlers {
   cancel?: () => void
   syncMemory?: () => void
   openHistory?: () => void
+  openPolish?: () => void
   keepDraftBeforeLeave?: () => Promise<boolean>
   discardDraftBeforeLeave?: () => Promise<boolean>
 }

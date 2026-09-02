@@ -26,7 +26,7 @@ export const TELEMETRY_SCHEMA_VERSION = 1
  *     （仍只是功能名称），但**采集的行为集合确实变大了**，按本文件与 TelemetryNotice.tsx
  *     的红线必须重新告知。
  */
-export const CURRENT_TELEMETRY_NOTICE_VERSION = 2
+export const CURRENT_TELEMETRY_NOTICE_VERSION = 3
 
 /**
  * 功能模块枚举。埋点只到模块级——不是 130 个 IPC 动作各埋各的，而是每个模块一天最多记一次
@@ -48,6 +48,7 @@ export const TELEMETRY_MODULES = [
   'packs-wizard', // 作家向导
   'reference-works', // 参考书与风格锚
   'prose-blocks', // 写作指令编辑
+  'prose-polish', // 正文润色（作者自持通道，ADR-0041）
   'project-backup', // 项目备份与恢复
   'model-config', // 模型服务配置
   'updater', // 软件更新

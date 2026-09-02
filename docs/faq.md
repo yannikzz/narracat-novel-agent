@@ -46,7 +46,7 @@ Key 通过操作系统自带的凭据库存储（macOS 走钥匙串，Windows �
 | 事件 | 什么时候发 | 带哪些字段 |
 |---|---|---|
 | `app_started` | 每次启动 | App 版本、操作系统、CPU 架构 |
-| `feature_used` | 某个功能模块当天首次被用 | 模块名（17 个之一，如 `outline`、`character-chat`） |
+| `feature_used` | 某个功能模块当天首次被用 | 模块名（18 个之一，如 `outline`、`character-chat`） |
 | `chapter_write_started` | 开始写一章 | 模型渠道、模型 ID、写到第几章的**区间**（如 `6-20`） |
 | `chapter_write_finished` | 一章写完 / 失败 / 取消 | 模型渠道、模型 ID、收场方式、耗时**区间**（如 `5-15m`） |
 | `error_occurred` | 出错 | 错误码（我自己定义的 8 个枚举之一，**不含原始报错文本与堆栈**） |

@@ -29,6 +29,7 @@ const SOURCE_LABELS: Record<ManuscriptRevisionSource, string> = {
   'agent-write': 'Agent 写作',
   'agent-rewrite': 'Agent 重写',
   'revision-restore': '版本恢复',
+  'llm-polish': '润色采用',
 }
 
 function formatStorage(bytes: number): string {

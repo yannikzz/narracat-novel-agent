@@ -1,6 +1,16 @@
 // 渲染端 IPC client（typed wrapper over window.electron）
 // 让组件不直接 touch window.electron，方便未来加错误处理 / mock
 import type {
+  PolishAdoptOutcome,
+  PolishAdoptRequest,
+  PolishRecipeFile,
+  PolishRunEvent,
+  PolishRunRequest,
+  PolishSlotId,
+  PolishVersionState,
+  ProjectPolishSettings,
+} from '@shared/types/prose-polish'
+import type {
   AgentEventEnvelopeV1,
   AgentEventsAfterResultV1,
   AgentHistorySegmentSummaryV1,
@@ -529,4 +539,60 @@ export function onOpenResultNotification(callback: (notification: ResultNotifica
 
 export function onResultNotificationsChanged(callback: (event: ResultNotificationList) => void): () => void {
   return window.electron.onResultNotificationsChanged(callback)
+}
+
+// --- 正文润色（ADR-0041）------------------------------------------------------
+
+export function listPolishRecipes(): Promise<PolishRecipeFile> {
+  return window.electron.listPolishRecipes()
+}
+
+export function savePolishRecipe(input: {
+  slotId: PolishSlotId
+  prompt: string
+  modelKey: string | null
+  thinking: boolean
+}): Promise<PolishRecipeFile> {
+  return window.electron.savePolishRecipe(input)
+}
+
+export function getPolishSettings(projectPath: string): Promise<ProjectPolishSettings> {
+  return window.electron.getPolishSettings({ projectPath })
+}
+
+export function setStandingPolishSlot(input: {
+  projectPath: string
+  slotId: PolishSlotId | null
+}): Promise<ProjectPolishSettings> {
+  return window.electron.setStandingPolishSlot(input)
+}
+
+export function startPolishRun(
+  input: PolishRunRequest,
+): Promise<{ runId: string; versions: PolishVersionState[] }> {
+  return window.electron.startPolishRun(input)
+}
+
+export function cancelPolishRun(input: { runId: string; slotId?: PolishSlotId }): Promise<{ cancelled: boolean }> {
+  return window.electron.cancelPolishRun(input)
+}
+
+export function adoptPolishedChapter(
+  input: PolishAdoptRequest,
+): Promise<
+  | { ok: true; outcome: PolishAdoptOutcome }
+  | { ok: false; conflict?: boolean; needsDivergenceAck?: boolean; message: string }
+> {
+  return window.electron.adoptPolishedChapter(input)
+}
+
+export function clearStandingPolishOutcome(input: {
+  projectPath: string
+  chapter: number
+}): Promise<ProjectPolishSettings> {
+  return window.electron.clearStandingPolishOutcome(input)
+}
+
+export function onPolishEvent(callback: (event: PolishRunEvent) => void): () => void {
+  return window.electron.onPolishEvent(callback)
 }

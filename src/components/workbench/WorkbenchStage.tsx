@@ -188,6 +188,7 @@ export function WorkbenchStage({
     if (
       action.id === 'edit-manuscript' ||
       action.id === 'manuscript-history' ||
+      action.id === 'polish-manuscript' ||
       action.id === 'manuscript-save' ||
       action.id === 'manuscript-cancel' ||
       action.id === 'sync-chapter-memory-entry'
@@ -195,6 +196,7 @@ export function WorkbenchStage({
       const handlers = useManuscriptEditorGuard.getState().handlers
       if (action.id === 'edit-manuscript') handlers?.startEdit?.()
       if (action.id === 'manuscript-history') handlers?.openHistory?.()
+      if (action.id === 'polish-manuscript') handlers?.openPolish?.()
       if (action.id === 'manuscript-save') handlers?.save?.()
       if (action.id === 'manuscript-cancel') handlers?.cancel?.()
       if (action.id === 'sync-chapter-memory-entry') handlers?.syncMemory?.()

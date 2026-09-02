@@ -33,6 +33,18 @@ export const IPC_CHANNEL_MODULES: Readonly<Record<string, TelemetryModule | null
   'novel:list-manuscript-revisions': null,
   'novel:read-manuscript-revision': null,
 
+  // ── 正文润色（ADR-0041）────────────────────────────────────────────
+  // 这功能最大的风险不是效果差，是没人写得出第一条提示词——所以 save-recipe 是这里最该看的
+  // 那个数，start/adopt 反映的是「写了之后有没有真用起来」。
+  'polish:save-recipe': 'prose-polish',
+  'polish:start': 'prose-polish',
+  'polish:adopt': 'prose-polish',
+  'polish:set-standing-slot': 'prose-polish',
+  'polish:cancel': null,
+  'polish:list-recipes': null,
+  'polish:get-settings': null,
+  'polish:clear-standing-outcome': null,
+
   // ── 角色状态 ────────────────────────────────────────────────────────
   'novel:submit-character-identity': 'character-state',
   'novel:submit-authored-state': 'character-state',
