@@ -532,8 +532,19 @@ export function createManuscriptRevisionStore(
         const novelId = await requireProjectIdentity(projectPath)
         await reconcilePending(projectPath, novelId)
         const index = await readIndex(projectPath, novelId)
-        const revisions = index.revisions
-          .filter((revision) => revision.chapter === chapter)
+        // 列表是「可回到的状态集合」，不是操作流水——按可恢复内容去重，同一份内容只留最早
+        // 那条（创造出这个状态的那次写入，标签与时间才对得上）。
+        //
+        // 不去重就会出现同一版列两行：首次 agent-write 没有 before，回落取 after（= A）；
+        // 而紧随其后那次写入的 before 也正是 A。两种语义撞在一起，作者点哪一行 diff 都一样，
+        // 看起来就是「版本历史没保留任何东西」。真机撞出来的。
+        const byContent = new Map<string, ManuscriptRevisionRecordV1>()
+        for (const revision of index.revisions.filter((item) => item.chapter === chapter)) {
+          const contentHash = revision.beforeHash ?? revision.afterHash
+          const kept = byContent.get(contentHash)
+          if (!kept || revision.createdAt < kept.createdAt) byContent.set(contentHash, revision)
+        }
+        const revisions = [...byContent.values()]
           .sort((left, right) => {
             const byTime = right.createdAt.localeCompare(left.createdAt)
             return byTime === 0 ? right.id.localeCompare(left.id) : byTime
