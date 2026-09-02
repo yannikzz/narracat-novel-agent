@@ -40,6 +40,15 @@ describe('配置弹窗形态', () => {
   test('未通过连接测试的模型置灰并注明原因，不静默可选', () => {
     expect(setupSource).toContain('isEntryVerified')
     expect(setupSource).toContain('（还没测试连接）')
+    // ⚠️ 只断言字符串存在会被「算了但没渲染」骗过（真机上所有置灰项都显示成 OpenAI 那条）。
+    // 必须断言它真的进了 JSX，且写死的那句已经不在。
+    expect(setupSource).toContain('{option.reason}')
+    expect(setupSource).not.toContain("{option.disabled ? '（OpenAI 兼容协议，润色暂不支持）' : ''}")
+  })
+
+  test('主力槽自己没验证时，「跟随主力模型」同样置灰', () => {
+    expect(setupSource).toContain('disabled={primaryUnverified}')
+    expect(setupSource).toContain('（主力模型还没测试连接）')
   })
 
   test('容器遵 design.md §9.7：bg-workspace + p-0 三段式，不用默认的 bg-floating/p-6', () => {
@@ -122,6 +131,15 @@ describe('版本呈现在正文区', () => {
     // 正文用与原稿相同的阅读画布；tab 与操作条对齐到同宽的列
     expect(versionsSource).toContain('WORKBENCH_READING_CANVAS_CLASS')
     expect(versionsSource).toContain("const POLISH_READING_COLUMN_CLASS = 'mx-auto w-full max-w-[820px]'")
+  })
+
+  test('常驻润色跑完要刷新正文，不能只刷横幅', () => {
+    const view = readFileSync(
+      fileURLToPath(new URL('./ChapterManuscriptView.tsx', import.meta.url)),
+      'utf-8',
+    )
+    expect(view).toContain('if (standingVersion === 0) return')
+    expect(view).toContain('onChanged?.()')
   })
 
   test('操作条随滚动置顶：读到第三屏还想采用时不该先滚回去找按钮', () => {

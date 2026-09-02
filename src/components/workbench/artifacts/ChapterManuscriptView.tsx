@@ -101,6 +101,14 @@ export function ChapterManuscriptView({
   useEffect(() => subscribePolishEvents(), [])
   const standingVersion = usePolishRun((state) => state.standingVersion)
 
+  // 常驻润色改的是正文文件本身，而正文是父组件传下来的 artifact.content——只重读设置的话，
+  // 会出现「已润色」横幅配着原稿正文。必须把产物也刷一遍。
+  useEffect(() => {
+    if (standingVersion === 0) return
+    onChanged?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standingVersion])
+
   // 常驻润色的结果横幅：润过了要说，跳过了更要说——静默跳过会变成「怎么好几章没润色」的哑谜。
   // 随 agentBusy / saveCount / standingVersion 变化重取。
   useEffect(() => {

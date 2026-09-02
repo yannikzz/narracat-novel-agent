@@ -30,7 +30,6 @@ import { clearPendingMemorySync } from '../novel/pending-memory-sync.ts'
 import { openMemoryDbReadonly } from '../novel/memory-db.ts'
 import { runStandingPolish } from '../polish/standing-polish.ts'
 import { broadcastPolishEvent, createHeadlessPolishRunManager } from '../polish/polish-runtime.ts'
-import { hasManuscriptWrittenAfter } from '../novel/manuscript-file.ts'
 import { manuscriptRevisionStore } from '../novel/manuscript-revisions.ts'
 import {
   broadcastResultNotifications,
@@ -71,7 +70,15 @@ export function getAgentRuntimeCoordinator(): AgentRuntimeCoordinator {
           polishOnce: (input) => createHeadlessPolishRunManager().polishChapterOnce(input),
           openMemoryDb: openMemoryDbReadonly,
           withProjectLock: runProjectMutation,
-          hasFreshManuscript: (path, chapter) => hasManuscriptWrittenAfter(path, chapter, startedAt),
+          hasFreshManuscript: async (path, chapter) => {
+            // 「本次 run 期间登记过版本记录」= 这一章真的产出了正文。write-next 与
+            // recover-write 两条路径都会登记，且不受草稿 rename 的时间戳影响。
+            const list = await manuscriptRevisionStore
+              .listChapter({ projectPath: path, chapter })
+              .catch(() => null)
+            if (!list) return false
+            return list.revisions.some((revision) => revision.createdAt >= startedAt)
+          },
         })
           .then((result) => {
             // 后台跑完必须主动通知渲染端：它不属于任何一次 IPC 调用，不广播的话正文页会一直

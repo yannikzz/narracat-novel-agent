@@ -242,11 +242,19 @@ export interface DetectPolishDriftInput {
  * 只看「X说 / X道」这类对白署名，因为**新角色几乎总是从一句话开始出场**，而这个位置的语法
  * 足够窄，误报可控。
  *
- * 残余局限（明知且接受）：不带对白的旁白式引入仍抓不到。护栏是账房层的下限而不是完备检测，
- * 完备的做法要么上模型（把成本翻倍且不确定），要么强行收紧到误跳过一堆正常润色。
+ * **残余局限（明知且接受，外审复核过）**：不带对白的旁白式引入（「林跃和王五走了出去」）
+ * 仍抓不到。护栏是账房层的下限而不是完备检测——完备的做法要么上模型（成本翻倍且不确定），
+ * 要么强行收紧到误跳过一堆正常润色。**宁可漏报也不能误报**：误报会让常驻模式白白跳过整章。
  */
-const SPEECH_VERBS = ['说', '道', '问', '答', '喊', '叫', '笑道', '喝道', '应道', '低声道']
-const SPEAKER_RE = new RegExp(`([\u4e00-\u9fa5]{2,3})(?=(${SPEECH_VERBS.join('|')}))`, 'g')
+/**
+ * 长动词排在前、量词用**懒匹配**：两者缺一都会把「王五笑道」切成新人物「王五笑」——
+ * 贪婪匹配会先吃三个字再看后面那个「道」。实测踩过。
+ */
+const SPEECH_VERBS = ['笑道', '喝道', '应道', '低声道', '说', '道', '问', '答', '喊', '叫']
+const SPEAKER_RE = new RegExp(`([\u4e00-\u9fa5]{2,3}?)(?=(${SPEECH_VERBS.join('|')}))`, 'g')
+
+/** 代词开头的一律不是新角色（「他知道」会被切成「他知」这种垃圾 token）。 */
+const PRONOUN_HEADS = ['他', '她', '它', '我', '你', '您', '咱', '俺', '谁', '这', '那', '有', '没']
 
 /**
  * 常见的「不是人名但会落在署名位」的词。命中即跳过——它们是副词或动词短语的尾巴
@@ -262,7 +270,9 @@ export function extractSpeakerNames(text: string): string[] {
   const names = new Set<string>()
   for (const match of text.matchAll(SPEAKER_RE)) {
     const name = match[1]
-    if (!NON_NAME_SPEAKER_PREFIXES.has(name)) names.add(name)
+    if (NON_NAME_SPEAKER_PREFIXES.has(name)) continue
+    if (PRONOUN_HEADS.includes(name[0]!)) continue
+    names.add(name)
   }
   return [...names]
 }

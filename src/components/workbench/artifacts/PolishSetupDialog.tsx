@@ -126,6 +126,16 @@ export function PolishSetupDialog({
     })
   }, [config])
 
+  /**
+   * 主力槽本身没通过连接测试时，「跟随主力模型」同样跑不起来——不置灰的话作者会挑一个
+   * 看起来最安全的选项然后收到服务端拒绝。
+   */
+  const primaryUnverified = useMemo(() => {
+    if (!config) return false
+    const primary = config.modelPool.find((entry) => modelEntryKey(entry) === config.primaryModelKey)
+    return primary ? !isEntryVerified(config, primary) : config.modelPool.length > 0
+  }, [config])
+
   function updateRecipe(
     slotId: PolishSlotId,
     patch: Partial<Pick<PolishRecipe, 'prompt' | 'modelKey' | 'thinking'>>,
@@ -249,11 +259,14 @@ export function PolishSetupDialog({
                       <SelectValue placeholder="跟随主力模型" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="primary">跟随主力模型</SelectItem>
+                      <SelectItem value="primary" disabled={primaryUnverified}>
+                        跟随主力模型
+                        {primaryUnverified ? '（主力模型还没测试连接）' : ''}
+                      </SelectItem>
                       {modelOptions.map((option) => (
                         <SelectItem key={option.key} value={option.key} disabled={option.disabled}>
                           {option.label}
-                          {option.disabled ? '（OpenAI 兼容协议，润色暂不支持）' : ''}
+                          {option.reason}
                         </SelectItem>
                       ))}
                     </SelectContent>

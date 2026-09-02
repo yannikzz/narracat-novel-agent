@@ -255,7 +255,13 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
         retryOnce(() => deps.clearPendingMemorySync(projectPath, selectedChapter)),
       )
     }
-    if (payload.type === 'run.completed' && run.command === 'write-next' && run.projectPath) {
+    // recover-write 与 write-next 同样产出正文（两条 run 路径都标 manuscriptRevisionSource:
+    // 'agent-write'），只判前者会让「恢复写作」写出来的新章拿不到常驻润色。
+    if (
+      payload.type === 'run.completed' &&
+      (run.command === 'write-next' || run.command === 'recover-write') &&
+      run.projectPath
+    ) {
       const projectPath = run.projectPath
       // 旁路：常驻润色失败绝不影响通知与写作链路收尾，故不进 runIndependentSideEffects。
       try {

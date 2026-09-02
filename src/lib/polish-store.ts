@@ -138,9 +138,11 @@ export function isAdoptable(version: PolishVersionState | undefined): boolean {
 /**
  * 「已等多久」的人话。
  *
- * 主力渠道（deepseek anthropic 端点）实测**基本不做增量流式**：整章输入下首个文本 delta 要等
- * 89 秒，之后 0.2 秒内全部到达。所以「还没收到第一个字」是常态而不是异常，界面必须显示一个还在
- * 走的计时，否则一分半钟里它看起来就是死的——把这段标成「排队中」是错的。
+ * 「还没收到第一个字」不等于「排队中」——请求早发出去了，界面得显示一个还在走的计时，否则那段
+ * 时间里它看起来就是死的。开着推理模式时模型可能长时间只吐思考不吐正文，这个计时尤其必要。
+ *
+ * （早期这里写过「该端点基本不做增量流式、首字要等 89 秒」，那是 thinking 烧预算造成的误判，
+ * 已由 ADR-0041 更正：关掉思考后首字 1.4 秒。）
  */
 export function formatPolishElapsed(startedAt: number | null, now: number): string {
   if (startedAt === null) return ''

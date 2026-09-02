@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
@@ -41,11 +41,24 @@ describe('readPolishSettings', () => {
     expect((await readPolishSettings(projectPath)).standingSlotId).toBeNull()
   })
 
-  test('非法槽位与非法章号被丢弃', async () => {
-    await writeRaw(JSON.stringify({ version: 1, standingSlotId: 'slot-9', divergedChapters: [3, 0, -1, '5'] }))
-    const settings = await readPolishSettings(projectPath)
-    expect(settings.standingSlotId).toBeNull()
-    expect(settings.divergedChapters).toEqual([3])
+  test('字段结构损坏 → 按损坏处理，且拒绝写回（分家标识不能被静默抹掉）', async () => {
+    await writeRaw(JSON.stringify({ version: 1, standingSlotId: 'slot-1', divergedChapters: '坏掉的' }))
+    expect((await readPolishSettings(projectPath)).divergedChapters).toEqual([])
+
+    // 只判「JSON 能不能解析」是不够的：字段坏掉会被静默归一化，下一次写入就把原文件覆盖了
+    await expect(setStandingPolishSlot(projectPath, 'slot-2')).rejects.toThrow('已损坏')
+    expect(await readFile(polishSettingsPath(projectPath), 'utf-8')).toContain('坏掉的')
+  })
+
+  test('outcome 缺字段同样算损坏', async () => {
+    await writeRaw(JSON.stringify({ version: 1, standingOutcomes: { '7': { status: 'applied' } } }))
+    await expect(markChapterDiverged(projectPath, 3)).rejects.toThrow('已损坏')
+  })
+
+  test('缺省字段不算损坏——老文件没有新字段是正常的', async () => {
+    await writeRaw(JSON.stringify({ version: 1, standingSlotId: 'slot-1' }))
+    await setStandingPolishSlot(projectPath, 'slot-2')
+    expect((await readPolishSettings(projectPath)).standingSlotId).toBe('slot-2')
   })
 })
 

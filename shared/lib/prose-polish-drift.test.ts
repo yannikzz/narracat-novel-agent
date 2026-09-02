@@ -3,6 +3,7 @@ import {
   describePolishDrift,
   detectPolishDrift,
   extractNumberTokens,
+  extractSpeakerNames,
   parseChineseNumeral,
   splitPolishParagraphs,
 } from './prose-polish-drift'
@@ -134,6 +135,14 @@ describe('detectPolishDrift', () => {
     const result = drift('林跃独自站在门口。', '林跃站在门口。「你来了。」王五说。')
     expect(result.detail.addedNames).toContain('王五')
     expect(result.drifted).toBe(true)
+  })
+
+  test('「王五笑道」切出的是王五，不是「王五笑」——贪婪匹配踩过这个坑', () => {
+    expect(extractSpeakerNames('「你来了。」王五笑道。')).toEqual(['王五'])
+  })
+
+  test('代词开头不当新角色——「他知道」不该切出「他知」', () => {
+    expect(extractSpeakerNames('他知道这件事。她说得对。')).toEqual([])
   })
 
   test('副词落在署名位不误报——「轻声说」不是新角色', () => {

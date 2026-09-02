@@ -28,9 +28,11 @@ export interface StandingPolishDeps {
    */
   withProjectLock?: <T>(projectPath: string, operation: () => Promise<T>) => Promise<T>
   /**
-   * 这一章的正文是否在本次写作 run 之后才落盘。
-   * 写作命令有「先不写」这条出口，run 照样正常结束——不判这个就会把上一章重润一遍，
-   * 违反「只作用于往后新写的章」。
+   * 本次写作 run 期间，这一章有没有真的产出过正文。
+   *
+   * 写作命令有「先不写」这条出口、run 照样正常结束——不判这个就会把上一章重润一遍。
+   * 判据用「本次 run 期间登记过版本记录」而不是文件 mtime：草稿区正文是 rename 搬进正式路径的，
+   * mtime 可能停留在更早（恢复写作尤其明显，草稿是上一次中断时写的），按 mtime 判会漏。
    */
   hasFreshManuscript?: (projectPath: string, chapter: number) => Promise<boolean>
 }

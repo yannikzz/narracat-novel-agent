@@ -27,21 +27,40 @@ function emptySettings(): ProjectPolishSettings {
   return { version: 1, standingSlotId: null, standingOutcomes: {}, divergedChapters: [] }
 }
 
-function normalizeOutcomes(value: unknown): Record<string, StandingPolishOutcome> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+/**
+ * 归一化同时判损坏。
+ *
+ * 只判「JSON 解析失败 / 根节点不是对象」是不够的：字段结构坏掉（`divergedChapters` 变成字符串、
+ * 某条 outcome 缺 `at`）会被静默归一化成合法值，下一次写入就把原文件覆盖掉，分家标识一样丢。
+ * **凡是「读到的东西和归一化后不等价」，一律按损坏处理、拒绝写回。**
+ */
+function normalizeOutcomes(value: unknown): { outcomes: Record<string, StandingPolishOutcome>; ok: boolean } {
+  if (value === undefined) return { outcomes: {}, ok: true }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { outcomes: {}, ok: false }
+
   const result: Record<string, StandingPolishOutcome> = {}
   for (const [chapter, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!raw || typeof raw !== 'object') continue
+    if (!raw || typeof raw !== 'object') return { outcomes: {}, ok: false }
     const entry = raw as { status?: unknown; at?: unknown; note?: unknown }
-    if (entry.status !== 'applied' && entry.status !== 'skipped') continue
-    if (typeof entry.at !== 'string') continue
+    if (entry.status !== 'applied' && entry.status !== 'skipped') return { outcomes: {}, ok: false }
+    if (typeof entry.at !== 'string') return { outcomes: {}, ok: false }
+    if (entry.note !== undefined && typeof entry.note !== 'string') return { outcomes: {}, ok: false }
     result[chapter] = {
       status: entry.status,
       at: entry.at,
       ...(typeof entry.note === 'string' ? { note: entry.note } : {}),
     }
   }
-  return result
+  return { outcomes: result, ok: true }
+}
+
+function normalizeDivergedChapters(value: unknown): { chapters: number[]; ok: boolean } {
+  if (value === undefined) return { chapters: [], ok: true }
+  if (!Array.isArray(value)) return { chapters: [], ok: false }
+  if (!value.every((item) => typeof item === 'number' && Number.isInteger(item) && item >= 1)) {
+    return { chapters: [], ok: false }
+  }
+  return { chapters: [...new Set(value as number[])].sort((a, b) => a - b), ok: true }
 }
 
 function isMissingFileError(error: unknown): boolean {
@@ -82,18 +101,23 @@ async function readPolishSettingsFile(projectPath: string): Promise<ReadResult> 
     return { settings: emptySettings(), corrupted: true }
   }
   const raw = parsed as Record<string, unknown>
-  const divergedChapters = Array.isArray(raw.divergedChapters)
-    ? raw.divergedChapters.filter(
-        (chapter): chapter is number => typeof chapter === 'number' && Number.isInteger(chapter) && chapter >= 1,
-      )
-    : []
+
+  const slotOk =
+    raw.standingSlotId === undefined || raw.standingSlotId === null || isPolishSlotId(raw.standingSlotId)
+  const { outcomes, ok: outcomesOk } = normalizeOutcomes(raw.standingOutcomes)
+  const { chapters, ok: chaptersOk } = normalizeDivergedChapters(raw.divergedChapters)
+
+  if (!slotOk || !outcomesOk || !chaptersOk) {
+    console.warn('[polish] 润色设置字段结构异常，按损坏处理（不会覆盖该文件）')
+    return { settings: emptySettings(), corrupted: true }
+  }
 
   return {
     settings: {
       version: 1,
       standingSlotId: isPolishSlotId(raw.standingSlotId) ? raw.standingSlotId : null,
-      standingOutcomes: normalizeOutcomes(raw.standingOutcomes),
-      divergedChapters: [...new Set(divergedChapters)].sort((a, b) => a - b),
+      standingOutcomes: outcomes,
+      divergedChapters: chapters,
     },
     corrupted: false,
   }
