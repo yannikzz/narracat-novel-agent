@@ -118,7 +118,7 @@ describe('isAdoptable', () => {
 })
 
 describe('reset', () => {
-  test('关掉面板即丢弃未采用的版本', () => {
+  test('只有作者点「丢弃」或采用某版才清空——离开页面不该丢', () => {
     apply(
       { type: 'started', runId: 'r1', chapter: 7, slotIds: ['slot-1'] },
       { type: 'delta', runId: 'r1', slotId: 'slot-1', text: '正文。' },
@@ -128,6 +128,7 @@ describe('reset', () => {
     expect(state.order).toEqual([])
     expect(state.versions).toEqual({})
     expect(state.runId).toBeNull()
+    expect(state.baselineText).toBeNull()
   })
 })
 

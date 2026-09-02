@@ -129,12 +129,12 @@ export function ChapterManuscriptView({
   const polishOrder = usePolishRun((state) => state.order)
   const polishChapter = usePolishRun((state) => state.chapter)
   const resetPolish = usePolishRun((state) => state.reset)
-  // 切章即丢弃未采用的版本：它们属于上一章，留着只会让「正文是哪一版」变得可疑。
-  useEffect(() => {
-    return () => {
-      resetPolish()
-    }
-  }, [chapter, resetPolish])
+  const polishBaseline = usePolishRun((state) => state.baselineText)
+
+  // ⚠️ 这里曾经在 unmount 时清空版本，本意是「切章即丢弃」，实际却是「离开这一页就丢」——
+  // 切到「章节大纲」看一眼再回来，刚跑出来的三版就没了（真机撞出来的）。
+  // 切章本来就有下面的 polishChapter === chapter 守着：别的章不会显示，回到本章又能接着读。
+  // 丢弃只该由两件事触发：作者点「丢弃」，或采用了某一版。
 
   const polishActive = polishOrder.length > 0 && polishChapter === chapter
   const activePolishSlot = polishActive && polishTab !== 'original' ? polishTab : null
@@ -155,6 +155,9 @@ export function ChapterManuscriptView({
 
   const visibleText = extractChapterMetadata(artifact?.content ?? '').content
   const dirty = editing && draft !== baseText
+  // 这几版是照着当时那份正文润的；期间正文若被改过（手改 / Agent 重写 / 常驻润色），
+  // 它们就过期了。不提示的话作者会一路读到点「采用」才撞上乐观锁冲突。
+  const polishStale = polishActive && polishBaseline !== null && polishBaseline !== visibleText
   draftRef.current = draft
   baseTextRef.current = baseText
 
@@ -464,6 +467,13 @@ export function ChapterManuscriptView({
           </Button>
         </div>
       )}
+      {polishStale && (
+        <div className="mb-3 rounded-row border border-border bg-surface px-3 py-2" data-polish-stale="true">
+          <p className="text-sm text-muted-foreground">
+            正文在这几版跑出来之后又被改过，它们已经对不上了。重新润一次再选。
+          </p>
+        </div>
+      )}
       {polishActive && (
         <>
           <PolishVersionTabs active={polishTab} onChange={setPolishTab} />
@@ -509,6 +519,7 @@ export function ChapterManuscriptView({
         onOpenChange={setPolishOpen}
         projectPath={projectPath}
         chapter={chapter}
+        originalText={visibleText}
         onStarted={(slotIds) => setPolishTab(slotIds[0])}
       />
     </div>

@@ -133,6 +133,26 @@ describe('版本呈现在正文区', () => {
     expect(versionsSource).toContain("const POLISH_READING_COLUMN_CLASS = 'mx-auto w-full max-w-[820px]'")
   })
 
+  test('版本不随离开页面消失——切到别的 tab 再回来还在', () => {
+    const view = readFileSync(
+      fileURLToPath(new URL('./ChapterManuscriptView.tsx', import.meta.url)),
+      'utf-8',
+    )
+    // 曾经挂在 unmount 上清空，切到「章节大纲」看一眼再回来三版就没了（真机撞出来的）。
+    // 切章由 polishChapter === chapter 守，不需要也不该用卸载来清。
+    expect(view).not.toContain('return () => {\n      resetPolish()')
+    expect(view).toContain('polishChapter === chapter')
+  })
+
+  test('正文在跑完之后被改过 → 明示版本已过期，而不是等采用时撞乐观锁', () => {
+    const view = readFileSync(
+      fileURLToPath(new URL('./ChapterManuscriptView.tsx', import.meta.url)),
+      'utf-8',
+    )
+    expect(view).toContain('polishBaseline !== visibleText')
+    expect(view).toContain('data-polish-stale')
+  })
+
   test('常驻润色跑完要刷新正文，不能只刷横幅', () => {
     const view = readFileSync(
       fileURLToPath(new URL('./ChapterManuscriptView.tsx', import.meta.url)),

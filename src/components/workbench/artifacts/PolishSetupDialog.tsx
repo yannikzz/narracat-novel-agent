@@ -69,12 +69,15 @@ export function PolishSetupDialog({
   onOpenChange,
   projectPath,
   chapter,
+  originalText,
   onStarted,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   projectPath: string
   chapter: number
+  /** 送去润色的那一份正文，同时作为版本的基线（用来判断它们后来有没有过期）。 */
+  originalText: string
   onStarted: (slotIds: PolishSlotId[]) => void
 }) {
   const [recipes, setRecipes] = useState<PolishRecipe[]>([])
@@ -188,7 +191,7 @@ export function PolishSetupDialog({
 
     setStarting(true)
     try {
-      await start({ projectPath, chapter, slotIds: runnable })
+      await start({ projectPath, chapter, slotIds: runnable, baselineText: originalText })
       onStarted(runnable)
       onOpenChange(false)
     } catch (error) {

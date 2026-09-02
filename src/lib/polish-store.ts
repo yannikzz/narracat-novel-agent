@@ -18,8 +18,13 @@ export interface PolishRunState {
   chapter: number | null
   /** 本轮参与的槽，按发起顺序 */
   order: PolishSlotId[]
-  /** 本轮发起时刻（ms）。主力渠道首字要等一分多钟，界面得靠它显示「已等多久」。 */
+  /** 本轮发起时刻（ms）。界面靠它显示「已等多久」。 */
   startedAt: number | null
+  /**
+   * 送去润色的那一份正文。
+   * 版本不再随离开页面消失，就得有办法判断它们是不是已经对不上当前正文了。
+   */
+  baselineText: string | null
   versions: Partial<Record<PolishSlotId, PolishVersionState>>
   /** 还有版本在跑 */
   running: boolean
@@ -28,7 +33,12 @@ export interface PolishRunState {
    * 正文页把它挂进依赖里重读设置与正文——否则自动润完那一章会一直停在原稿上。
    */
   standingVersion: number
-  start: (input: { projectPath: string; chapter: number; slotIds: PolishSlotId[] }) => Promise<void>
+  start: (input: {
+    projectPath: string
+    chapter: number
+    slotIds: PolishSlotId[]
+    baselineText: string
+  }) => Promise<void>
   cancelOne: (slotId: PolishSlotId) => Promise<void>
   cancelAll: () => Promise<void>
   reset: () => void
@@ -44,12 +54,21 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
   chapter: null,
   order: [],
   startedAt: null,
+  baselineText: null,
   versions: {},
   running: false,
   standingVersion: 0,
 
-  start: async ({ projectPath, chapter, slotIds }) => {
-    set({ runId: null, chapter, order: slotIds, startedAt: Date.now(), versions: {}, running: true })
+  start: async ({ projectPath, chapter, slotIds, baselineText }) => {
+    set({
+      runId: null,
+      chapter,
+      order: slotIds,
+      startedAt: Date.now(),
+      baselineText,
+      versions: {},
+      running: true,
+    })
     try {
       const { runId, versions } = await startPolishRun({ projectPath, chapter, slotIds })
       // 只补还不存在的槽：事件可能先于 invoke 的返回到达，直接整片覆盖会把已收到的增量抹掉。
@@ -79,7 +98,15 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
   },
 
   reset: () =>
-    set({ runId: null, chapter: null, order: [], startedAt: null, versions: {}, running: false }),
+    set({
+      runId: null,
+      chapter: null,
+      order: [],
+      startedAt: null,
+      baselineText: null,
+      versions: {},
+      running: false,
+    }),
 
   applyEvent: (event) => {
     const state = get()
