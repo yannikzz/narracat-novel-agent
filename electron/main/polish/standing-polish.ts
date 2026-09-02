@@ -9,6 +9,7 @@
  * 「怎么好几章没润色」的哑谜。
  */
 import { describePolishDrift } from '@shared/lib/prose-polish-drift'
+import type { ManuscriptRevisionEntry } from '@shared/types/manuscript-revision'
 import { adoptPolishedChapter } from './polish-adopt.ts'
 import type { PolishRunManager } from './polish-runner.ts'
 import type { OpenMemoryDb } from '../novel/memory-db.ts'
@@ -35,6 +36,28 @@ export interface StandingPolishDeps {
    * mtime 可能停留在更早（恢复写作尤其明显，草稿是上一次中断时写的），按 mtime 判会漏。
    */
   hasFreshManuscript?: (projectPath: string, chapter: number) => Promise<boolean>
+}
+
+/**
+ * 「本次写作 run 期间，这一章登记过 agent-write 版本记录」= 这一章真的由这次写作产出了正文。
+ *
+ * 三个条件缺一不可：①来源必须是 `agent-write`——只判时间的话，作者在「先不写」期间手改保存
+ * 一次，那条 `author-save` 也会把常驻误触发起来；②不早于 run 起点——否则重润上一章；
+ * ③不晚于 run 终点——这个检查是异步旁路，只判起点的话，下一轮很快写出的正文会被这一轮
+ * 迟到的检查错认成自己的。时间解析不出来按「不新鲜」处理（fail-safe：不确定就当没写）。
+ */
+export function hasAgentWriteWithinRun(
+  revisions: ManuscriptRevisionEntry[],
+  run: { startedAt: string; finishedAt: string },
+): boolean {
+  const start = Date.parse(run.startedAt)
+  const end = Date.parse(run.finishedAt)
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return false
+  return revisions.some((revision) => {
+    if (revision.source !== 'agent-write') return false
+    const at = Date.parse(revision.createdAt)
+    return Number.isFinite(at) && at >= start && at <= end
+  })
 }
 
 export type StandingPolishResult =

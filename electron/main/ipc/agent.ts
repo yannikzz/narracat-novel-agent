@@ -28,7 +28,7 @@ import type {
 import { loadNovelProjectSummary } from '../novel/novel-project.ts'
 import { clearPendingMemorySync } from '../novel/pending-memory-sync.ts'
 import { openMemoryDbReadonly } from '../novel/memory-db.ts'
-import { runStandingPolish } from '../polish/standing-polish.ts'
+import { hasAgentWriteWithinRun, runStandingPolish } from '../polish/standing-polish.ts'
 import { broadcastPolishEvent, createHeadlessPolishRunManager } from '../polish/polish-runtime.ts'
 import { manuscriptRevisionStore } from '../novel/manuscript-revisions.ts'
 import {
@@ -65,22 +65,17 @@ export function getAgentRuntimeCoordinator(): AgentRuntimeCoordinator {
       onChapterWriteEvent: (event) => void recordChapterWrite(event),
       // 常驻润色（ADR-0041 §8）：写完一章、记忆已入库之后，App 层追加的那一步。
       // 完全旁路——失败只落进本章的「已跳过」留痕，绝不回头影响写作链路。
-      onChapterWriteCompleted: ({ projectPath, startedAt }) => {
+      onChapterWriteCompleted: ({ projectPath, startedAt, finishedAt }) => {
         void runStandingPolish(projectPath, {
           polishOnce: (input) => createHeadlessPolishRunManager().polishChapterOnce(input),
           openMemoryDb: openMemoryDbReadonly,
           withProjectLock: runProjectMutation,
           hasFreshManuscript: async (path, chapter) => {
-            // 「本次 run 期间登记过 agent-write 版本记录」= 这一章真的由这次写作产出了正文。
-            // 必须同时判来源：只判时间的话，作者在「先不写」期间手改保存一次，
-            // 那条 author-save 也会把常驻润色误触发起来。
             const list = await manuscriptRevisionStore
               .listChapter({ projectPath: path, chapter })
               .catch(() => null)
             if (!list) return false
-            return list.revisions.some(
-              (revision) => revision.source === 'agent-write' && revision.createdAt >= startedAt,
-            )
+            return hasAgentWriteWithinRun(list.revisions, { startedAt, finishedAt })
           },
         })
           .then((result) => {

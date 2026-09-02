@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/cn'
 import { adoptPolishedChapter, getPolishSettings, markStandingPromptAnswered, setStandingPolishSlot } from '@/lib/ipc'
 import { diffManuscriptRevision } from '@/lib/manuscript-revision-diff'
-import { formatPolishElapsed, usePolishRun } from '@/lib/polish-store'
+import { formatPolishElapsed, isPolishVersionRunning, usePolishRun } from '@/lib/polish-store'
 import { describePolishDrift } from '@shared/lib/prose-polish-drift'
 import type { PolishSlotId, PolishVersionState } from '@shared/types/prose-polish'
 
@@ -80,6 +80,8 @@ export function changedParagraphRatio(original: string, polished: string): numbe
 export interface PolishVersionView {
   label: string
   running: boolean
+  /** 全文已到齐（定稿走 markdown 渲染、可对照原稿；流式期间只能纯文本） */
+  complete: boolean
   canAbort: boolean
   canCompare: boolean
   canAdopt: boolean
@@ -94,7 +96,7 @@ export function derivePolishVersionView(input: {
   stale: boolean
 }): PolishVersionView {
   const { version, elapsed, originalText, stale } = input
-  const idle = { running: false, canAbort: false, canCompare: false, canAdopt: false, error: null }
+  const idle = { running: false, complete: false, canAbort: false, canCompare: false, canAdopt: false, error: null }
   if (!version) return { label: '', ...idle }
 
   switch (version.status) {
@@ -115,6 +117,7 @@ export function derivePolishVersionView(input: {
       return {
         label: `改动 ${changed}% 段落 · ${drift}`,
         ...idle,
+        complete: true,
         canCompare: true,
         canAdopt: !stale && version.text.trim().length > 0,
       }
@@ -138,7 +141,7 @@ export function PolishVersionTabs({
     ...order.map((slotId) => ({
       value: slotId as PolishTabValue,
       label: POLISH_SLOT_LABELS[slotId],
-      busy: versions[slotId]?.status === 'streaming' || versions[slotId]?.status === 'pending',
+      busy: isPolishVersionRunning(versions[slotId]),
     })),
   ]
 
@@ -213,10 +216,9 @@ export function PolishPanel({
     stale,
   })
 
-  // 必须同时判 done：comparing 跨版本共享，开着它切到还在流的版本就会对半截文本算 diff——
+  // 必须同时判可对照：comparing 跨版本共享，开着它切到还在流的版本就会对半截文本算 diff——
   // 那个 diff 只会显示「后面全被删了」，纯属误导。
-  const diff =
-    comparing && version?.status === 'done' ? diffManuscriptRevision(originalText, version.text) : null
+  const diff = comparing && view.canCompare && version ? diffManuscriptRevision(originalText, version.text) : null
 
   async function adopt(acknowledged = false): Promise<void> {
     if (!slotId || !view.canAdopt || !version) return
@@ -344,8 +346,8 @@ export function PolishPanel({
 
       {slotId && (
         <section className={WORKBENCH_READING_CANVAS_CLASS} data-reading-canvas="true">
-          {version?.status === 'failed' ? (
-            <p className="py-4 text-sm text-destructive">{version.error}</p>
+          {view.error ? (
+            <p className="py-4 text-sm text-destructive">{view.error}</p>
           ) : diff ? (
             <div className="font-mono text-xs leading-5" data-polish-diff="true">
               {diff.lines.map((line, index) => (
@@ -363,7 +365,7 @@ export function PolishPanel({
                 </div>
               ))}
             </div>
-          ) : version?.status === 'done' ? (
+          ) : view.complete && version ? (
             // 定稿走与原稿完全相同的渲染路径（ArtifactDocumentBody → MarkdownRenderer），
             // 保证两版之间的差异只来自文字本身。
             <ArtifactDocumentBody>{version.text}</ArtifactDocumentBody>

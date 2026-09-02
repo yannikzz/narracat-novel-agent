@@ -108,8 +108,21 @@ describe('版本呈现在正文区', () => {
     expect(versionsSource).toContain('canAdopt: !stale && version.text.trim().length > 0')
   })
 
-  test('对照原稿要等全文到齐——半截文本上算 diff 只会显示「后面全被删了」', () => {
-    expect(versionsSource).toContain("comparing && version?.status === 'done'")
+  test('对照原稿要等全文到齐——半截文本上算 diff 只会显示「后面全被删了」', async () => {
+    const { derivePolishVersionView } = await import('./ChapterPolishVersions')
+    const view = (status: 'pending' | 'streaming' | 'done' | 'failed' | 'aborted') =>
+      derivePolishVersionView({
+        version: { slotId: 'slot-1', status, text: '半截' },
+        elapsed: '',
+        originalText: '原稿',
+        stale: false,
+      })
+    expect(view('streaming').canCompare).toBe(false)
+    expect(view('pending').canCompare).toBe(false)
+    expect(view('done').canCompare).toBe(true)
+    // diff 只认派生结果，不再自己判 status——判断只能有一处。
+    expect(versionsSource).toContain('comparing && view.canCompare')
+    expect(versionsSource).not.toContain("version?.status === 'done'")
   })
 
   test('丢弃 / 采用都要先停掉还在跑的版本，不能只清渲染端状态', () => {
@@ -207,8 +220,19 @@ describe('版本呈现在正文区', () => {
     expect(versionsSource).toContain('sticky top-0 z-20 bg-workspace')
   })
 
-  test('流式期间不走 markdown 解析——一章两千多个增量会把主线程拖垮', () => {
-    expect(versionsSource).toContain("version?.status === 'done' ? (")
+  test('流式期间不走 markdown 解析——一章两千多个增量会把主线程拖垮', async () => {
+    const { derivePolishVersionView } = await import('./ChapterPolishVersions')
+    const complete = (status: 'streaming' | 'done') =>
+      derivePolishVersionView({
+        version: { slotId: 'slot-1', status, text: '正文' },
+        elapsed: '',
+        originalText: '原稿',
+        stale: false,
+      }).complete
+    expect(complete('streaming')).toBe(false)
+    expect(complete('done')).toBe(true)
+    // 只有定稿才进 ArtifactDocumentBody（markdown 渲染），分支只认派生结果。
+    expect(versionsSource).toContain('view.complete && version ? (')
   })
 
   test('改动比例贴在状态里——一版几乎没动时，作者不必读三千字才发现要求没落地', () => {

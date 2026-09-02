@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runStandingPolish, type StandingPolishDeps } from './standing-polish.ts'
+import { hasAgentWriteWithinRun, runStandingPolish, type StandingPolishDeps } from './standing-polish.ts'
+import type { ManuscriptRevisionEntry } from '@shared/types/manuscript-revision'
 import { createNovelProjectFixture, writeNovelFixtureFile } from '../novel/test-novel-fixture.ts'
 import { readPolishSettings, setStandingPolishSlot } from '../novel/polish-settings.ts'
 import { detectPolishDrift } from '@shared/lib/prose-polish-drift'
@@ -158,5 +159,33 @@ describe('runStandingPolish', () => {
       if (result.status === 'applied') expect(disk).toContain('又对折')
       else expect(disk.trim()).toBe(VISIBLE)
     }
+  })
+})
+
+describe('hasAgentWriteWithinRun', () => {
+  const run = { startedAt: '2026-09-02T10:00:00.000Z', finishedAt: '2026-09-02T10:12:00.000Z' }
+  function revision(source: ManuscriptRevisionEntry['source'], createdAt: string): ManuscriptRevisionEntry {
+    return { id: createdAt, chapter: 7, source, createdAt, summary: { addedChars: 0, removedChars: 0 } }
+  }
+
+  test('本次 run 期间登记的 agent-write 才算新鲜', () => {
+    expect(hasAgentWriteWithinRun([revision('agent-write', '2026-09-02T10:05:00.000Z')], run)).toBe(true)
+  })
+
+  test('「先不写」期间的手改保存不算——来源必须是 agent-write', () => {
+    expect(hasAgentWriteWithinRun([revision('author-save', '2026-09-02T10:05:00.000Z')], run)).toBe(false)
+  })
+
+  test('上一轮写出来的正文不算——不早于本次 run 起点', () => {
+    expect(hasAgentWriteWithinRun([revision('agent-write', '2026-09-02T09:50:00.000Z')], run)).toBe(false)
+  })
+
+  test('下一轮写出来的正文不算——这条检查是异步旁路，不能被后来的写入错认', () => {
+    expect(hasAgentWriteWithinRun([revision('agent-write', '2026-09-02T10:12:00.001Z')], run)).toBe(false)
+  })
+
+  test('时间解析不出来按不新鲜处理（不确定就当没写）', () => {
+    expect(hasAgentWriteWithinRun([revision('agent-write', 'garbage')], run)).toBe(false)
+    expect(hasAgentWriteWithinRun([revision('agent-write', '2026-09-02T10:05:00.000Z')], { ...run, finishedAt: '' })).toBe(false)
   })
 })

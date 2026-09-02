@@ -66,6 +66,11 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
   standingVersion: 0,
 
   start: async ({ projectPath, chapter, slotIds, baselineText }) => {
+    // 先停上一轮再开新一轮：跑版期间「润色正文」按钮并不禁用，作者可以直接再发一轮。
+    // 不停的话上一轮会继续跑完、继续烧 token；而且它的增量会在下面 runId 清空的窗口里
+    // 落进新一轮（applyEvent 只认当前 runId，空窗口靠「只放行 started」兜底，见那里的注释）。
+    // 取消失败不阻断发起——最坏只是多烧一版的钱。
+    await get().cancelAll().catch(() => undefined)
     set({
       runId: null,
       projectPath,
@@ -118,8 +123,17 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
 
   applyEvent: (event) => {
     const state = get()
-    // 面板已经开始新一轮时，旧 run 的迟到事件直接丢——它们属于一批已经被作者放弃的版本。
-    if (state.runId && 'runId' in event && event.runId !== state.runId) return
+
+    // 常驻收尾不属于任何一次试验运行，只负责把渲染端叫醒。
+    if (event.type === 'standing-finished') {
+      set((current) => ({ standingVersion: current.standingVersion + 1 }))
+      return
+    }
+
+    // 只认当前 run 的事件；`started` 例外，它就是用来建立当前 run 的。
+    // runId 为空（刚发起还没收到 started、或刚丢弃 / 采用完）的窗口里一律丢：
+    // 这个窗口原来是漏的——旧 run 的增量会拼进新一轮的版本、被中止的槽会在 reset 之后写回。
+    if (event.type !== 'started' && event.runId !== state.runId) return
 
     if (event.type === 'started') {
       set((state) => ({
@@ -138,12 +152,6 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
 
     if (event.type === 'finished') {
       set({ running: false })
-      return
-    }
-
-    // 常驻收尾不属于任何一次试验运行，只负责把渲染端叫醒。
-    if (event.type === 'standing-finished') {
-      set((current) => ({ standingVersion: current.standingVersion + 1 }))
       return
     }
 
@@ -174,6 +182,11 @@ export function subscribePolishEvents(): () => void {
  */
 export function isAdoptable(version: PolishVersionState | undefined): boolean {
   return version?.status === 'done' && version.text.trim().length > 0
+}
+
+/** 这一版还在跑（等首字或正在流）。tab 的忙碌点与操作条的「中止」都只认这一条。 */
+export function isPolishVersionRunning(version: PolishVersionState | undefined): boolean {
+  return version?.status === 'pending' || version?.status === 'streaming'
 }
 
 /**
