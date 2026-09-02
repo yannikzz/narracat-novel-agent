@@ -128,6 +128,7 @@ export function ChapterManuscriptView({
 
   const polishOrder = usePolishRun((state) => state.order)
   const polishChapter = usePolishRun((state) => state.chapter)
+  const polishProjectPath = usePolishRun((state) => state.projectPath)
   const resetPolish = usePolishRun((state) => state.reset)
   const polishBaseline = usePolishRun((state) => state.baselineText)
 
@@ -136,10 +137,15 @@ export function ChapterManuscriptView({
   // 切章本来就有下面的 polishChapter === chapter 守着：别的章不会显示，回到本章又能接着读。
   // 丢弃只该由两件事触发：作者点「丢弃」，或采用了某一版。
 
-  const polishActive = polishOrder.length > 0 && polishChapter === chapter
+  // 归属必须同时判书和章：只判章号的话，切到另一本书的同章号会显示上一本的版本，
+  // 而采用时用的是当前书的正文当乐观锁基线——那会把别的书的文字写进这本书。
+  const polishActive = polishOrder.length > 0 && polishChapter === chapter && polishProjectPath === projectPath
   const activePolishSlot = polishActive && polishTab !== 'original' ? polishTab : null
 
   function discardPolishVersions(): void {
+    // 先停再清：不停的话被丢弃的版本会继续跑完、继续烧 token，
+    // 而 runId 清空之后迟到的事件还可能落进下一轮状态。
+    void usePolishRun.getState().cancelAll()
     resetPolish()
     setPolishTab('original')
   }
@@ -482,6 +488,7 @@ export function ChapterManuscriptView({
             projectPath={projectPath}
             chapter={chapter}
             originalText={visibleText}
+            stale={polishStale}
             onDiscard={discardPolishVersions}
             onAdopted={() => {
               setPolishTab('original')

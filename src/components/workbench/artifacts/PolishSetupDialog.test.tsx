@@ -96,17 +96,52 @@ describe('版本呈现在正文区', () => {
     expect(versionsSource).toContain("{ value: 'original', label: '原稿', busy: false }")
   })
 
-  test('流式中的版本不给采用：采用钮由 isAdoptable 把关', () => {
-    expect(versionsSource).toContain('disabled={!isAdoptable(version) || adopting}')
+  test('界面判断只有一处派生：标签/忙碌/三个按钮都读同一个 view', () => {
+    // 曾经各处各判 status，加一个状态要改五处、漏一处就是只在某状态下出现的怪 bug
+    expect(versionsSource).toContain('derivePolishVersionView')
+    expect(versionsSource).toContain('disabled={!view.canAdopt || adopting}')
+    expect(versionsSource).toContain('{slotId && view.canAbort && (')
+    expect(versionsSource).toContain('disabled={!view.canCompare}')
   })
 
-  test('中止只在还没跑完时出现', () => {
-    expect(versionsSource).toContain("version?.status === 'streaming' || version?.status === 'pending'")
+  test('基线过期时禁用采用，不只是提示', () => {
+    expect(versionsSource).toContain('canAdopt: !stale && version.text.trim().length > 0')
   })
 
   test('对照原稿要等全文到齐——半截文本上算 diff 只会显示「后面全被删了」', () => {
-    expect(versionsSource).toContain("disabled={version?.status !== 'done'}")
     expect(versionsSource).toContain("comparing && version?.status === 'done'")
+  })
+
+  test('丢弃 / 采用都要先停掉还在跑的版本，不能只清渲染端状态', () => {
+    const view = readFileSync(
+      fileURLToPath(new URL('./ChapterManuscriptView.tsx', import.meta.url)),
+      'utf-8',
+    )
+    expect(view).toContain('usePolishRun.getState().cancelAll()')
+    expect(versionsSource).toContain('await cancelAll()')
+  })
+
+  test('成功态不发 toast（design.md：Toast 不做操作确认）', () => {
+    expect(versionsSource).not.toContain('toast.success')
+    expect(setupSource).not.toContain('toast.success')
+  })
+
+  test('随手关掉确认框不算「回答过」——只有明确选择才记下不再问', () => {
+    expect(versionsSource).toContain("if (outcome !== 'dismiss')")
+    expect(versionsSource).toContain('confirmWithOutcome')
+  })
+
+  test('版本 tab 的过渡时长跟规范走（hover/tab = duration-200）', () => {
+    expect(versionsSource).toContain('transition-colors duration-200')
+    expect(versionsSource).not.toContain('duration-150')
+  })
+
+  test('版本归属同时判书和章——只判章号会跨小说串数据', () => {
+    const view = readFileSync(
+      fileURLToPath(new URL('./ChapterManuscriptView.tsx', import.meta.url)),
+      'utf-8',
+    )
+    expect(view).toContain('polishChapter === chapter && polishProjectPath === projectPath')
   })
 
   test('旧章漂移必须先确认再采用', () => {

@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/cn'
 import { adoptPolishedChapter, getPolishSettings, markStandingPromptAnswered, setStandingPolishSlot } from '@/lib/ipc'
 import { diffManuscriptRevision } from '@/lib/manuscript-revision-diff'
-import { formatPolishElapsed, isAdoptable, usePolishRun } from '@/lib/polish-store'
+import { formatPolishElapsed, usePolishRun } from '@/lib/polish-store'
 import { describePolishDrift } from '@shared/lib/prose-polish-drift'
 import type { PolishSlotId, PolishVersionState } from '@shared/types/prose-polish'
 
@@ -29,7 +29,8 @@ import type { PolishSlotId, PolishVersionState } from '@shared/types/prose-polis
  * **所有操作收在正文上方那一条**（含「丢弃」）——tab 行只切换视图，不承载动作，
  * 否则同一屏会出现两个操作区，作者得记住哪个按钮在哪儿。
  *
- * 采用之前正文文件一个字节都没变——这些版本只活在内存里，切章或丢弃即消失。
+ * 采用之前正文文件一个字节都没变。版本只活在本次会话里，但**不随离开页面或切章消失**——
+ * 归属由 `projectPath + chapter` 判定，清空只由「丢弃 / 采用 / 发起新一轮」触发。
  */
 
 export type PolishTabValue = 'original' | PolishSlotId
@@ -70,19 +71,55 @@ export function changedParagraphRatio(original: string, polished: string): numbe
   return (lines.length - unchanged) / lines.length
 }
 
-function statusLabel(version: PolishVersionState | undefined, elapsed: string, originalText: string): string {
-  if (!version) return ''
-  // 「排队中」是错的：请求早就发出去了，我们在等模型开口。说清楚在等，并且让人看见它还在走。
-  if (version.status === 'pending') return `正在生成…${elapsed}`
-  if (version.status === 'streaming') return `正在写…已出 ${version.text.length} 字`
-  if (version.status === 'failed') return '没跑成'
-  if (version.status === 'aborted') return '已中止'
+/**
+ * 一版的全部界面判断收在这里。
+ *
+ * 之前标签、忙碌点、三个按钮、正文分支各判各的 `status`，加一个状态就要改五处、漏一处
+ * 就是一个只在某个状态下出现的怪 bug。派生一次，各处只读结果。
+ */
+export interface PolishVersionView {
+  label: string
+  running: boolean
+  canAbort: boolean
+  canCompare: boolean
+  canAdopt: boolean
+  error: string | null
+}
 
-  // 改动比例是这个功能最该告诉作者的一个数：一版几乎没动时，沉浸读完只会觉得「好像还行」，
-  // 而作者真正要知道的是「我的要求根本没落地」。让他不必读三千字就能判断要不要改提示词。
-  const changed = Math.round(changedParagraphRatio(originalText, version.text) * 100)
-  const drift = version.drift ? describePolishDrift(version.drift) : ''
-  return `改动 ${changed}% 段落 · ${drift}`
+export function derivePolishVersionView(input: {
+  version: PolishVersionState | undefined
+  elapsed: string
+  originalText: string
+  /** 正文在这一版跑完之后又被改过——基线已经对不上，采用只会撞乐观锁。 */
+  stale: boolean
+}): PolishVersionView {
+  const { version, elapsed, originalText, stale } = input
+  const idle = { running: false, canAbort: false, canCompare: false, canAdopt: false, error: null }
+  if (!version) return { label: '', ...idle }
+
+  switch (version.status) {
+    case 'pending':
+      // 「排队中」是错的：请求早发出去了，我们在等模型开口。说清楚在等，并让人看见它还在走。
+      return { label: `正在生成…${elapsed}`, ...idle, running: true, canAbort: true }
+    case 'streaming':
+      return { label: `正在写…已出 ${version.text.length} 字`, ...idle, running: true, canAbort: true }
+    case 'failed':
+      return { label: '没跑成', ...idle, error: version.error ?? '没跑成' }
+    case 'aborted':
+      return { label: '已中止', ...idle }
+    case 'done': {
+      // 改动比例是这个功能最该告诉作者的一个数：一版几乎没动时，沉浸读完只会觉得「好像还行」，
+      // 而他真正要知道的是「我的要求根本没落地」，不必读三千字就能判断要不要改提示词。
+      const changed = Math.round(changedParagraphRatio(originalText, version.text) * 100)
+      const drift = version.drift ? describePolishDrift(version.drift) : ''
+      return {
+        label: `改动 ${changed}% 段落 · ${drift}`,
+        ...idle,
+        canCompare: true,
+        canAdopt: !stale && version.text.trim().length > 0,
+      }
+    }
+  }
 }
 
 /** 版本切换条：只切视图，不放任何动作。 */
@@ -117,7 +154,7 @@ export function PolishVersionTabs({
           data-active={item.value === active}
           aria-current={item.value === active ? 'true' : undefined}
           className={cn(
-            'flex h-7 shrink-0 items-center gap-1.5 rounded-row px-2.5 text-xs transition-colors duration-150',
+            'flex h-7 shrink-0 items-center gap-1.5 rounded-row px-2.5 text-xs transition-colors duration-200',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             item.value === active
               ? 'bg-active font-semibold text-foreground'
@@ -143,6 +180,7 @@ export function PolishPanel({
   projectPath,
   chapter,
   originalText,
+  stale,
   onDiscard,
   onAdopted,
 }: {
@@ -150,21 +188,30 @@ export function PolishPanel({
   projectPath: string
   chapter: number
   originalText: string
+  /** 正文在这几版跑完之后又被改过——只提示不禁用的话，作者会读完才在采用时撞乐观锁。 */
+  stale: boolean
   onDiscard: () => void
   onAdopted: () => void
 }) {
   const [comparing, setComparing] = useState(false)
   const [adopting, setAdopting] = useState(false)
-  const { confirm, confirmDialog } = useConfirmDialog()
+  const { confirm, confirmWithOutcome, confirmDialog } = useConfirmDialog()
 
   const slotId = active === 'original' ? null : active
   const version = usePolishRun((state) => (slotId ? state.versions[slotId] : undefined))
   const startedAt = usePolishRun((state) => state.startedAt)
   const order = usePolishRun((state) => state.order)
   const cancelOne = usePolishRun((state) => state.cancelOne)
+  const cancelAll = usePolishRun((state) => state.cancelAll)
   const reset = usePolishRun((state) => state.reset)
 
   const now = useTick(version?.status === 'pending')
+  const view = derivePolishVersionView({
+    version,
+    elapsed: formatPolishElapsed(startedAt, now),
+    originalText,
+    stale,
+  })
 
   // 必须同时判 done：comparing 跨版本共享，开着它切到还在流的版本就会对半截文本算 diff——
   // 那个 diff 只会显示「后面全被删了」，纯属误导。
@@ -172,7 +219,7 @@ export function PolishPanel({
     comparing && version?.status === 'done' ? diffManuscriptRevision(originalText, version.text) : null
 
   async function adopt(acknowledged = false): Promise<void> {
-    if (!slotId || !isAdoptable(version) || !version) return
+    if (!slotId || !view.canAdopt || !version) return
     setAdopting(true)
     try {
       const result = await adoptPolishedChapter({
@@ -198,11 +245,13 @@ export function PolishPanel({
         return
       }
 
-      if (result.outcome.kind === 'pending-sync') toast.success('已采用。这一版改动了事实，记得同步本章记忆')
-      else if (result.outcome.kind === 'diverged') toast.success('已采用。这一章的正文与记忆已分开记着')
-      else toast.success('已采用')
+      // 采用成功不发 toast（design.md：Toast 不做操作确认）。正文当场换成这一版，
+      // 需要后续动作的两种收场各有常驻的内联横条：待同步红点、正文与记忆分家标识。
 
       await proposeStanding(slotId)
+      // 采用一版就等于放弃其余版本：不取消的话它们会继续跑完、继续烧 token，
+      // 而 reset 之后迟到的事件还可能落进下一轮状态。cancelAll 必须先于 reset。
+      await cancelAll()
       reset()
       onAdopted()
     } catch (error) {
@@ -225,16 +274,19 @@ export function PolishPanel({
     // 读不到设置就不问：宁可少问一次，也不要在不知道问过没有的情况下打断作者。
     if (!settings || settings.standingPromptAnswered || settings.standingSlotId) return
 
-    const confirmed = await confirm({
+    const outcome = await confirmWithOutcome({
       title: `以后这本书都用「${POLISH_SLOT_LABELS[adoptedSlot]}」润色？`,
       description: '写完新章后自动按这套要求润一遍，随时可以在润色弹窗里改。只影响往后新写的章。',
       confirmLabel: '设为常驻',
       cancelLabel: '这次就好',
     })
 
-    // 无论答哪个都记成「答过了」——「这次就好」是一个明确的回答，不是「下次再问我」。
-    await markStandingPromptAnswered(projectPath).catch((error) => console.error(error))
-    if (!confirmed) return
+    // 「设为常驻」与「这次就好」都是明确回答，记下不再问；
+    // 而 Esc / 点遮罩 / 关闭按钮不是回答——那是「现在不想理它」，下次该再问一次。
+    if (outcome !== 'dismiss') {
+      await markStandingPromptAnswered(projectPath).catch((error) => console.error(error))
+    }
+    if (outcome !== 'confirm') return
     await setStandingPolishSlot({ projectPath, slotId: adoptedSlot }).catch((error) => {
       console.error(error)
       toast.error('设置常驻失败')
@@ -251,13 +303,13 @@ export function PolishPanel({
         <div className="flex items-center justify-between gap-3 rounded-row border border-border bg-surface px-3 py-2">
           <p className={cn(METADATA_TEXT_CLASS, 'min-w-0 truncate')}>
             {slotId
-              ? `${statusLabel(version, formatPolishElapsed(startedAt, now), originalText)}${
+              ? `${view.label}${
                   version?.usage ? ` · 用量 ${version.usage.inputTokens} / ${version.usage.outputTokens}` : ''
                 }`
               : `${order.length} 版可选，切过去读读看`}
           </p>
           <div className="flex shrink-0 items-center gap-2">
-            {slotId && (version?.status === 'streaming' || version?.status === 'pending') && (
+            {slotId && view.canAbort && (
               <Button type="button" variant="ghost" size="sm" onClick={() => void cancelOne(slotId)}>
                 中止
               </Button>
@@ -269,7 +321,7 @@ export function PolishPanel({
                   variant="ghost"
                   size="sm"
                   onClick={() => setComparing((current) => !current)}
-                  disabled={version?.status !== 'done'}
+                  disabled={!view.canCompare}
                 >
                   {comparing ? '读全文' : '对照原稿'}
                 </Button>
@@ -277,7 +329,7 @@ export function PolishPanel({
                   type="button"
                   size="sm"
                   onClick={() => void adopt()}
-                  disabled={!isAdoptable(version) || adopting}
+                  disabled={!view.canAdopt || adopting}
                 >
                   采用这版
                 </Button>

@@ -65,19 +65,26 @@ export function ConfirmDialogPanel({
 export function ConfirmDialog({
   onCancel,
   onConfirm,
+  onDismiss,
   open,
   ...copy
 }: ConfirmDialogCopy & {
   open: boolean
   onCancel: () => void
   onConfirm: () => void
+  /**
+   * Esc / 点遮罩 / 右上角关闭。不传则并入 onCancel（既有调用方行为不变）。
+   *
+   * 分开是因为两者语义不同：点「取消」是一个明确的回答，随手关掉不是。
+   * 有的调用方会把「回答过了」记下来不再问，那种场景必须能区分。
+   */
+  onDismiss?: () => void
 }) {
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // Esc / 点遮罩 / 右上角关闭都按「取消」处理。
-        if (!next) onCancel()
+        if (!next) (onDismiss ?? onCancel)()
       }}
     >
       <DialogContent className="sm:max-w-md" data-confirm-dialog="true">
@@ -91,43 +98,59 @@ export function ConfirmDialog({
  * promise 化确认：`await confirm(copy)` 得到 true/false，可直接替换 async 流程里的
  * window.confirm。使用方须把返回的 `confirmDialog` 渲染进组件树。
  */
+/** 三种收场。`dismiss` = Esc / 遮罩 / 关闭按钮，不是一个回答。 */
+export type ConfirmOutcome = 'confirm' | 'cancel' | 'dismiss'
+
 export function useConfirmDialog(): {
   confirm: (copy: ConfirmDialogCopy) => Promise<boolean>
+  /** 需要区分「明确取消」与「随手关掉」时用它——例如「答过就不再问」这类记忆型提示。 */
+  confirmWithOutcome: (copy: ConfirmDialogCopy) => Promise<ConfirmOutcome>
   confirmDialog: ReactNode
 } {
   const [copy, setCopy] = useState<ConfirmDialogCopy | null>(null)
   const [open, setOpen] = useState(false)
-  const resolverRef = useRef<((confirmed: boolean) => void) | null>(null)
+  const resolverRef = useRef<((outcome: ConfirmOutcome) => void) | null>(null)
 
-  const settle = useCallback((confirmed: boolean) => {
-    resolverRef.current?.(confirmed)
+  const settle = useCallback((outcome: ConfirmOutcome) => {
+    resolverRef.current?.(outcome)
     resolverRef.current = null
     // 只收 open，保留 copy 供关闭动画期间继续渲染内容。
     setOpen(false)
   }, [])
 
-  // 卸载时把挂起的确认按「取消」收尾，避免调用方 await 悬死。
+  // 卸载时把挂起的确认按「随手关掉」收尾，避免调用方 await 悬死。
   useEffect(
     () => () => {
-      resolverRef.current?.(false)
+      resolverRef.current?.('dismiss')
       resolverRef.current = null
     },
     [],
   )
 
-  const confirm = useCallback((next: ConfirmDialogCopy) => {
-    return new Promise<boolean>((resolve) => {
-      // 同一时刻只允许一个确认在挂：新确认到来时旧的按取消收尾。
-      resolverRef.current?.(false)
+  const confirmWithOutcome = useCallback((next: ConfirmDialogCopy) => {
+    return new Promise<ConfirmOutcome>((resolve) => {
+      // 同一时刻只允许一个确认在挂：新确认到来时旧的按「随手关掉」收尾。
+      resolverRef.current?.('dismiss')
       resolverRef.current = resolve
       setCopy(next)
       setOpen(true)
     })
   }, [])
 
+  const confirm = useCallback(
+    (next: ConfirmDialogCopy) => confirmWithOutcome(next).then((outcome) => outcome === 'confirm'),
+    [confirmWithOutcome],
+  )
+
   const confirmDialog = copy ? (
-    <ConfirmDialog {...copy} open={open} onCancel={() => settle(false)} onConfirm={() => settle(true)} />
+    <ConfirmDialog
+      {...copy}
+      open={open}
+      onCancel={() => settle('cancel')}
+      onConfirm={() => settle('confirm')}
+      onDismiss={() => settle('dismiss')}
+    />
   ) : null
 
-  return { confirm, confirmDialog }
+  return { confirm, confirmWithOutcome, confirmDialog }
 }

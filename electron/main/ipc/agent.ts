@@ -71,13 +71,16 @@ export function getAgentRuntimeCoordinator(): AgentRuntimeCoordinator {
           openMemoryDb: openMemoryDbReadonly,
           withProjectLock: runProjectMutation,
           hasFreshManuscript: async (path, chapter) => {
-            // 「本次 run 期间登记过版本记录」= 这一章真的产出了正文。write-next 与
-            // recover-write 两条路径都会登记，且不受草稿 rename 的时间戳影响。
+            // 「本次 run 期间登记过 agent-write 版本记录」= 这一章真的由这次写作产出了正文。
+            // 必须同时判来源：只判时间的话，作者在「先不写」期间手改保存一次，
+            // 那条 author-save 也会把常驻润色误触发起来。
             const list = await manuscriptRevisionStore
               .listChapter({ projectPath: path, chapter })
               .catch(() => null)
             if (!list) return false
-            return list.revisions.some((revision) => revision.createdAt >= startedAt)
+            return list.revisions.some(
+              (revision) => revision.source === 'agent-write' && revision.createdAt >= startedAt,
+            )
           },
         })
           .then((result) => {

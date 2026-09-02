@@ -111,10 +111,13 @@ async function readPolishSettingsFile(projectPath: string): Promise<ReadResult> 
   const slotOk =
     raw.standingSlotId === undefined || raw.standingSlotId === null || isPolishSlotId(raw.standingSlotId)
   const answeredOk = raw.standingPromptAnswered === undefined || typeof raw.standingPromptAnswered === 'boolean'
+  // 未来版本（version: 2）按 v1 读会静默丢字段，下一次写入就把新格式覆盖成旧格式。
+  // 认不出的版本一律按损坏处理——读不懂就别写。
+  const versionOk = raw.version === undefined || raw.version === 1
   const { outcomes, ok: outcomesOk } = normalizeOutcomes(raw.standingOutcomes)
   const { chapters, ok: chaptersOk } = normalizeDivergedChapters(raw.divergedChapters)
 
-  if (!slotOk || !answeredOk || !outcomesOk || !chaptersOk) {
+  if (!versionOk || !slotOk || !answeredOk || !outcomesOk || !chaptersOk) {
     console.warn('[polish] 润色设置字段结构异常，按损坏处理（不会覆盖该文件）')
     return { settings: emptySettings(), corrupted: true }
   }

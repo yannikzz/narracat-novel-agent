@@ -3,7 +3,6 @@ import {
   describePolishDrift,
   detectPolishDrift,
   extractNumberTokens,
-  extractSpeakerNames,
   parseChineseNumeral,
   splitPolishParagraphs,
 } from './prose-polish-drift'
@@ -131,28 +130,20 @@ describe('detectPolishDrift', () => {
     expect(result.drifted).toBe(true)
   })
 
-  test('凭空造一个锚清单外的人 → 判漂移（闭世界盲区的补丁）', () => {
+  test('已知盲区：凭空造出的清单外角色抓不到——正则在中文里没有可用的误报边界', () => {
+    // 试过用对白署名做开世界补充，两版都在误报（「王五笑道」→「王五笑」、
+    // 「此事不难说清」→「事不难」）。误报会让常驻跳过整章正常润色，比漏报贵得多。
     const result = drift('林跃独自站在门口。', '林跃站在门口。「你来了。」王五说。')
-    expect(result.detail.addedNames).toContain('王五')
-    expect(result.drifted).toBe(true)
-  })
-
-  test('「王五笑道」切出的是王五，不是「王五笑」——贪婪匹配踩过这个坑', () => {
-    expect(extractSpeakerNames('「你来了。」王五笑道。')).toEqual(['王五'])
-  })
-
-  test('代词开头不当新角色——「他知道」不该切出「他知」', () => {
-    expect(extractSpeakerNames('他知道这件事。她说得对。')).toEqual([])
-  })
-
-  test('副词落在署名位不误报——「轻声说」不是新角色', () => {
-    const result = drift('林跃站着。', '林跃站着。「嗯。」轻声说。')
     expect(result.detail.addedNames).toEqual([])
   })
 
-  test('原稿里已有的名字换个说话位置不算新增', () => {
-    const result = drift('苏见来了。林跃站着。', '林跃站着。「你来了。」苏见说。')
-    expect(result.detail.addedNames).toEqual([])
+  test('普通措辞润色绝不能被判成情节漂移', () => {
+    for (const [before, after] of [
+      ['他说这件事很难。', '此事不难说清。'],
+      ['大家心里有数。', '都知道结果。'],
+    ]) {
+      expect(drift(before, after, ['林跃']).drifted).toBe(false)
+    }
   })
 
   test('空锚清单时专名信号沉默，不误报', () => {

@@ -170,10 +170,8 @@ export function PolishSetupDialog({
   function handleStandingChange(value: string): void {
     const slotId = value === 'off' ? null : (value as PolishSlotId)
     void setStandingPolishSlot({ projectPath, slotId })
-      .then((settings) => {
-        setStandingSlot(settings.standingSlotId)
-        toast.success(slotId ? `已常驻「${POLISH_SLOT_LABELS[slotId]}」` : '已关闭常驻润色')
-      })
+      // 不发成功 toast（design.md：Toast 不做操作确认）——下拉框本身显示的就是当前状态。
+      .then((settings) => setStandingSlot(settings.standingSlotId))
       .catch((error) => {
         console.error(error)
         toast.error('设置常驻失败')

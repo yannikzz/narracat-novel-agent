@@ -222,6 +222,18 @@ function distinct(values: string[]): string[] {
   return [...new Set(values)]
 }
 
+/**
+ * ⚠️ **已知盲区：专名比对是闭世界的，凭空造出的新角色抓不到。**
+ *
+ * 试过用「对白署名」做开世界补充（`X说 / X道` 前面的 2-3 字），两版都在误报：
+ * 贪婪匹配把「王五笑道」切成「王五笑」；改懒匹配后「此事不难说清」→「事不难」、
+ * 「都知道结果」→「都知」。中文没有词边界，正则在这件事上没有可用的误报边界。
+ *
+ * **误报比漏报贵得多**：一次误报会让常驻模式跳过整章正常润色，而漏报只是少一道保险。
+ * 故明确接受这个盲区，靠三件事兜：①喂给模型的锚清单明写「不要凭空加入清单以外的人物」；
+ * ②试验模式有人在读；③常驻的前提是该配方已在试验阶段验证过。
+ * 真要检测得上分词或模型，那不属于「确定性护栏」这一层。
+ */
 export interface DetectPolishDriftInput {
   /** 润色前的可见正文 */
   original: string
@@ -232,49 +244,6 @@ export interface DetectPolishDriftInput {
    * 喂它正是为了压低这里的误报率（ADR-0041 §2）。
    */
   anchorNames: string[]
-}
-
-/**
- * 对白署名里冒出来的新名字。
- *
- * 专名比对是**闭世界**的：只认锚清单里已有的名字，模型凭空造一个清单外的人（「林跃和王五
- * 站在门口」）就完全看不见，而常驻模式会把这种版本直接采用。这里补一条针对性的开世界判据——
- * 只看「X说 / X道」这类对白署名，因为**新角色几乎总是从一句话开始出场**，而这个位置的语法
- * 足够窄，误报可控。
- *
- * **残余局限（明知且接受，外审复核过）**：不带对白的旁白式引入（「林跃和王五走了出去」）
- * 仍抓不到。护栏是账房层的下限而不是完备检测——完备的做法要么上模型（成本翻倍且不确定），
- * 要么强行收紧到误跳过一堆正常润色。**宁可漏报也不能误报**：误报会让常驻模式白白跳过整章。
- */
-/**
- * 长动词排在前、量词用**懒匹配**：两者缺一都会把「王五笑道」切成新人物「王五笑」——
- * 贪婪匹配会先吃三个字再看后面那个「道」。实测踩过。
- */
-const SPEECH_VERBS = ['笑道', '喝道', '应道', '低声道', '说', '道', '问', '答', '喊', '叫']
-const SPEAKER_RE = new RegExp(`([\u4e00-\u9fa5]{2,3}?)(?=(${SPEECH_VERBS.join('|')}))`, 'g')
-
-/** 代词开头的一律不是新角色（「他知道」会被切成「他知」这种垃圾 token）。 */
-const PRONOUN_HEADS = ['他', '她', '它', '我', '你', '您', '咱', '俺', '谁', '这', '那', '有', '没']
-
-/**
- * 常见的「不是人名但会落在署名位」的词。命中即跳过——它们是副词或动词短语的尾巴
- * （「轻声说」「连忙道」），不是新角色。
- */
-const NON_NAME_SPEAKER_PREFIXES = new Set([
-  '轻声', '低声', '大声', '高声', '沉声', '冷冷', '淡淡', '缓缓', '慢慢', '急忙', '连忙',
-  '忽然', '忽地', '接着', '于是', '这才', '还是', '只是', '却是', '又是', '像是', '似乎',
-  '心里', '嘴上', '开口', '摇头', '点头', '笑了', '叹了', '想了', '看了', '听了',
-])
-
-export function extractSpeakerNames(text: string): string[] {
-  const names = new Set<string>()
-  for (const match of text.matchAll(SPEAKER_RE)) {
-    const name = match[1]
-    if (NON_NAME_SPEAKER_PREFIXES.has(name)) continue
-    if (PRONOUN_HEADS.includes(name[0]!)) continue
-    names.add(name)
-  }
-  return [...names]
 }
 
 /**
@@ -290,13 +259,6 @@ function detectNameDrift(input: DetectPolishDriftInput): Pick<PolishDriftDetail,
     const inPolished = input.polished.includes(name)
     if (inOriginal && !inPolished) lostNames.push(name)
     if (!inOriginal && inPolished) addedNames.push(name)
-  }
-
-  // 开世界补充：润色版里新出现的对白署名，原稿里整个没有过的，按「凭空多了个人」记。
-  for (const speaker of extractSpeakerNames(input.polished)) {
-    if (input.original.includes(speaker)) continue
-    if (addedNames.includes(speaker)) continue
-    addedNames.push(speaker)
   }
 
   return { lostNames, addedNames }

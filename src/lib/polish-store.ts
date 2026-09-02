@@ -9,12 +9,17 @@ import { cancelPolishRun, onPolishEvent, startPolishRun } from './ipc'
 /**
  * 试验模式的运行态（ADR-0041 §10）。
  *
- * 只活在「正在润色 / 刚润完还没选」这段时间里：关掉面板即 reset，未采用的版本一律丢弃——
- * 长期并存的「差点成为正文的东西」会让「正文是哪一版」变成处处要问的分支。
+ * 只活在本次会话里：**离开页面、切章、切书都不清空**（切页就丢会把刚花十几秒跑出来的版本
+ * 白白扔掉），但版本归属由 `projectPath + chapter` 一起判——只判章号会让另一本书的同章号
+ * 显示上一本的版本，采用时又拿当前书的正文当乐观锁基线，等于把别的书的文字写进这本书。
+ *
+ * 清空只由三件事触发：作者点「丢弃」、采用了某一版、发起新一轮。
  */
 
 export interface PolishRunState {
   runId: string | null
+  /** 版本归属的另一半。缺了它就会跨小说串数据（见文件头注释）。 */
+  projectPath: string | null
   chapter: number | null
   /** 本轮参与的槽，按发起顺序 */
   order: PolishSlotId[]
@@ -51,6 +56,7 @@ function emptyVersion(slotId: PolishSlotId): PolishVersionState {
 
 export const usePolishRun = create<PolishRunState>((set, get) => ({
   runId: null,
+  projectPath: null,
   chapter: null,
   order: [],
   startedAt: null,
@@ -62,6 +68,7 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
   start: async ({ projectPath, chapter, slotIds, baselineText }) => {
     set({
       runId: null,
+      projectPath,
       chapter,
       order: slotIds,
       startedAt: Date.now(),
@@ -100,6 +107,7 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
   reset: () =>
     set({
       runId: null,
+      projectPath: null,
       chapter: null,
       order: [],
       startedAt: null,
@@ -117,6 +125,7 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
       set((state) => ({
         runId: event.runId,
         chapter: event.chapter,
+        projectPath: state.projectPath,
         order: event.slotIds,
         startedAt: state.startedAt ?? Date.now(),
         versions: Object.fromEntries(
@@ -157,7 +166,12 @@ export function subscribePolishEvents(): () => void {
   return onPolishEvent((event) => usePolishRun.getState().applyEvent(event))
 }
 
-/** 版本是否已经可以被采用——流到一半不给采用按钮，想早退只能中止（ADR-0041 §10）。 */
+/**
+ * 版本是否已经可以被采用——流到一半不给采用按钮，想早退只能中止（ADR-0041 §10）。
+ *
+ * 界面侧走 `derivePolishVersionView`（那里还要叠加「基线已过期」这一条）；本函数留给
+ * 不关心界面的调用方与测试，是同一条规则的最小形态。
+ */
 export function isAdoptable(version: PolishVersionState | undefined): boolean {
   return version?.status === 'done' && version.text.trim().length > 0
 }
