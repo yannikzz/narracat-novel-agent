@@ -235,6 +235,39 @@ export interface DetectPolishDriftInput {
 }
 
 /**
+ * 对白署名里冒出来的新名字。
+ *
+ * 专名比对是**闭世界**的：只认锚清单里已有的名字，模型凭空造一个清单外的人（「林跃和王五
+ * 站在门口」）就完全看不见，而常驻模式会把这种版本直接采用。这里补一条针对性的开世界判据——
+ * 只看「X说 / X道」这类对白署名，因为**新角色几乎总是从一句话开始出场**，而这个位置的语法
+ * 足够窄，误报可控。
+ *
+ * 残余局限（明知且接受）：不带对白的旁白式引入仍抓不到。护栏是账房层的下限而不是完备检测，
+ * 完备的做法要么上模型（把成本翻倍且不确定），要么强行收紧到误跳过一堆正常润色。
+ */
+const SPEECH_VERBS = ['说', '道', '问', '答', '喊', '叫', '笑道', '喝道', '应道', '低声道']
+const SPEAKER_RE = new RegExp(`([\u4e00-\u9fa5]{2,3})(?=(${SPEECH_VERBS.join('|')}))`, 'g')
+
+/**
+ * 常见的「不是人名但会落在署名位」的词。命中即跳过——它们是副词或动词短语的尾巴
+ * （「轻声说」「连忙道」），不是新角色。
+ */
+const NON_NAME_SPEAKER_PREFIXES = new Set([
+  '轻声', '低声', '大声', '高声', '沉声', '冷冷', '淡淡', '缓缓', '慢慢', '急忙', '连忙',
+  '忽然', '忽地', '接着', '于是', '这才', '还是', '只是', '却是', '又是', '像是', '似乎',
+  '心里', '嘴上', '开口', '摇头', '点头', '笑了', '叹了', '想了', '看了', '听了',
+])
+
+export function extractSpeakerNames(text: string): string[] {
+  const names = new Set<string>()
+  for (const match of text.matchAll(SPEAKER_RE)) {
+    const name = match[1]
+    if (!NON_NAME_SPEAKER_PREFIXES.has(name)) names.add(name)
+  }
+  return [...names]
+}
+
+/**
  * 专名判据用**出现与否**而非出现次数：润色把重复的人名换成「他」是合法且常见的润色，
  * 按次数比会把它误判成漂移；而「角色整个消失」或「凭空多出一个已知角色」才是真的动了情节。
  */
@@ -247,6 +280,13 @@ function detectNameDrift(input: DetectPolishDriftInput): Pick<PolishDriftDetail,
     const inPolished = input.polished.includes(name)
     if (inOriginal && !inPolished) lostNames.push(name)
     if (!inOriginal && inPolished) addedNames.push(name)
+  }
+
+  // 开世界补充：润色版里新出现的对白署名，原稿里整个没有过的，按「凭空多了个人」记。
+  for (const speaker of extractSpeakerNames(input.polished)) {
+    if (input.original.includes(speaker)) continue
+    if (addedNames.includes(speaker)) continue
+    addedNames.push(speaker)
   }
 
   return { lostNames, addedNames }

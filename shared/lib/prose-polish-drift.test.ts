@@ -130,6 +130,22 @@ describe('detectPolishDrift', () => {
     expect(result.drifted).toBe(true)
   })
 
+  test('凭空造一个锚清单外的人 → 判漂移（闭世界盲区的补丁）', () => {
+    const result = drift('林跃独自站在门口。', '林跃站在门口。「你来了。」王五说。')
+    expect(result.detail.addedNames).toContain('王五')
+    expect(result.drifted).toBe(true)
+  })
+
+  test('副词落在署名位不误报——「轻声说」不是新角色', () => {
+    const result = drift('林跃站着。', '林跃站着。「嗯。」轻声说。')
+    expect(result.detail.addedNames).toEqual([])
+  })
+
+  test('原稿里已有的名字换个说话位置不算新增', () => {
+    const result = drift('苏见来了。林跃站着。', '林跃站着。「你来了。」苏见说。')
+    expect(result.detail.addedNames).toEqual([])
+  })
+
   test('空锚清单时专名信号沉默，不误报', () => {
     expect(drift('林跃走了。', '他走了。', []).signals).toEqual([])
   })

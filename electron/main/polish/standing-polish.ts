@@ -12,17 +12,27 @@ import { describePolishDrift } from '@shared/lib/prose-polish-drift'
 import { adoptPolishedChapter } from './polish-adopt.ts'
 import type { PolishRunManager } from './polish-runner.ts'
 import type { OpenMemoryDb } from '../novel/memory-db.ts'
-import { readVisibleManuscriptText } from '../novel/manuscript-file.ts'
 import { readWrittenChapterSet } from '../novel/novel-project.ts'
 import { readPolishSettings, recordStandingPolishOutcome } from '../novel/polish-settings.ts'
 
 export interface StandingPolishDeps {
   /** 单槽、无流式的润色执行（PolishRunManager.polishChapterOnce） */
   polishOnce: PolishRunManager['polishChapterOnce']
-  readOriginalText?: (projectPath: string, chapter: number) => Promise<string | null>
   resolveChapter?: (projectPath: string) => Promise<number | null>
   openMemoryDb?: OpenMemoryDb
   now?: () => string
+  /**
+   * 把采用那一步包进项目写入闸（与 `novel:save-chapter-manuscript` 同一道），
+   * 避免备份插在正文、版本记录与分家标识之间拿到内部不一致的归档。
+   * 只包采用——模型调用要跑十几秒，不能占着项目锁。
+   */
+  withProjectLock?: <T>(projectPath: string, operation: () => Promise<T>) => Promise<T>
+  /**
+   * 这一章的正文是否在本次写作 run 之后才落盘。
+   * 写作命令有「先不写」这条出口，run 照样正常结束——不判这个就会把上一章重润一遍，
+   * 违反「只作用于往后新写的章」。
+   */
+  hasFreshManuscript?: (projectPath: string, chapter: number) => Promise<boolean>
 }
 
 export type StandingPolishResult =
@@ -56,6 +66,12 @@ export async function runStandingPolish(
     return { status: 'skipped', chapter, note }
   }
 
+  // 「先不写」也会让 run 正常结束。没有新落盘的正文就什么都不做——重润上一章既烧钱，
+  // 又会把作者上次已经挑定的那一版悄悄换掉。
+  if (deps.hasFreshManuscript && !(await deps.hasFreshManuscript(projectPath, chapter))) {
+    return { status: 'off' }
+  }
+
   let result: Awaited<ReturnType<PolishRunManager['polishChapterOnce']>>
   try {
     result = await deps.polishOnce({ projectPath, chapter, slotId: settings.standingSlotId })
@@ -68,19 +84,20 @@ export async function runStandingPolish(
     return skip(`这次的润色改动了情节（${describePolishDrift(result.drift)}），已保留原稿`)
   }
 
-  const readOriginal = deps.readOriginalText ?? readVisibleManuscriptText
-  const original = await readOriginal(projectPath, chapter)
-  if (!original) return skip('没找到这一章的正文')
-
-  const adopted = await adoptPolishedChapter(
-    {
-      projectPath,
-      chapter,
-      slotId: settings.standingSlotId,
-      polishedText: result.text,
-      expectedVisibleText: original,
-    },
-    { openMemoryDb: deps.openMemoryDb },
+  const withLock = deps.withProjectLock ?? (async (_path, operation) => operation())
+  const adopted = await withLock(projectPath, () =>
+    adoptPolishedChapter(
+      {
+        projectPath,
+        chapter,
+        slotId: settings.standingSlotId!,
+        polishedText: result.text,
+        // 基线必须是「送去润色的那一份」，不能在模型返回后重读磁盘——重读等于把作者
+        // 生成期间的手改当成基线，乐观锁形同虚设，A′ 会直接盖掉 B。
+        expectedVisibleText: result.originalText,
+      },
+      { openMemoryDb: deps.openMemoryDb },
+    ),
   )
   if (!adopted.ok) return skip(adopted.message)
 

@@ -96,8 +96,13 @@ export function ChapterManuscriptView({
   const pendingMap = usePendingMemorySyncMap(projectPath, `${agentBusy}:${saveCount}`)
   const pending = pendingMap[String(chapter)]
 
+  // 润色版本活在正文页（ADR-0041 §10），故事件订阅挂在这里，不挂在配置弹窗上：
+  // 弹窗一关就断订阅的话，跑到一半的版本会永远停在「排队中」。
+  useEffect(() => subscribePolishEvents(), [])
+  const standingVersion = usePolishRun((state) => state.standingVersion)
+
   // 常驻润色的结果横幅：润过了要说，跳过了更要说——静默跳过会变成「怎么好几章没润色」的哑谜。
-  // 随 agentBusy / saveCount 变化重取：写完一章、采用一版之后都要刷新。
+  // 随 agentBusy / saveCount / standingVersion 变化重取。
   useEffect(() => {
     let cancelled = false
     void getPolishSettings(projectPath)
@@ -110,11 +115,8 @@ export function ChapterManuscriptView({
     return () => {
       cancelled = true
     }
-  }, [projectPath, agentBusy, saveCount])
-
-  // 润色版本活在正文页（ADR-0041 §10），故事件订阅与生命周期都挂在这里，不挂在配置弹窗上：
-  // 弹窗一关就断订阅的话，跑到一半的版本会永远停在「排队中」。
-  useEffect(() => subscribePolishEvents(), [])
+    // standingVersion：常驻润色跑在后台，收尾时只广播一个事件，靠它把这一页叫醒。
+  }, [projectPath, agentBusy, saveCount, standingVersion])
 
   const polishOrder = usePolishRun((state) => state.order)
   const polishChapter = usePolishRun((state) => state.chapter)

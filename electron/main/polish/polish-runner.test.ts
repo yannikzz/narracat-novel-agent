@@ -11,16 +11,25 @@ import {
 
 const ORIGINAL = ['林跃把便条折了两折。', '「社团还招人吗。」他问。', '三天后他回来了。'].join('\n')
 
+const KEY_AT = '2026-09-01T00:00:00.000Z'
+/** 已通过连接测试的条目快照——未验证的配置现在会被拒绝真调（CONTEXT.md 模型服务验证）。 */
+const VERIFICATION = (provider: 'deepseek' | 'glm') => ({
+  verifiedAt: '2026-09-02T00:00:00.000Z',
+  apiKeyUpdatedAt: KEY_AT,
+  baseUrl: DEFAULT_PROVIDER_SETTINGS[provider].baseUrl,
+  wire: 'anthropic' as const,
+})
+
 function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     providers: DEFAULT_PROVIDER_SETTINGS,
     modelPool: [
-      { provider: 'deepseek', modelId: 'deepseek-v4-pro', verification: null },
-      { provider: 'glm', modelId: 'glm-4.5-air', verification: null },
+      { provider: 'deepseek', modelId: 'deepseek-v4-pro', verification: VERIFICATION('deepseek') },
+      { provider: 'glm', modelId: 'glm-4.5-air', verification: VERIFICATION('glm') },
     ],
     primaryModelKey: 'deepseek/deepseek-v4-pro',
     lightModelKey: null,
-    apiKeyMetadata: {},
+    apiKeyMetadata: { deepseek: { updatedAt: KEY_AT }, glm: { updatedAt: KEY_AT } },
     ...overrides,
   } as AppConfig
 }
@@ -180,10 +189,30 @@ describe('resolvePolishModel', () => {
         ...DEFAULT_PROVIDER_SETTINGS,
         custom: { baseUrl: 'https://example.com/v1', wire: 'openai' },
       },
-      modelPool: [{ provider: 'custom', modelId: 'gpt-x', verification: null }],
+      modelPool: [
+        {
+          provider: 'custom',
+          modelId: 'gpt-x',
+          verification: {
+            verifiedAt: '2026-09-02T00:00:00.000Z',
+            apiKeyUpdatedAt: KEY_AT,
+            baseUrl: 'https://example.com/v1',
+            wire: 'openai',
+          },
+        },
+      ],
+      apiKeyMetadata: { custom: { updatedAt: KEY_AT } },
       primaryModelKey: 'custom/gpt-x',
     })
     expect(() => resolvePolishModel(config, recipe)).toThrow('OpenAI 兼容协议')
+  })
+
+  test('未通过连接测试的模型拒绝真调——槽位绕过了快捷切换器的验证门', () => {
+    const config = makeConfig({
+      modelPool: [{ provider: 'deepseek', modelId: 'deepseek-v4-pro', verification: null }],
+      apiKeyMetadata: {},
+    })
+    expect(() => resolvePolishModel(config, recipe)).toThrow('还没通过连接测试')
   })
 
   test('模型池为空时报错', () => {
@@ -412,6 +441,8 @@ describe('polishChapterOnce（常驻模式）', () => {
 
     const result = await manager.polishChapterOnce({ projectPath: '/p', chapter: 3, slotId: 'slot-1' })
     expect(result.text).toBe(ORIGINAL)
+    // 把「送去润色的那一份原稿」带出去：常驻的乐观锁必须拿它当基线
+    expect(result.originalText).toBe(ORIGINAL)
     expect(result.drift.drifted).toBe(false)
     expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 200 })
     expect(events).toEqual([])

@@ -54,18 +54,33 @@ function isMissingFileError(error: unknown): boolean {
  * 这里刻意比 pending-memory-sync 更软：那份标记坏了代表「作者可能有未同步的改动」，必须让人
  * 知道；而润色设置坏了最坏的后果只是「常驻这次没生效」，为它阻断章节页得不偿失。
  */
-async function readPolishSettingsFile(projectPath: string): Promise<ProjectPolishSettings> {
+interface ReadResult {
+  settings: ProjectPolishSettings
+  /**
+   * 文件存在但读不懂。
+   *
+   * 必须与「缺文件」分开：两者都降级成空设置给界面看，但**坏文件绝不能被写回**——
+   * 一次 setStandingPolishSlot 就会把空设置落盘，连旧章的「正文与记忆分家」标识一起永久抹掉，
+   * 而那份标识没有任何别的来源可以重建。
+   */
+  corrupted: boolean
+}
+
+async function readPolishSettingsFile(projectPath: string): Promise<ReadResult> {
   const path = polishSettingsPath(projectPath)
 
   let parsed: unknown
   try {
     parsed = JSON.parse(await readFile(path, 'utf-8'))
   } catch (error) {
-    if (!isMissingFileError(error)) console.warn('[polish] 润色设置读取失败，按未设置处理：', error)
-    return emptySettings()
+    if (isMissingFileError(error)) return { settings: emptySettings(), corrupted: false }
+    console.warn('[polish] 润色设置读取失败，按未设置处理（且不会覆盖该文件）：', error)
+    return { settings: emptySettings(), corrupted: true }
   }
 
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return emptySettings()
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { settings: emptySettings(), corrupted: true }
+  }
   const raw = parsed as Record<string, unknown>
   const divergedChapters = Array.isArray(raw.divergedChapters)
     ? raw.divergedChapters.filter(
@@ -74,10 +89,13 @@ async function readPolishSettingsFile(projectPath: string): Promise<ProjectPolis
     : []
 
   return {
-    version: 1,
-    standingSlotId: isPolishSlotId(raw.standingSlotId) ? raw.standingSlotId : null,
-    standingOutcomes: normalizeOutcomes(raw.standingOutcomes),
-    divergedChapters: [...new Set(divergedChapters)].sort((a, b) => a - b),
+    settings: {
+      version: 1,
+      standingSlotId: isPolishSlotId(raw.standingSlotId) ? raw.standingSlotId : null,
+      standingOutcomes: normalizeOutcomes(raw.standingOutcomes),
+      divergedChapters: [...new Set(divergedChapters)].sort((a, b) => a - b),
+    },
+    corrupted: false,
   }
 }
 
@@ -90,7 +108,7 @@ async function readPolishSettingsFile(projectPath: string): Promise<ProjectPolis
 export async function readPolishSettings(projectPath: string): Promise<ProjectPolishSettings> {
   const path = polishSettingsPath(projectPath)
   await (polishSettingsQueues.get(path) ?? Promise.resolve()).catch(() => undefined)
-  return readPolishSettingsFile(projectPath)
+  return (await readPolishSettingsFile(projectPath)).settings
 }
 
 function mutatePolishSettings(
@@ -100,7 +118,9 @@ function mutatePolishSettings(
   const path = polishSettingsPath(projectPath)
   const previous = polishSettingsQueues.get(path) ?? Promise.resolve()
   const current = previous.catch(() => undefined).then(async () => {
-    const settings = await readPolishSettingsFile(projectPath)
+    const { settings, corrupted } = await readPolishSettingsFile(projectPath)
+    // 读不懂就绝不落盘：宁可这次设置没生效，也不能拿一份空设置覆盖掉作者的分家标识。
+    if (corrupted) throw new Error('润色设置文件已损坏，为避免覆盖原有记录，这次没有写入。')
     if (!mutation(settings)) return
     await mkdir(dirname(path), { recursive: true })
     await atomicWriteFile(path, `${JSON.stringify(settings, null, 2)}\n`)

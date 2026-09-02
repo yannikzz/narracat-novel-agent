@@ -5,28 +5,17 @@ import {
   type PolishSlotId,
   type ProjectPolishSettings,
 } from '@shared/types/prose-polish'
-import {
-  polishRecipeStorePath,
-  readPolishRecipes,
-  recordPolishRunSlots,
-  savePolishRecipe,
-} from '../engine/polish-recipe-store.ts'
+import { polishRecipeStorePath, readPolishRecipes, savePolishRecipe } from '../engine/polish-recipe-store.ts'
 import {
   clearStandingPolishOutcome,
   readPolishSettings,
   setStandingPolishSlot,
 } from '../novel/polish-settings.ts'
-import { collectManuscriptEntityNames } from '../novel/manuscript-entities.ts'
-import { readVisibleManuscriptText } from '../novel/manuscript-file.ts'
 import { openMemoryDbReadonly } from '../novel/memory-db.ts'
 import { adoptPolishedChapter, parsePolishAdoptInput } from '../polish/polish-adopt.ts'
-import {
-  createPolishRunManager,
-  normalizePolishRunRequest,
-  type PolishRunManager,
-} from '../polish/polish-runner.ts'
-import { getApiKey } from '../secrets.ts'
-import { readCurrentConfig } from './inputs.ts'
+import { normalizePolishRunRequest, type PolishRunManager } from '../polish/polish-runner.ts'
+import { createWindowPolishRunManager } from '../polish/polish-runtime.ts'
+import { runProjectMutation } from './agent.ts'
 
 /**
  * 润色域 IPC（ADR-0041）。
@@ -41,37 +30,11 @@ function recipeStorePath(): string {
   return polishRecipeStorePath(app.getPath('userData'))
 }
 
-/**
- * 无窗口的 run manager：常驻润色用（没有观众，事件无处可发）。
- * 与窗口版共用同一套依赖，只把 sendEvent 换成空实现。
- */
-export function createHeadlessPolishRunManager(): PolishRunManager {
-  return createPolishRunManager({
-    readConfig: readCurrentConfig,
-    getApiKey,
-    sendEvent: () => {},
-    readRecipes: () => readPolishRecipes(recipeStorePath()),
-    recordRunSlots: async () => undefined,
-    readOriginalText: readVisibleManuscriptText,
-    collectAnchorNames: (projectPath) =>
-      collectManuscriptEntityNames({ projectPath, openMemoryDb: openMemoryDbReadonly }),
-  })
-}
-
 function polishRunManagerForSender(sender: Electron.WebContents): PolishRunManager {
   const existing = polishRunManagers.get(sender)
   if (existing) return existing
 
-  const manager = createPolishRunManager({
-    readConfig: readCurrentConfig,
-    getApiKey,
-    sendEvent: (event) => sender.send('polish:event', event),
-    readRecipes: () => readPolishRecipes(recipeStorePath()),
-    recordRunSlots: (slotIds) => recordPolishRunSlots({ storePath: recipeStorePath(), slotIds }),
-    readOriginalText: readVisibleManuscriptText,
-    collectAnchorNames: (projectPath) =>
-      collectManuscriptEntityNames({ projectPath, openMemoryDb: openMemoryDbReadonly }),
-  })
+  const manager = createWindowPolishRunManager(sender)
   polishRunManagers.set(sender, manager)
   return manager
 }
@@ -158,6 +121,11 @@ export function registerPolishIpcHandlers(): void {
   })
 
   ipcMain.handle('polish:adopt', async (_event, input: unknown) => {
-    return adoptPolishedChapter(parsePolishAdoptInput(input), { openMemoryDb: openMemoryDbReadonly })
+    const request = parsePolishAdoptInput(input)
+    // 与 novel:save-chapter-manuscript 同一道闸：采用会连写正文、版本记录与分家标识，
+    // 备份插在中间会拿到内部不一致的归档。
+    return runProjectMutation(request.projectPath, () =>
+      adoptPolishedChapter(request, { openMemoryDb: openMemoryDbReadonly }),
+    )
   })
 }

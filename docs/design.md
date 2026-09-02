@@ -725,6 +725,12 @@ Workbench 中间内容区不是普通页面容器，而是 Novel project 当前�
 
 - 容器：`bg-workspace p-0 overflow-hidden`（覆盖 DialogContent 默认的 `bg-floating p-6`——内部分区自管间距），宽度按内容 `sm:max-w-[560px]`（表单）到 `sm:max-w-[680px]`（含长文/清单），高度上限 `max-h-[calc(100dvh-2rem)]` 或 `-4rem`。
 - 结构三段式：可见 `DialogHeader`（`border-b border-border px-6 pb-5 pt-6 text-left` + `DialogTitle` `text-lg leading-tight` + sr-only `DialogDescription`）→ 内容区（`px-6 py-5`，超长内容自滚 `min-h-0 flex-1 overflow-y-auto`）→ 如有操作按钮，底部 `border-t border-border px-6 py-4` 右对齐按钮条。
+- **对比型弹窗**（同屏并排多个同构选项供横向比较，例：润色方案三槽）走独立宽度档：上限
+  `sm:max-w-[1320px]`，且**必须窄窗降栏**（`grid-cols-1 lg:grid-cols-3`）。常规档的 560–680 是
+  按单栏表单与长文清单定的，摊到三栏每栏不足 210px，并排比较这件事本身就不成立了。除此之外
+  的三段式、底色、内边距规则一律照旧。
+- 三段式容器必须显式写 `gap-0`：`DialogContent` 默认带 `gap-4`，`p-0` 只去掉外圈内边距、管不到
+  段间距，漏掉它会在标题下方留出一片空白。
 - 不要用默认 `bg-floating` + `p-6` 裸容器装成页内容——那是轻确认框的形态。
 - 复用先行：同一内容组件多处弹窗承载时，容器 class 提为导出常量（例：`PACK_DETAIL_DIALOG_CONTENT_CLASS`），不要各写一套。
 

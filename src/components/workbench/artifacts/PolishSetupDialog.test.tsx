@@ -32,8 +32,14 @@ describe('责任边界（ADR-0041 §2）', () => {
 })
 
 describe('配置弹窗形态', () => {
-  test('三槽横版并排，不是竖排列表', () => {
-    expect(setupSource).toContain('grid-cols-3')
+  test('三槽横版并排，窄窗降成单栏（design.md §9.7 对比型弹窗档）', () => {
+    expect(setupSource).toContain('lg:grid-cols-3')
+    expect(setupSource).toContain('grid-cols-1')
+  })
+
+  test('未通过连接测试的模型置灰并注明原因，不静默可选', () => {
+    expect(setupSource).toContain('isEntryVerified')
+    expect(setupSource).toContain('（还没测试连接）')
   })
 
   test('容器遵 design.md §9.7：bg-workspace + p-0 三段式，不用默认的 bg-floating/p-6', () => {
@@ -52,7 +58,7 @@ describe('配置弹窗形态', () => {
 
   test('高度吃满可用空间，要求输入框跟着长高（不靠 min-h 撑）', () => {
     expect(setupSource).toContain('h-[min(860px,calc(100dvh-4rem))]')
-    expect(setupSource).toContain('min-h-0 flex-1 grid-cols-3')
+    expect(setupSource).toContain('min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-3')
     expect(setupSource).toContain('flex-1 resize-none')
   })
 

@@ -36,7 +36,7 @@ export interface AgentMainSideEffectsDeps {
    * 写章节成功收场后的钩子（ADR-0041 常驻润色的挂载点）。
    * 复用这一层已有的 run 终态判定，不在 run-manager 里另钉一套生命周期。
    */
-  onChapterWriteCompleted?: (input: { projectPath: string }) => void
+  onChapterWriteCompleted?: (input: { projectPath: string; startedAt: string }) => void
 }
 
 function fallbackProjectName(projectPath: string | undefined): string {
@@ -259,7 +259,9 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
       const projectPath = run.projectPath
       // 旁路：常驻润色失败绝不影响通知与写作链路收尾，故不进 runIndependentSideEffects。
       try {
-        deps.onChapterWriteCompleted?.({ projectPath })
+        // 带上 run 起始时刻：写作命令有「先不写」这条出口，run 照样正常结束，
+        // 下游据此判断这一章的正文是不是真的在本次 run 之后才落盘。
+        deps.onChapterWriteCompleted?.({ projectPath, startedAt: run.startedAt })
       } catch {}
     }
     operations.push(() => deps.showNativeNotification(notification))

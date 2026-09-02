@@ -23,6 +23,11 @@ export interface PolishRunState {
   versions: Partial<Record<PolishSlotId, PolishVersionState>>
   /** 还有版本在跑 */
   running: boolean
+  /**
+   * 常驻润色（后台跑、没有 runId）的收尾计数。
+   * 正文页把它挂进依赖里重读设置与正文——否则自动润完那一章会一直停在原稿上。
+   */
+  standingVersion: number
   start: (input: { projectPath: string; chapter: number; slotIds: PolishSlotId[] }) => Promise<void>
   cancelOne: (slotId: PolishSlotId) => Promise<void>
   cancelAll: () => Promise<void>
@@ -41,6 +46,7 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
   startedAt: null,
   versions: {},
   running: false,
+  standingVersion: 0,
 
   start: async ({ projectPath, chapter, slotIds }) => {
     set({ runId: null, chapter, order: slotIds, startedAt: Date.now(), versions: {}, running: true })
@@ -96,6 +102,12 @@ export const usePolishRun = create<PolishRunState>((set, get) => ({
 
     if (event.type === 'finished') {
       set({ running: false })
+      return
+    }
+
+    // 常驻收尾不属于任何一次试验运行，只负责把渲染端叫醒。
+    if (event.type === 'standing-finished') {
+      set((current) => ({ standingVersion: current.standingVersion + 1 }))
       return
     }
 

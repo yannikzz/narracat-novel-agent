@@ -86,6 +86,8 @@ export interface PolishAnthropicLike {
   }
 }
 
+export type PolishRunEventSink = (event: PolishRunEvent) => void
+
 export interface PolishRunManagerDeps {
   readConfig: () => Promise<AppConfig>
   getApiKey: (provider: ProviderId) => Promise<string | null>
@@ -111,7 +113,7 @@ export interface PolishRunManager {
     projectPath: string
     chapter: number
     slotId: PolishSlotId
-  }) => Promise<{ text: string; drift: PolishDrift; usage: PolishUsage }>
+  }) => Promise<{ text: string; drift: PolishDrift; usage: PolishUsage; originalText: string }>
 }
 
 function defaultCreateAnthropicClient(args: { apiKey: string; baseURL?: string }): PolishAnthropicLike {
@@ -152,6 +154,12 @@ export function resolvePolishModel(config: AppConfig, recipe: PolishRecipe): Res
   if (!resolved) throw new Error('还没有可用的模型，请先在设置里配置模型服务。')
   if (resolved.wire !== 'anthropic') {
     throw new Error('这一槽选的渠道用的是 OpenAI 兼容协议，润色目前只支持 Anthropic 协议的渠道。')
+  }
+  // 「已填写但未验证的配置不能等同于可用连接」（CONTEXT.md 模型服务验证）。快捷切换器靠
+  // canSetPrimaryModel 守着这条线，而槽位是从整个池子里挑的，绕过了那道门——这里补上服务端兜底，
+  // 界面上同款条目也会置灰。不兜的话作者会拿一个从没连通过的渠道跑三版然后收到一串看不懂的报错。
+  if (!resolved.verified) {
+    throw new Error('这个模型还没通过连接测试，先去设置里测一下再用它润色。')
   }
   return resolved
 }
@@ -367,19 +375,34 @@ export function createPolishRunManager(deps: PolishRunManagerDeps): PolishRunMan
     projectPath: string
     chapter: number
     slotId: PolishSlotId
-  }): Promise<{ text: string; drift: PolishDrift; usage: PolishUsage }> {
+  }): Promise<{ text: string; drift: PolishDrift; usage: PolishUsage; originalText: string }> {
     const prepared = await prepareRun(deps, input.projectPath, input.chapter, [input.slotId])
     const recipe = prepared.recipes.get(input.slotId)
     if (!recipe) throw new Error('常驻的润色方案还没有写内容。')
 
+    // 常驻模式同样要超时：它跑在后台没人盯着，挂住就是永远挂住，连一条「已跳过」都留不下。
     const controller = new AbortController()
-    const result = await runPolishAttempt(deps, {
-      config: prepared.config,
-      recipe,
-      originalText: prepared.originalText,
-      anchorNames: prepared.anchorNames,
-      signal: controller.signal,
-    })
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, deps.timeoutMs ?? POLISH_TIMEOUT_MS)
+
+    let result: PolishAttemptResult
+    try {
+      result = await runPolishAttempt(deps, {
+        config: prepared.config,
+        recipe,
+        originalText: prepared.originalText,
+        anchorNames: prepared.anchorNames,
+        signal: controller.signal,
+      })
+    } catch (error) {
+      if (timedOut) throw new Error('模型超过 6 分钟没有回应，已经停下。')
+      throw error
+    } finally {
+      clearTimeout(timer)
+    }
 
     return {
       text: result.text,
@@ -389,6 +412,9 @@ export function createPolishRunManager(deps: PolishRunManagerDeps): PolishRunMan
         anchorNames: prepared.anchorNames,
       }),
       usage: result.usage,
+      // 把「送去润色的那一份原稿」原样带出去：常驻的乐观锁必须拿它当基线，
+      // 生成期间作者若手改了正文，才拦得住这一版把作者的改动覆盖掉。
+      originalText: prepared.originalText,
     }
   }
 

@@ -15,7 +15,7 @@ import { METADATA_TEXT_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
 import { getConfig, getPolishSettings, listPolishRecipes, savePolishRecipe, setStandingPolishSlot } from '@/lib/ipc'
 import { usePolishRun } from '@/lib/polish-store'
-import { modelEntryKey } from '@shared/lib/model-slots'
+import { isEntryVerified, modelEntryKey } from '@shared/lib/model-slots'
 import { DEFAULT_PROVIDER_SETTINGS, type AppConfig } from '@shared/types/config'
 import { POLISH_SLOT_IDS, type PolishRecipe, type PolishSlotId } from '@shared/types/prose-polish'
 
@@ -39,8 +39,8 @@ export const POLISH_SLOT_LABELS: Record<PolishSlotId, string> = {
  * 容器遵 `docs/design.md` §9.7 弹窗规范：`bg-workspace p-0` 三段式（header / 自滚内容 / 按钮条），
  * **不用 DialogContent 默认的 `bg-floating` + `p-6`**——那是轻确认框的形态。
  *
- * 宽度取 1320px，远超规范给的 560–680 区间：那个区间是给单栏表单与长文清单的，而这里是三栏并排
- * 对比——680 摊到每栏不足 210px，要求正文会被压成一条缝。三栏并排是本弹窗的存在理由，宽度跟着它走。
+ * 宽度走 §9.7 的「对比型弹窗」档（≤1320px + 窄窗降栏），不是私自越线：常规档的 560–680 是给
+ * 单栏表单与长文清单的，680 摊到每栏不足 210px，要求正文会被压成一条缝。
  */
 export const POLISH_SETUP_DIALOG_CONTENT_CLASS = [
   // gap-0 是必须的：DialogContent 默认带 gap-4，三段式下会在 header/内容/按钮条之间白白多出 16px，
@@ -112,11 +112,18 @@ export function PolishSetupDialog({
 
   const modelOptions = useMemo(() => {
     if (!config) return []
-    return config.modelPool.map((entry) => ({
-      key: modelEntryKey(entry),
-      label: `${entry.provider} · ${entry.modelId}`,
-      disabled: providerWire(config, entry.provider) !== 'anthropic',
-    }))
+    return config.modelPool.map((entry) => {
+      const wireUnsupported = providerWire(config, entry.provider) !== 'anthropic'
+      // 「已填写但未验证的配置不能等同于可用连接」（CONTEXT.md）。快捷切换器守着这条线，
+      // 而槽位是从整个池子里挑的——不在这里挡住，作者会拿一个从没连通过的渠道跑三版。
+      const unverified = !isEntryVerified(config, entry)
+      return {
+        key: modelEntryKey(entry),
+        label: `${entry.provider} · ${entry.modelId}`,
+        disabled: wireUnsupported || unverified,
+        reason: wireUnsupported ? '（OpenAI 兼容协议，润色暂不支持）' : unverified ? '（还没测试连接）' : '',
+      }
+    })
   }, [config])
 
   function updateRecipe(
@@ -198,7 +205,8 @@ export function PolishSetupDialog({
             选中的方案会各出一版，跑完在正文页横向对比。
           </p>
 
-          <div className="mt-4 grid min-h-0 flex-1 grid-cols-3 gap-3">
+          {/* 窄窗降成单栏：1320px 是给三栏并排的，窗口不够宽时硬排三栏每栏只剩一条缝。 */}
+          <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-3">
             {POLISH_SLOT_IDS.map((slotId) => {
               const recipe = recipes.find((item) => item.slotId === slotId)
               const checked = selected.includes(slotId)

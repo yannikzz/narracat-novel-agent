@@ -128,6 +128,8 @@ export type PolishRunEvent =
   | { type: 'version-failed'; runId: string; slotId: PolishSlotId; message: string }
   | { type: 'version-aborted'; runId: string; slotId: PolishSlotId }
   | { type: 'finished'; runId: string }
+  /** 常驻润色（后台、无 runId）跑完：渲染端据此刷新正文与横幅。 */
+  | { type: 'standing-finished'; chapter: number; status: 'applied' | 'skipped' }
 
 /** 采用某一版时的三分支路由（ADR-0041 §7），由主进程判定后回给渲染端。 */
 export type PolishAdoptOutcome =

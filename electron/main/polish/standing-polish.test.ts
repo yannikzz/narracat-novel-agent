@@ -27,11 +27,12 @@ const STATE_YAML = [
 
 let projectPath = ''
 
-function polishOnceReturning(text: string): StandingPolishDeps['polishOnce'] {
+function polishOnceReturning(text: string, originalText = VISIBLE): StandingPolishDeps['polishOnce'] {
   return async () => ({
     text,
-    drift: detectPolishDrift({ original: VISIBLE, polished: text, anchorNames: ['林跃'] }),
+    drift: detectPolishDrift({ original: originalText, polished: text, anchorNames: ['林跃'] }),
     usage: { inputTokens: 10, outputTokens: 20 },
+    originalText,
   })
 }
 
@@ -98,16 +99,45 @@ describe('runStandingPolish', () => {
     expect(await readChapter7()).toContain('三天后')
   })
 
-  test('乐观锁失败（正文期间被改过）→ 跳过而不是覆盖', async () => {
+  test('生成期间作者手改了正文 → 乐观锁拦住，不覆盖作者的改动', async () => {
     await setStandingPolishSlot(projectPath, 'slot-1')
+    // 送去润色的是 A；模型返回期间磁盘已经被作者改成 B。基线必须是 A，才拦得住。
     const result = await runStandingPolish(projectPath, {
-      polishOnce: polishOnceReturning(CLEAN),
-      // 模拟「读到的原稿」与磁盘不一致
-      readOriginalText: async () => '另一份正文。',
+      polishOnce: polishOnceReturning(CLEAN, '这是送去润色时的那一份正文。'),
     })
 
     expect(result.status).toBe('skipped')
     expect(await readChapter7()).toContain('林跃把便条折了两折')
+  })
+
+  test('本次 run 没有写出新正文（作者选了「先不写」）→ 什么都不做', async () => {
+    await setStandingPolishSlot(projectPath, 'slot-1')
+    let polished = false
+    const result = await runStandingPolish(projectPath, {
+      polishOnce: async () => {
+        polished = true
+        throw new Error('不该被调用')
+      },
+      hasFreshManuscript: async () => false,
+    })
+
+    expect(result).toEqual({ status: 'off' })
+    expect(polished).toBe(false)
+    expect(await readChapter7()).toContain('三天后')
+  })
+
+  test('采用那一步走项目写入闸', async () => {
+    await setStandingPolishSlot(projectPath, 'slot-1')
+    const locked: string[] = []
+    await runStandingPolish(projectPath, {
+      polishOnce: polishOnceReturning(CLEAN),
+      withProjectLock: async (path, operation) => {
+        locked.push(path)
+        return operation()
+      },
+    })
+
+    expect(locked).toEqual([projectPath])
   })
 
   test('没有已完成章节时安静收手', async () => {

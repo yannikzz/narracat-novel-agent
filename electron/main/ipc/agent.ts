@@ -29,7 +29,8 @@ import { loadNovelProjectSummary } from '../novel/novel-project.ts'
 import { clearPendingMemorySync } from '../novel/pending-memory-sync.ts'
 import { openMemoryDbReadonly } from '../novel/memory-db.ts'
 import { runStandingPolish } from '../polish/standing-polish.ts'
-import { createHeadlessPolishRunManager } from './polish.ts'
+import { broadcastPolishEvent, createHeadlessPolishRunManager } from '../polish/polish-runtime.ts'
+import { hasManuscriptWrittenAfter } from '../novel/manuscript-file.ts'
 import { manuscriptRevisionStore } from '../novel/manuscript-revisions.ts'
 import {
   broadcastResultNotifications,
@@ -65,11 +66,20 @@ export function getAgentRuntimeCoordinator(): AgentRuntimeCoordinator {
       onChapterWriteEvent: (event) => void recordChapterWrite(event),
       // 常驻润色（ADR-0041 §8）：写完一章、记忆已入库之后，App 层追加的那一步。
       // 完全旁路——失败只落进本章的「已跳过」留痕，绝不回头影响写作链路。
-      onChapterWriteCompleted: ({ projectPath }) => {
+      onChapterWriteCompleted: ({ projectPath, startedAt }) => {
         void runStandingPolish(projectPath, {
           polishOnce: (input) => createHeadlessPolishRunManager().polishChapterOnce(input),
           openMemoryDb: openMemoryDbReadonly,
-        }).catch((error) => console.error('[polish] 常驻润色失败', error))
+          withProjectLock: runProjectMutation,
+          hasFreshManuscript: (path, chapter) => hasManuscriptWrittenAfter(path, chapter, startedAt),
+        })
+          .then((result) => {
+            // 后台跑完必须主动通知渲染端：它不属于任何一次 IPC 调用，不广播的话正文页会一直
+            // 停在原稿上，连「已润色 / 已跳过」的横幅都看不到。
+            if (result.status === 'off') return
+            broadcastPolishEvent({ type: 'standing-finished', chapter: result.chapter, status: result.status })
+          })
+          .catch((error) => console.error('[polish] 常驻润色失败', error))
       },
     })
     _agentRuntimeCoordinator = createAgentRuntimeCoordinator({
