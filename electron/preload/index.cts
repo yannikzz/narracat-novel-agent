@@ -147,6 +147,8 @@ const api = {
   cancelPolishRun: (input: unknown) => ipcRenderer.invoke('polish:cancel', input),
   adoptPolishedChapter: (input: unknown) => ipcRenderer.invoke('polish:adopt', input),
   clearStandingPolishOutcome: (input: unknown) => ipcRenderer.invoke('polish:clear-standing-outcome', input),
+  markStandingPromptAnswered: (input: unknown) =>
+    ipcRenderer.invoke('polish:mark-standing-prompt-answered', input),
   onPolishEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: unknown, payload: unknown) => callback(payload)
     ipcRenderer.on('polish:event', listener)

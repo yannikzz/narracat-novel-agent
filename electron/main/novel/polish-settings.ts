@@ -24,7 +24,13 @@ export function polishSettingsPath(projectPath: string): string {
 }
 
 function emptySettings(): ProjectPolishSettings {
-  return { version: 1, standingSlotId: null, standingOutcomes: {}, divergedChapters: [] }
+  return {
+    version: 1,
+    standingSlotId: null,
+    standingOutcomes: {},
+    standingPromptAnswered: false,
+    divergedChapters: [],
+  }
 }
 
 /**
@@ -104,10 +110,11 @@ async function readPolishSettingsFile(projectPath: string): Promise<ReadResult> 
 
   const slotOk =
     raw.standingSlotId === undefined || raw.standingSlotId === null || isPolishSlotId(raw.standingSlotId)
+  const answeredOk = raw.standingPromptAnswered === undefined || typeof raw.standingPromptAnswered === 'boolean'
   const { outcomes, ok: outcomesOk } = normalizeOutcomes(raw.standingOutcomes)
   const { chapters, ok: chaptersOk } = normalizeDivergedChapters(raw.divergedChapters)
 
-  if (!slotOk || !outcomesOk || !chaptersOk) {
+  if (!slotOk || !answeredOk || !outcomesOk || !chaptersOk) {
     console.warn('[polish] 润色设置字段结构异常，按损坏处理（不会覆盖该文件）')
     return { settings: emptySettings(), corrupted: true }
   }
@@ -117,6 +124,7 @@ async function readPolishSettingsFile(projectPath: string): Promise<ReadResult> 
       version: 1,
       standingSlotId: isPolishSlotId(raw.standingSlotId) ? raw.standingSlotId : null,
       standingOutcomes: outcomes,
+      standingPromptAnswered: raw.standingPromptAnswered === true,
       divergedChapters: chapters,
     },
     corrupted: false,
@@ -160,6 +168,20 @@ export async function setStandingPolishSlot(projectPath: string, slotId: PolishS
   await mutatePolishSettings(projectPath, (settings) => {
     if (settings.standingSlotId === slotId) return false
     settings.standingSlotId = slotId
+    return true
+  })
+}
+
+/**
+ * 记下作者已经回答过「要不要设为常驻」——答过就不再问，无论他答的是哪个。
+ *
+ * 「这次就好」是一个明确的回答，不是「下次再问我」。每采用一版就弹一次，
+ * 等于拿一个已经被回答过的问题反复打断作者（真机反馈）。
+ */
+export async function markStandingPromptAnswered(projectPath: string): Promise<void> {
+  await mutatePolishSettings(projectPath, (settings) => {
+    if (settings.standingPromptAnswered) return false
+    settings.standingPromptAnswered = true
     return true
   })
 }

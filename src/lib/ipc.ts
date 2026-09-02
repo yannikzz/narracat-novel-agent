@@ -593,6 +593,10 @@ export function clearStandingPolishOutcome(input: {
   return window.electron.clearStandingPolishOutcome(input)
 }
 
+export function markStandingPromptAnswered(projectPath: string): Promise<ProjectPolishSettings> {
+  return window.electron.markStandingPromptAnswered({ projectPath })
+}
+
 export function onPolishEvent(callback: (event: PolishRunEvent) => void): () => void {
   return window.electron.onPolishEvent(callback)
 }

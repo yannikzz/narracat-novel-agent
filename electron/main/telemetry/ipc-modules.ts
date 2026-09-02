@@ -44,6 +44,7 @@ export const IPC_CHANNEL_MODULES: Readonly<Record<string, TelemetryModule | null
   'polish:list-recipes': null,
   'polish:get-settings': null,
   'polish:clear-standing-outcome': null,
+  'polish:mark-standing-prompt-answered': null,
 
   // ── 角色状态 ────────────────────────────────────────────────────────
   'novel:submit-character-identity': 'character-state',

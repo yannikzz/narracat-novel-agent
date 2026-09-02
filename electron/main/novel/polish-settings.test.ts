@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import {
   clearChapterDiverged,
   markChapterDiverged,
+  markStandingPromptAnswered,
   polishSettingsPath,
   readPolishSettings,
   setStandingPolishSlot,
@@ -32,6 +33,7 @@ describe('readPolishSettings', () => {
       version: 1,
       standingSlotId: null,
       standingOutcomes: {},
+      standingPromptAnswered: false,
       divergedChapters: [],
     })
   })
@@ -78,6 +80,28 @@ describe('setStandingPolishSlot', () => {
     await markChapterDiverged(projectPath, 7)
     await setStandingPolishSlot(projectPath, 'slot-1')
     expect((await readPolishSettings(projectPath)).divergedChapters).toEqual([7])
+  })
+})
+
+describe('常驻提议只问一次', () => {
+  test('答过之后置位，且幂等', async () => {
+    expect((await readPolishSettings(projectPath)).standingPromptAnswered).toBe(false)
+    await markStandingPromptAnswered(projectPath)
+    await markStandingPromptAnswered(projectPath)
+    expect((await readPolishSettings(projectPath)).standingPromptAnswered).toBe(true)
+  })
+
+  test('不影响常驻槽位本身——「这次就好」不等于关掉常驻', async () => {
+    await setStandingPolishSlot(projectPath, 'slot-2')
+    await markStandingPromptAnswered(projectPath)
+    const settings = await readPolishSettings(projectPath)
+    expect(settings.standingSlotId).toBe('slot-2')
+    expect(settings.standingPromptAnswered).toBe(true)
+  })
+
+  test('字段类型损坏也按损坏处理，不会被静默改成 false', async () => {
+    await writeRaw(JSON.stringify({ version: 1, standingPromptAnswered: '是' }))
+    await expect(setStandingPolishSlot(projectPath, 'slot-1')).rejects.toThrow('已损坏')
   })
 })
 

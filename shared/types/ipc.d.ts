@@ -560,6 +560,7 @@ export interface ElectronApi {
     projectPath: string
     chapter: number
   }) => Promise<ProjectPolishSettings>
+  markStandingPromptAnswered: (input: { projectPath: string }) => Promise<ProjectPolishSettings>
   onPolishEvent: (callback: (event: PolishRunEvent) => void) => () => void
   getPendingMemorySync: (projectPath: string) => Promise<Record<string, PendingMemorySyncEntry>>
   clearPendingMemorySync: (input: { projectPath: string; chapter: number }) => Promise<{ ok: boolean }>

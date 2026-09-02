@@ -8,6 +8,7 @@ import {
 import { polishRecipeStorePath, readPolishRecipes, savePolishRecipe } from '../engine/polish-recipe-store.ts'
 import {
   clearStandingPolishOutcome,
+  markStandingPromptAnswered,
   readPolishSettings,
   setStandingPolishSlot,
 } from '../novel/polish-settings.ts'
@@ -97,6 +98,12 @@ export function registerPolishIpcHandlers(): void {
     const slotId = raw.slotId === null || raw.slotId === undefined ? null : raw.slotId
     if (slotId !== null && !isPolishSlotId(slotId)) throw new Error('润色槽位非法。')
     await setStandingPolishSlot(projectPath, slotId)
+    return readPolishSettings(projectPath)
+  })
+
+  ipcMain.handle('polish:mark-standing-prompt-answered', async (_event, input: unknown) => {
+    const projectPath = readProjectPath(input)
+    await markStandingPromptAnswered(projectPath)
     return readPolishSettings(projectPath)
   })
 

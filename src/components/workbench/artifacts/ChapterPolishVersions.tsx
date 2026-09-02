@@ -10,7 +10,7 @@ import {
   WORKBENCH_READING_CANVAS_CLASS,
 } from '@/design-system'
 import { cn } from '@/lib/cn'
-import { adoptPolishedChapter, setStandingPolishSlot } from '@/lib/ipc'
+import { adoptPolishedChapter, getPolishSettings, markStandingPromptAnswered, setStandingPolishSlot } from '@/lib/ipc'
 import { diffManuscriptRevision } from '@/lib/manuscript-revision-diff'
 import { formatPolishElapsed, isAdoptable, usePolishRun } from '@/lib/polish-store'
 import { describePolishDrift } from '@shared/lib/prose-polish-drift'
@@ -213,14 +213,27 @@ export function PolishPanel({
     }
   }
 
-  /** 采用之后顺势问一次——那是作者刚做完「我信这套」判断的时刻。默认不勾，只问一次。 */
+  /**
+   * 采用之后顺势问一次——那是作者刚做完「我信这套」判断的时刻。
+   *
+   * **一本书只问一次**：已经常驻了不必再问，答过「这次就好」更不该反复追问。
+   * 每采用一版就弹一次，是拿一个已经被回答过的问题反复打断作者（真机反馈）。
+   * 想改主意随时能在润色弹窗里改。
+   */
   async function proposeStanding(adoptedSlot: PolishSlotId): Promise<void> {
+    const settings = await getPolishSettings(projectPath).catch(() => null)
+    // 读不到设置就不问：宁可少问一次，也不要在不知道问过没有的情况下打断作者。
+    if (!settings || settings.standingPromptAnswered || settings.standingSlotId) return
+
     const confirmed = await confirm({
       title: `以后这本书都用「${POLISH_SLOT_LABELS[adoptedSlot]}」润色？`,
-      description: '写完新章后自动按这套要求润一遍，随时可以在润色弹窗里关掉。只影响往后新写的章。',
+      description: '写完新章后自动按这套要求润一遍，随时可以在润色弹窗里改。只影响往后新写的章。',
       confirmLabel: '设为常驻',
       cancelLabel: '这次就好',
     })
+
+    // 无论答哪个都记成「答过了」——「这次就好」是一个明确的回答，不是「下次再问我」。
+    await markStandingPromptAnswered(projectPath).catch((error) => console.error(error))
     if (!confirmed) return
     await setStandingPolishSlot({ projectPath, slotId: adoptedSlot }).catch((error) => {
       console.error(error)

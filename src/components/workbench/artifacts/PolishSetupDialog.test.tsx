@@ -119,6 +119,12 @@ describe('版本呈现在正文区', () => {
     expect(versionsSource).toContain('设为常驻')
   })
 
+  test('常驻提议一本书只问一次——已常驻或已答过就不再弹', () => {
+    expect(versionsSource).toContain('settings.standingPromptAnswered || settings.standingSlotId')
+    // 无论答哪个都记成答过：「这次就好」是回答，不是「下次再问我」
+    expect(versionsSource).toContain('await markStandingPromptAnswered(projectPath)')
+  })
+
   test('所有动作收在同一条操作条上，tab 行只切视图不放按钮', () => {
     expect(versionsSource).toContain('onDiscard')
     // 「丢弃」与「采用/中止/对照」同处一条；tab 组件不再接收任何动作回调

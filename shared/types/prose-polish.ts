@@ -65,6 +65,14 @@ export interface ProjectPolishSettings {
   /** 章号 → 常驻润色结果；作者看过即清。 */
   standingOutcomes: Record<string, StandingPolishOutcome>
   /**
+   * 作者已经回答过「要不要设为常驻」。
+   *
+   * 这个问题一本书只该问一次：答「设为常驻」之后不必再问，答「这次就好」更不该反复追问——
+   * 每采用一版就弹一次，是在拿一个已经被回答的问题反复打断作者。
+   * 想改主意随时能在润色弹窗里改。
+   */
+  standingPromptAnswered: boolean
+  /**
    * 正文与记忆已分家的章号（旧章漂移版被采用后登记，ADR-0041 §7）。
    * 纯陈述标识，不配任何操作——sync 不收旧章、rewrite 会抹掉作者润出的版本，确实无出口可给。
    */
