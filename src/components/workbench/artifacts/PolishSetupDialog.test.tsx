@@ -131,7 +131,17 @@ describe('版本呈现在正文区', () => {
       'utf-8',
     )
     expect(view).toContain('usePolishRun.getState().cancelAll()')
-    expect(versionsSource).toContain('await cancelAll()')
+    // 采用路径：落盘成功 → 立刻取消其余版本 → 刷正文 → 问常驻 → 清状态。
+    // 取消排在提议框之前（框可能一直开着），且取消失败不能把已落盘的采用报成失败。
+    const adoptBody = versionsSource.slice(versionsSource.indexOf('async function adopt('))
+    const cancelAt = adoptBody.indexOf('await cancelAll().catch(')
+    const adoptedAt = adoptBody.indexOf('onAdopted()')
+    const proposeAt = adoptBody.indexOf('await proposeStanding(slotId)')
+    const resetAt = adoptBody.indexOf('reset()')
+    expect(cancelAt).toBeGreaterThan(-1)
+    expect(cancelAt).toBeLessThan(adoptedAt)
+    expect(adoptedAt).toBeLessThan(proposeAt)
+    expect(proposeAt).toBeLessThan(resetAt)
   })
 
   test('成功态不发 toast（design.md：Toast 不做操作确认）', () => {

@@ -79,7 +79,6 @@ export function changedParagraphRatio(original: string, polished: string): numbe
  */
 export interface PolishVersionView {
   label: string
-  running: boolean
   /** 全文已到齐（定稿走 markdown 渲染、可对照原稿；流式期间只能纯文本） */
   complete: boolean
   canAbort: boolean
@@ -96,15 +95,15 @@ export function derivePolishVersionView(input: {
   stale: boolean
 }): PolishVersionView {
   const { version, elapsed, originalText, stale } = input
-  const idle = { running: false, complete: false, canAbort: false, canCompare: false, canAdopt: false, error: null }
+  const idle = { complete: false, canAbort: false, canCompare: false, canAdopt: false, error: null }
   if (!version) return { label: '', ...idle }
 
   switch (version.status) {
     case 'pending':
       // 「排队中」是错的：请求早发出去了，我们在等模型开口。说清楚在等，并让人看见它还在走。
-      return { label: `正在生成…${elapsed}`, ...idle, running: true, canAbort: true }
+      return { label: `正在生成…${elapsed}`, ...idle, canAbort: true }
     case 'streaming':
-      return { label: `正在写…已出 ${version.text.length} 字`, ...idle, running: true, canAbort: true }
+      return { label: `正在写…已出 ${version.text.length} 字`, ...idle, canAbort: true }
     case 'failed':
       return { label: '没跑成', ...idle, error: version.error ?? '没跑成' }
     case 'aborted':
@@ -208,7 +207,8 @@ export function PolishPanel({
   const cancelAll = usePolishRun((state) => state.cancelAll)
   const reset = usePolishRun((state) => state.reset)
 
-  const now = useTick(version?.status === 'pending')
+  // 流式期间多走一秒计时无害（每个 delta 本来就在重渲染），换来这里不必再自己判 status。
+  const now = useTick(isPolishVersionRunning(version))
   const view = derivePolishVersionView({
     version,
     elapsed: formatPolishElapsed(startedAt, now),
@@ -247,15 +247,17 @@ export function PolishPanel({
         return
       }
 
+      // 采用一版就等于放弃其余版本，**落盘那一刻就停**：常驻提议框可能开着不关，
+      // 等它关了再取消，其余槽在这期间一直跑、一直烧 token。
+      // 取消失败不算采用失败——正文已经落盘，报「采用失败」是撒谎；最坏只是多烧一版的钱。
+      await cancelAll().catch((error) => console.error(error))
+
       // 采用成功不发 toast（design.md：Toast 不做操作确认）。正文当场换成这一版，
       // 需要后续动作的两种收场各有常驻的内联横条：待同步红点、正文与记忆分家标识。
-
-      await proposeStanding(slotId)
-      // 采用一版就等于放弃其余版本：不取消的话它们会继续跑完、继续烧 token，
-      // 而 reset 之后迟到的事件还可能落进下一轮状态。cancelAll 必须先于 reset。
-      await cancelAll()
-      reset()
       onAdopted()
+      // 提议框渲染在本面板里，reset 会让面板随 polishActive 一起卸载——所以 reset 必须等它关掉。
+      await proposeStanding(slotId)
+      reset()
     } catch (error) {
       console.error(error)
       toast.error('采用失败，请重试')
