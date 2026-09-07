@@ -4,7 +4,7 @@
 
 ## Current Branch
 
-**2026-09-07（弹窗债务表四条归档，分支 chore/dialog-debt-cleanup，攒进 0.4.1）**：按 §9.7 分界线逐个归档——书架元数据 640→长文档 680（封面预设网格要宽）；删除 520 半套 bg-workspace→表单档三段式（有确认输入框故属内容型，后果说明进正文）；备份 520→轻确认框 448；无效项目 440→轻确认框，页脚两端式改 `sm:mr-auto`、「知道了」改 secondary；Agent 新对话确认 400→448，取消 outline→secondary；角色聊天离开拦截 384→448；版本历史 Sheet 新增 `SHEET_CONTENT_DOCUMENT_CLASS`（960，复用三段式底座），header/footer 改用 DIALOG_HEADER/FOOTER_SECTIONED（px-5→px-6），**手写的 role="alertdialog" 恢复确认层换成 `useConfirmDialog`**（原来抄了 FLOATING_PANEL 样式没用常量、标题 text-base 不在档）。治理测试 `ACCEPTED_DEBT` 清空、接受 `SHEET_CONTENT_*`；design.md 债务段同步。全量 3656 绿。**全是可见改动，dev 里过一遍书架三个弹窗与版本历史**。
+**2026-09-07（弹窗债务表四条归档，分支 chore/dialog-debt-cleanup，攒进 0.4.1）**：按 §9.7 分界线逐个归档——书架元数据 640→长文档 680（封面预设网格要宽）；删除 520 半套 bg-workspace→表单档三段式（有确认输入框故属内容型，后果说明进正文）；备份 520→轻确认框 448；无效项目 440→轻确认框，页脚两端式改 `sm:mr-auto`、「知道了」改 secondary；Agent 新对话确认 400→448，取消 outline→secondary；角色聊天离开拦截 384→448；版本历史 Sheet 新增 `SHEET_CONTENT_DOCUMENT_CLASS`（960，复用三段式底座），header/footer 改用 DIALOG_HEADER/FOOTER_SECTIONED（px-5→px-6），手写的 role="alertdialog" 恢复确认层**试过换成 `useConfirmDialog`，CI 红退回**（嵌套 Radix Dialog 在 Linux happy-dom 里挂不出来，本机绿），改为保留就地浮层但样式收到 `FLOATING_PANEL_CLASS` + text-lg 标题 + 取消 secondary。治理测试 `ACCEPTED_DEBT` 清空、接受 `SHEET_CONTENT_*`；design.md 债务段同步。全量 3656 绿。**全是可见改动，dev 里过一遍书架三个弹窗与版本历史**。
 
 **2026-09-07（模型目录按官方核对更新 + 下线 id 当场标出，分支 fix/model-catalog-2026-09）**：PR #77 调研出的第三条：`glm-5.2[1m]` 与 `kimi-k3[1m]` 同构必 404（后缀是 Claude Code 客户端约定，各家 model 字段不认，本仓 pi 链路原样发出无剥离逻辑），目录里挂着它等于给用户一个必炸的推荐项。本次：
 - **目录**（`model-providers.ts`）：删 `glm-5.2[1m]`；deepseek 加 v4-flash；anthropic 换 opus-5 / sonnet-5 领头（4.7 / 4.6 留作 legacy）；minimax 加 M2.7；glm 加免费档 4.7-flash。**刻意不收**：claude-fable-5*（对显式关思考回 400，冷 pass / 润色 / 角色聊天三条路径都发）、glm-5.3（思考恒开不可关，未真机验证）。目录注释写明每条取舍与核对来源。
