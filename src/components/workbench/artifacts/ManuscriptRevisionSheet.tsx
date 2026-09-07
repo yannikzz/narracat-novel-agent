@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Sheet,
@@ -10,6 +11,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { DIALOG_FOOTER_SECTIONED_CLASS, DIALOG_HEADER_SECTIONED_CLASS, SHEET_CONTENT_DOCUMENT_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
 import {
   listManuscriptRevisions,
@@ -84,8 +86,10 @@ export function ManuscriptRevisionSheet({
   const [contentError, setContentError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(false)
   const [loadingContent, setLoadingContent] = useState(false)
-  const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  // 恢复确认走统一的 ConfirmDialog（§9.7 轻确认框）：原先手写的 role="alertdialog" 浮层是仓库没有 AlertDialog 原语时的
+  // 权宜，样式抄了 FLOATING_PANEL 却没用常量、标题字号也不在档。
+  const { confirm, confirmDialog } = useConfirmDialog()
 
   useEffect(() => {
     if (!open) return
@@ -146,6 +150,15 @@ export function ManuscriptRevisionSheet({
     currentVisibleText.replace(/\r\n?/g, '\n').trimEnd()
   const restoreDisabled = agentBusy || draftBlocked || restoring || !selectedContent || selectedMatchesCurrent
 
+  async function askRestore() {
+    const ok = await confirm({
+      title: '恢复这个正文版本？',
+      description: '当前正文会先保存为一个新的“版本恢复”记录，再替换为所选内容。章节元数据保持最新，小说记忆不会自动回滚。',
+      confirmLabel: '确认恢复',
+    })
+    if (ok) await confirmRestore()
+  }
+
   async function confirmRestore() {
     if (!selectedContent || restoreDisabled) return
     setRestoring(true)
@@ -161,7 +174,6 @@ export function ManuscriptRevisionSheet({
         return
       }
       toast.success('正文版本已恢复')
-      setRestoreConfirmOpen(false)
       onOpenChange(false)
       onRestored()
     } catch (error) {
@@ -174,12 +186,9 @@ export function ManuscriptRevisionSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        className="w-[min(96vw,960px)] gap-0 bg-workspace p-0 sm:max-w-[960px]"
-        data-manuscript-revision-sheet="true"
-      >
-          <SheetHeader className="border-b border-border px-5 py-4">
-            <SheetTitle>第 {chapter} 章版本历史</SheetTitle>
+      <SheetContent className={SHEET_CONTENT_DOCUMENT_CLASS} data-manuscript-revision-sheet="true">
+          <SheetHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
+            <SheetTitle className="text-lg leading-tight">第 {chapter} 章版本历史</SheetTitle>
             <SheetDescription>
               {history ? `项目版本历史占用 ${formatStorage(history.storageBytes)}` : '读取已保存的正文版本'}
             </SheetDescription>
@@ -259,7 +268,7 @@ export function ManuscriptRevisionSheet({
             </div>
           </div>
 
-        <SheetFooter className="flex-row items-center justify-between border-t border-border px-5 py-3">
+        <SheetFooter className={`${DIALOG_FOOTER_SECTIONED_CLASS} flex-row items-center justify-between`}>
             <p className="text-xs text-muted-foreground">
               恢复会保留当前正文为新版本，不会自动回滚小说记忆。
             </p>
@@ -267,7 +276,7 @@ export function ManuscriptRevisionSheet({
               type="button"
               disabled={restoreDisabled}
               data-manuscript-revision-restore="true"
-              onClick={() => setRestoreConfirmOpen(true)}
+              onClick={() => void askRestore()}
             >
               {agentBusy
                 ? 'Agent 运行中'
@@ -279,46 +288,7 @@ export function ManuscriptRevisionSheet({
             </Button>
         </SheetFooter>
 
-        {restoreConfirmOpen && (
-          <div
-            className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-5 backdrop-blur-[1px]"
-            data-manuscript-revision-restore-confirm="true"
-            role="presentation"
-            onMouseDown={(event) => {
-              if (event.currentTarget === event.target && !restoring) setRestoreConfirmOpen(false)
-            }}
-          >
-            <section
-              aria-describedby="manuscript-revision-restore-description"
-              aria-labelledby="manuscript-revision-restore-title"
-              className="w-full max-w-md rounded-panel border border-border bg-floating p-5 shadow-[var(--shadow-floating)]"
-              role="alertdialog"
-            >
-              <h2 id="manuscript-revision-restore-title" className="text-base font-semibold text-foreground">
-                恢复这个正文版本？
-              </h2>
-              <p
-                id="manuscript-revision-restore-description"
-                className="mt-2 text-sm leading-6 text-muted-foreground"
-              >
-                当前正文会先保存为一个新的“版本恢复”记录，再替换为所选内容。章节元数据保持最新，小说记忆不会自动回滚。
-              </p>
-              <div className="mt-5 flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={restoring}
-                  onClick={() => setRestoreConfirmOpen(false)}
-                >
-                  取消
-                </Button>
-                <Button type="button" autoFocus disabled={restoring} onClick={() => void confirmRestore()}>
-                  {restoring ? '正在恢复…' : '确认恢复'}
-                </Button>
-              </div>
-            </section>
-          </div>
-        )}
+        {confirmDialog}
       </SheetContent>
     </Sheet>
   )

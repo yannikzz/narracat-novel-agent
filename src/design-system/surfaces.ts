@@ -94,6 +94,9 @@ export const DIALOG_CONTENT_COMPARE_CLASS = `${DIALOG_SECTIONED_BASE_CLASS} sm:m
 /** 轻确认框 448：一句话后果 + 取消/确认，用原语默认的 bg-floating p-6 裸容器。 */
 export const DIALOG_CONTENT_CONFIRM_CLASS = 'sm:max-w-md'
 
+/** Sheet（侧边抽屉）档 960：与三段式共用底座，宽度上限 960、窄窗 96vw；header/footer 复用 DIALOG_HEADER/FOOTER_SECTIONED。 */
+export const SHEET_CONTENT_DOCUMENT_CLASS = `w-[min(96vw,960px)] ${DIALOG_SECTIONED_BASE_CLASS} sm:max-w-[960px]`
+
 /** 三段式头：可见标题 + 底边线；Description 用 sr-only（内容本身就是说明）。 */
 export const DIALOG_HEADER_SECTIONED_CLASS = 'shrink-0 border-b border-border px-6 pb-5 pt-6 text-left'
 /** 轻确认框头：只给关闭钮让位；Description 必须可见（后果说明就是这个弹窗的正文）。 */

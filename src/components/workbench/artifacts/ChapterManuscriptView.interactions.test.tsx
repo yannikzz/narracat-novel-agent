@@ -540,11 +540,12 @@ describe('正文编辑态分支交互（真实 DOM）', () => {
 
     const restoreButton = document.querySelector<HTMLButtonElement>('[data-manuscript-revision-restore="true"]')
     fireEvent.click(restoreButton as HTMLButtonElement)
+    // 恢复确认现在走统一的 ConfirmDialog（Radix portal 到 body），锚点是 data-confirm-dialog
     await waitFor(() => {
-      expect(document.querySelector('[data-manuscript-revision-restore-confirm="true"]')).not.toBeNull()
+      expect(document.querySelector('[data-confirm-dialog="true"]')).not.toBeNull()
     })
     const confirmButton = Array.from(
-      document.querySelectorAll<HTMLButtonElement>('[data-manuscript-revision-restore-confirm="true"] button'),
+      document.querySelectorAll<HTMLButtonElement>('[data-confirm-dialog="true"] button'),
     ).find((button) => button.textContent === '确认恢复')
     await act(async () => {
       fireEvent.click(confirmButton as HTMLButtonElement)

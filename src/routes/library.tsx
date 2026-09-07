@@ -55,6 +55,13 @@ import {
 import { UpdateReadyBanner } from '@/components/settings/UpdateReadyBanner'
 import {
   DESTRUCTIVE_INLINE_CLASS,
+  DIALOG_BODY_CLASS,
+  DIALOG_CONTENT_CONFIRM_CLASS,
+  DIALOG_CONTENT_DOCUMENT_CLASS,
+  DIALOG_CONTENT_FORM_CLASS,
+  DIALOG_FOOTER_SECTIONED_CLASS,
+  DIALOG_HEADER_CONFIRM_CLASS,
+  DIALOG_HEADER_SECTIONED_CLASS,
   EMPTY_COMPACT_BODY_CLASS,
   EMPTY_COMPACT_TITLE_CLASS,
   EMPTY_PRIMARY_BODY_CLASS,
@@ -105,11 +112,11 @@ const STATUS_FILTER_OPTIONS: Array<{ value: LibraryStatusFilter; label: string }
   { value: 'invalid', label: '需检查' },
 ]
 
-export const LIBRARY_PROJECT_METADATA_DIALOG_CONTENT_CLASS =
-  'max-h-[calc(100dvh-2rem)] overflow-hidden bg-workspace p-0 sm:max-w-[640px]'
-
-export const LIBRARY_PROJECT_DELETE_DIALOG_CONTENT_CLASS = 'bg-workspace sm:max-w-[520px]'
-export const LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS = 'bg-workspace sm:max-w-[520px]'
+// 四个弹窗按 §9.7 归档（弹窗债务表清零）：元数据 = 内容型长文档（封面预设网格要宽）；删除 = 内容型表单
+// （有确认输入框）；备份 / 无效项目 = 轻确认框（一段后果 + 两个按钮）。
+export const LIBRARY_PROJECT_METADATA_DIALOG_CONTENT_CLASS = `${DIALOG_CONTENT_DOCUMENT_CLASS} max-h-[calc(100dvh-2rem)]`
+export const LIBRARY_PROJECT_DELETE_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_FORM_CLASS
+export const LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_CONFIRM_CLASS
 
 const LIBRARY_AUTOMATION_LEVEL_LABELS: Record<NovelAutomationLevel, string> = {
   auto: CREATE_NOVEL_AUTOMATION_AUTO_LABEL,
@@ -483,7 +490,7 @@ export function LibraryProjectMetadataPanel({
       data-library-project-metadata-panel="true"
       className="grid max-h-[calc(100dvh-2rem)] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]"
     >
-      <DialogHeader className="border-b border-border px-6 pb-5 pt-6 text-left">
+      <DialogHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
         <DialogTitle className="text-lg leading-tight">编辑小说信息</DialogTitle>
         <DialogDescription className="sr-only">更新当前书卡的显示标题和内置封面。</DialogDescription>
       </DialogHeader>
@@ -668,39 +675,43 @@ export function LibraryProjectDeletePanel({
   const confirmationValid = isLibraryProjectDeleteConfirmationValid(project.title, confirmationTitle)
 
   return (
-    <form onSubmit={onSubmit} data-library-project-delete-panel="true" className="grid gap-5">
-      <DialogHeader className="pr-8 text-left">
+    <form onSubmit={onSubmit} data-library-project-delete-panel="true" className="grid">
+      <DialogHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
         <DialogTitle className="text-lg leading-tight">删除小说</DialogTitle>
-        <DialogDescription>
-          “{project.title}”会被移到系统废纸篓，并从小说库中移除。恢复请前往系统废纸篓。
-        </DialogDescription>
+        <DialogDescription className="sr-only">输入小说标题确认后，把这部小说移到系统废纸篓。</DialogDescription>
       </DialogHeader>
 
-      <label className="grid gap-2 text-xs font-medium text-muted-foreground">
-        <span>输入小说标题以确认</span>
-        <Input
-          aria-invalid={confirmationTitle.length > 0 && !confirmationValid}
-          className="h-9 rounded-row bg-surface px-3 text-base"
-          data-library-project-delete-confirmation="true"
-          value={confirmationTitle}
-          onChange={(event) => onConfirmationTitleChange(event.target.value)}
-          placeholder={project.title}
-        />
-      </label>
+      <div className={`${DIALOG_BODY_CLASS} grid gap-5`}>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          “{project.title}”会被移到系统废纸篓，并从小说库中移除。恢复请前往系统废纸篓。
+        </p>
 
-      {deleteBlocked && (
-        <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
-          Agent 正在处理这部小说，结束后才能删除。
-        </div>
-      )}
+        <label className="grid gap-2 text-sm font-medium text-foreground">
+          <span>输入小说标题以确认</span>
+          <Input
+            aria-invalid={confirmationTitle.length > 0 && !confirmationValid}
+            className="h-9 rounded-row bg-surface px-3 text-base"
+            data-library-project-delete-confirmation="true"
+            value={confirmationTitle}
+            onChange={(event) => onConfirmationTitleChange(event.target.value)}
+            placeholder={project.title}
+          />
+        </label>
 
-      {formError && (
-        <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
-          {formError}
-        </div>
-      )}
+        {deleteBlocked && (
+          <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
+            Agent 正在处理这部小说，结束后才能删除。
+          </div>
+        )}
 
-      <DialogFooter>
+        {formError && (
+          <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
+            {formError}
+          </div>
+        )}
+      </div>
+
+      <DialogFooter className={DIALOG_FOOTER_SECTIONED_CLASS}>
         <Button type="button" variant="secondary" disabled={deleting} onClick={onCancel}>
           取消
         </Button>
@@ -823,7 +834,7 @@ function LibraryProjectBackupDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS}>
-        <DialogHeader className="pr-8 text-left">
+        <DialogHeader className={DIALOG_HEADER_CONFIRM_CLASS}>
           <DialogTitle className="text-lg leading-tight">备份小说项目</DialogTitle>
           <DialogDescription>
             备份会包含“{project.title}”的完整小说内容、草稿、修订记录和项目内未知文件。
@@ -989,7 +1000,7 @@ export function LibraryProjectManagementMenu({ project }: { project: NovelProjec
 }
 
 
-export const LIBRARY_INVALID_PROJECT_DIALOG_CONTENT_CLASS = 'sm:max-w-[440px]'
+export const LIBRARY_INVALID_PROJECT_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_CONFIRM_CLASS
 
 /**
  * 损坏项目说明浮层（#38）。
@@ -1014,7 +1025,7 @@ export function LibraryInvalidProjectPanel({
 }) {
   return (
     <div data-library-invalid-project-panel="true" className="grid gap-5">
-      <DialogHeader className="pr-8 text-left">
+      <DialogHeader className={DIALOG_HEADER_CONFIRM_CLASS}>
         <DialogTitle className="text-lg leading-tight">这本书暂时打不开</DialogTitle>
         <DialogDescription>
           “{project.title}”的项目文件不完整，NarraCat 读不出它的进度和正文。常见原因是文件夹被移动或重命名，也可能是它所在的磁盘没有连接。
@@ -1028,26 +1039,25 @@ export function LibraryInvalidProjectPanel({
           : '这本书就放在你的小说文件夹里，确认不要了请用卡片右上角「更多」里的删除。'}
       </p>
 
-      <DialogFooter className="gap-2 sm:justify-between">
-        <Button type="button" variant="ghost" onClick={onCancel}>
+      {/* 「知道了」靠左用 sm:mr-auto 而非两端式：DialogFooter 窄屏 flex-col-reverse，两端式会乱序（§9.7） */}
+      <DialogFooter>
+        <Button type="button" variant="secondary" className="sm:mr-auto" onClick={onCancel}>
           知道了
         </Button>
-        <div className="flex gap-2">
-          {canRemove ? (
-            <Button
-              type="button"
-              variant="outline"
-              data-library-invalid-remove="true"
-              disabled={removing}
-              onClick={onRemove}
-            >
-              {removing ? '移除中…' : '从书架移除'}
-            </Button>
-          ) : null}
-          <Button type="button" data-library-invalid-reveal="true" onClick={onReveal}>
-            打开所在文件夹
+        {canRemove ? (
+          <Button
+            type="button"
+            variant="outline"
+            data-library-invalid-remove="true"
+            disabled={removing}
+            onClick={onRemove}
+          >
+            {removing ? '移除中…' : '从书架移除'}
           </Button>
-        </div>
+        ) : null}
+        <Button type="button" data-library-invalid-reveal="true" onClick={onReveal}>
+          打开所在文件夹
+        </Button>
       </DialogFooter>
     </div>
   )

@@ -16,15 +16,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
-/** 存量偏差：文件 → 原因。清掉一条删一条。 */
-const ACCEPTED_DEBT: Readonly<Record<string, string>> = Object.freeze({
-  'src/routes/library.tsx':
-    '书架四个弹窗（元数据 640 / 删除 520 / 备份 520 / 无效项目 440）宽度都不在档位上，且删除/备份写了 bg-workspace 却没 p-0；要产品主人看一眼再归档',
-  'src/components/workbench/AgentPanel.tsx': '「开始新对话」确认框宽 400，应归轻确认框 448 档，改动可见需真机看',
-  'src/components/workbench/CharacterChatBoard.tsx': '「关于你」离开拦截宽 sm(384)，应归轻确认框 448 档',
-  'src/components/workbench/artifacts/ManuscriptRevisionSheet.tsx':
-    '唯一的 Sheet，宽 960 且 header/footer 内边距自成一派（px-5），Sheet 档位常量待与产品主人定',
-})
+/** 存量偏差：文件 → 原因。清掉一条删一条。2026-09-07 四条已全部归档，表为空；新弹窗不得进表。 */
+const ACCEPTED_DEBT: Readonly<Record<string, string>> = Object.freeze({})
 
 const SRC_ROOT = 'src'
 
@@ -100,11 +93,11 @@ export function dialogUsageViolation(usage: DialogUsage, businessConstants: Map<
     return `className 是字面量「${usage.className}」：宽度档位必须取自 DIALOG_CONTENT_* 常量，不在业务文件里手写`
   }
   const expression = usage.className ?? ''
-  if (/\bDIALOG_CONTENT_[A-Z]+_CLASS\b/.test(expression)) return null
+  if (/\b(DIALOG|SHEET)_CONTENT_[A-Z]+_CLASS\b/.test(expression)) return null
   const referenced = expression.match(/\b[A-Z0-9_]+_DIALOG_CONTENT_CLASS\b/g) ?? []
   for (const name of referenced) {
     const definition = businessConstants.get(name)
-    if (definition && /\bDIALOG_CONTENT_[A-Z]+_CLASS\b/.test(definition)) return null
+    if (definition && /\b(DIALOG|SHEET)_CONTENT_[A-Z]+_CLASS\b/.test(definition)) return null
     if (definition) return `业务常量 ${name} 的定义没有引用 DIALOG_CONTENT_* 常量（手写了宽度）`
   }
   return `className 表达式「${expression}」没有引用任何 DIALOG_CONTENT_* 常量`

@@ -760,11 +760,11 @@ Workbench 中间内容区不是普通页面容器，而是 Novel project 当前�
   （`gap-0 bg-workspace p-0`），宽度上限 960。除此之外一律用 Dialog——目前全仓只有 `ManuscriptRevisionSheet` 一个。
 - 弹层出入 150–200ms（§8.2），Dialog 与 Sheet 原语都钉在 `duration-200`，`check:design` 禁止 300 以上。
 
-#### 已登记的存量偏差
+#### 存量偏差表
 
-`dialog-governance.test.ts` 的 `ACCEPTED_DEBT` 表登记了尚未归档的弹窗（书架的 4 个 library 弹窗、Agent 新对话确认、
-角色聊天离开拦截、版本历史 Sheet），每条附原因；清掉一条就从表里删一条，表里的文件若已合规测试会红（防止债务
-清了表还留着）。新弹窗不得进表。
+`dialog-governance.test.ts` 的 `ACCEPTED_DEBT` 登记尚未归档的弹窗（文件 → 原因）。2026-09-07 首批四条
+（书架四个 library 弹窗、Agent 新对话确认、角色聊天离开拦截、版本历史 Sheet）已全部归档，表为空。
+清掉一条就从表里删一条，表里的文件若已合规测试会红（防止债务清了表还留着）。**新弹窗不得进表。**
 
 ### 9.8 设置页二级视图导航（面包屑规范）
 

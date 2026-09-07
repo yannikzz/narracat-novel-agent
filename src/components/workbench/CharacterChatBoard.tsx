@@ -16,6 +16,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  DIALOG_CONTENT_CONFIRM_CLASS,
+  DIALOG_HEADER_CONFIRM_CLASS,
   EMPTY_PRIMARY_BODY_CLASS,
   EMPTY_PRIMARY_TITLE_CLASS,
   READING_BODY_FONT_CLASS,
@@ -685,9 +687,9 @@ const ConversationArea = forwardRef<
           if (!open) setPendingLeave(null)
         }}
       >
-        <DialogContent showCloseButton={false} className="sm:max-w-sm" data-character-chat-about-you-confirm="true">
-          <DialogHeader>
-            <DialogTitle>改动还没保存</DialogTitle>
+        <DialogContent showCloseButton={false} className={DIALOG_CONTENT_CONFIRM_CLASS} data-character-chat-about-you-confirm="true">
+          <DialogHeader className={DIALOG_HEADER_CONFIRM_CLASS}>
+            <DialogTitle className="text-lg leading-tight">改动还没保存</DialogTitle>
             <DialogDescription>「关于你」里的修改要点「保存」才会生效，直接退出会丢失。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
