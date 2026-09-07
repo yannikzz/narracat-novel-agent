@@ -4,6 +4,8 @@
 
 ## Current Branch
 
+**2026-09-07（通知铃铛在 dev 里永远转圈、列表永远空，分支 fix/notification-bell-remount，攒进 0.4.1）**：根因 = `GlobalNotificationBell` 用 `initialLoadStartedRef` 保证「只首载一次」，但卸载时把 `requestSequence` +1；React StrictMode（dev）把 effect 挂载→卸载→再挂载，第二次挂载不再发请求，第一次的请求回来被当成过期丢掉、且不复位 loading。打包版无 StrictMode 故用户看不到，但任何重挂载都会撞。修 = 去掉守卫，每次挂载都首载，陈旧请求由序号兜底。新增 StrictMode 真实 DOM 回归（改前红改后绿）。
+
 **2026-09-07（模型目录按官方核对更新 + 下线 id 当场标出，分支 fix/model-catalog-2026-09）**：PR #77 调研出的第三条：`glm-5.2[1m]` 与 `kimi-k3[1m]` 同构必 404（后缀是 Claude Code 客户端约定，各家 model 字段不认，本仓 pi 链路原样发出无剥离逻辑），目录里挂着它等于给用户一个必炸的推荐项。本次：
 - **目录**（`model-providers.ts`）：删 `glm-5.2[1m]`；deepseek 加 v4-flash；anthropic 换 opus-5 / sonnet-5 领头（4.7 / 4.6 留作 legacy）；minimax 加 M2.7；glm 加免费档 4.7-flash。**刻意不收**：claude-fable-5*（对显式关思考回 400，冷 pass / 润色 / 角色聊天三条路径都发）、glm-5.3（思考恒开不可关，未真机验证）。目录注释写明每条取舍与核对来源。
 - **第二份副本** `config.ts` 的 `LEGACY_DEFAULT_MODELS` 同步（glm → glm-5.2），测试跟改。
