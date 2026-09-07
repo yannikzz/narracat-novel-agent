@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import type { AgentThread } from '@shared/types/agent'
+import { DIALOG_CONTENT_CONFIRM_CLASS, DIALOG_HEADER_CONFIRM_CLASS } from '@/design-system'
 
 export function getAgentStepsTogglePresentation(stepsExpanded: boolean): {
   iconDirection: 'down' | 'up'
@@ -310,14 +311,14 @@ export function AgentPanelContent({
       </div>
 
       <Dialog open={confirmNewConversationOpen} onOpenChange={updateNewConversationDialog}>
-        <DialogContent className="sm:max-w-[400px]" data-agent-new-conversation-confirm="true">
-          <DialogHeader>
-            <DialogTitle>开始新对话？</DialogTitle>
+        <DialogContent className={DIALOG_CONTENT_CONFIRM_CLASS} data-agent-new-conversation-confirm="true">
+          <DialogHeader className={DIALOG_HEADER_CONFIRM_CLASS}>
+            <DialogTitle className="text-lg leading-tight">开始新对话？</DialogTitle>
             <DialogDescription>AI 将不再记得上面的聊天（历史仍可往上看）。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">
+              <Button type="button" variant="secondary">
                 取消
               </Button>
             </DialogClose>

@@ -1,22 +1,30 @@
 import { describe, expect, test } from 'bun:test'
-import { EMPTY_COMPACT_TITLE_CLASS, EMPTY_PRIMARY_BODY_CLASS, EMPTY_PRIMARY_TITLE_CLASS } from '@/design-system'
+import {
+  DIALOG_BODY_CLASS,
+  DIALOG_FOOTER_SECTIONED_CLASS,
+  DIALOG_HEADER_SECTIONED_CLASS,
+  EMPTY_COMPACT_TITLE_CLASS,
+  EMPTY_PRIMARY_BODY_CLASS,
+  EMPTY_PRIMARY_TITLE_CLASS,
+} from '@/design-system'
 import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
 import { Dialog } from '@/components/ui/dialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
+  LIBRARY_PROJECT_METADATA_DIALOG_CONTENT_CLASS,
   LibraryEmptyState,
   LibraryFilterBar,
   LibraryFilteredEmptyState,
   LibraryHomeHero,
   LibraryInvalidProjectPanel,
-  LibraryProjectDeletePanel,
-  LIBRARY_PROJECT_METADATA_DIALOG_CONTENT_CLASS,
   LibraryNavBrand,
+  LibraryProjectBackupPanel,
   LibraryProjectCard,
-  LibraryProjectMetadataPanel,
+  LibraryProjectDeletePanel,
   LibraryProjectGrid,
+  LibraryProjectMetadataPanel,
   LibraryRoute,
   isLibraryProjectDeleteConfirmationValid,
   libraryAutomationMenuLabel,
@@ -691,5 +699,64 @@ describe('LibraryRoute presentation', () => {
     })
     expect(getLibraryCoverPreset('cover-03').src).toContain('cover-03.webp')
     expect(getLibraryCoverPreset('missing').id).toBe('cover-01')
+  })
+})
+
+describe('书架弹窗形态（§9.7 分界线：多段内容 → 内容型三段式，PR #82 评审）', () => {
+  const baseProject: NovelProjectSummary = {
+    id: 'novel-1',
+    title: '长夜星河',
+    path: '/novels/stars',
+    status: 'ready',
+    genre: '玄幻',
+    updatedAt: '2026-09-07T00:00:00.000Z',
+    createdAt: '2026-09-01T00:00:00.000Z',
+  } as unknown as NovelProjectSummary
+
+  function sectionedAssertions(html: string) {
+    // 三段式：带边线的 header、自滚正文区、带顶线的按钮条；不是轻确认框的 pr-8 裸 header
+    expect(html).toContain(DIALOG_HEADER_SECTIONED_CLASS)
+    expect(html).toContain(DIALOG_BODY_CLASS)
+    expect(html).toContain(DIALOG_FOOTER_SECTIONED_CLASS)
+    expect(html).not.toContain('pr-8 text-left')
+  }
+
+  test('备份：说明 + 警示块 + 报错块属多段内容，走三段式', () => {
+    const html = renderToStaticMarkup(
+      <Dialog open>
+        <LibraryProjectBackupPanel
+          backingUp={false}
+          backupBlocked
+          errorMessage="上次备份失败"
+          project={baseProject}
+          onCancel={() => {}}
+          onConfirm={() => {}}
+        />
+      </Dialog>,
+    )
+    sectionedAssertions(html)
+    expect(html).toContain('创建期间会暂时阻止')
+    expect(html).toContain('结束后才能备份')
+    expect(html).toContain('上次备份失败')
+  })
+
+  test('这本书暂时打不开：两段说明 + 最多三个按钮，走三段式；「知道了」靠左用 sm:mr-auto', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <Dialog open>
+          <LibraryInvalidProjectPanel
+            canRemove
+            project={{ ...baseProject, status: 'invalid' as const }}
+            removing={false}
+            onCancel={() => {}}
+            onRemove={() => {}}
+            onReveal={() => {}}
+          />
+        </Dialog>
+      </MemoryRouter>,
+    )
+    sectionedAssertions(html)
+    expect(html).toContain('sm:mr-auto')
+    expect(html).not.toContain('sm:justify-between')
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -10,6 +10,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  DIALOG_FOOTER_SECTIONED_CLASS,
+  DIALOG_HEADER_SECTIONED_CLASS,
+  FLOATING_PANEL_CLASS,
+  SHEET_CONTENT_DOCUMENT_CLASS,
+} from '@/design-system'
 import { cn } from '@/lib/cn'
 import {
   listManuscriptRevisions,
@@ -86,6 +92,7 @@ export function ManuscriptRevisionSheet({
   const [loadingContent, setLoadingContent] = useState(false)
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const restoreConfirmRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -146,6 +153,33 @@ export function ManuscriptRevisionSheet({
     currentVisibleText.replace(/\r\n?/g, '\n').trimEnd()
   const restoreDisabled = agentBusy || draftBlocked || restoring || !selectedContent || selectedMatchesCurrent
 
+  /**
+   * 就地确认层的键盘圈禁：Tab / Shift+Tab 只在层内两个按钮间循环，Esc 关闭。
+   * 原先没有圈禁，Tab 会从「确认恢复」跑到背后 Sheet 的关闭钮（PR #82 评审浏览器实测）。
+   */
+  function handleRestoreConfirmKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      if (!restoring) setRestoreConfirmOpen(false)
+      event.stopPropagation()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const focusable = Array.from(
+      restoreConfirmRef.current?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? [],
+    )
+    if (focusable.length === 0) return
+    const first = focusable[0]!
+    const last = focusable[focusable.length - 1]!
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !restoreConfirmRef.current?.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (active === last || !restoreConfirmRef.current?.contains(active))) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
   async function confirmRestore() {
     if (!selectedContent || restoreDisabled) return
     setRestoring(true)
@@ -174,12 +208,9 @@ export function ManuscriptRevisionSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        className="w-[min(96vw,960px)] gap-0 bg-workspace p-0 sm:max-w-[960px]"
-        data-manuscript-revision-sheet="true"
-      >
-          <SheetHeader className="border-b border-border px-5 py-4">
-            <SheetTitle>第 {chapter} 章版本历史</SheetTitle>
+      <SheetContent className={SHEET_CONTENT_DOCUMENT_CLASS} data-manuscript-revision-sheet="true">
+          <SheetHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
+            <SheetTitle className="text-lg leading-tight">第 {chapter} 章版本历史</SheetTitle>
             <SheetDescription>
               {history ? `项目版本历史占用 ${formatStorage(history.storageBytes)}` : '读取已保存的正文版本'}
             </SheetDescription>
@@ -259,7 +290,7 @@ export function ManuscriptRevisionSheet({
             </div>
           </div>
 
-        <SheetFooter className="flex-row items-center justify-between border-t border-border px-5 py-3">
+        <SheetFooter className={`${DIALOG_FOOTER_SECTIONED_CLASS} flex-row items-center justify-between`}>
             <p className="text-xs text-muted-foreground">
               恢复会保留当前正文为新版本，不会自动回滚小说记忆。
             </p>
@@ -279,6 +310,10 @@ export function ManuscriptRevisionSheet({
             </Button>
         </SheetFooter>
 
+        {/* 恢复确认是 Sheet 内的就地浮层，刻意不换成 ConfirmDialog：同进程里任何先跑的 SSR 测试一旦 import 过
+            Radix Dialog（无 document 时模块级捕获 useLayoutEffect 为 no-op），后面 happy-dom 里嵌套的 Portal 就永远
+            挂不出来（PR #82 两轮 CI 红，本机按同样顺序可复现）。这一层不走 DialogContent、不在弹窗档位守卫范围内；
+            样式按轻确认框口径：浮层面板常量 + text-lg 标题 + 取消 secondary；键盘圈禁见 handleRestoreConfirmKeyDown。 */}
         {restoreConfirmOpen && (
           <div
             className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-5 backdrop-blur-[1px]"
@@ -289,12 +324,15 @@ export function ManuscriptRevisionSheet({
             }}
           >
             <section
+              ref={restoreConfirmRef}
               aria-describedby="manuscript-revision-restore-description"
               aria-labelledby="manuscript-revision-restore-title"
-              className="w-full max-w-md rounded-panel border border-border bg-floating p-5 shadow-[var(--shadow-floating)]"
+              aria-modal="true"
+              className={`${FLOATING_PANEL_CLASS} w-full max-w-md p-6`}
               role="alertdialog"
+              onKeyDown={handleRestoreConfirmKeyDown}
             >
-              <h2 id="manuscript-revision-restore-title" className="text-base font-semibold text-foreground">
+              <h2 id="manuscript-revision-restore-title" className="text-lg font-semibold leading-tight text-foreground">
                 恢复这个正文版本？
               </h2>
               <p
@@ -306,7 +344,7 @@ export function ManuscriptRevisionSheet({
               <div className="mt-5 flex justify-end gap-2">
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="secondary"
                   disabled={restoring}
                   onClick={() => setRestoreConfirmOpen(false)}
                 >
