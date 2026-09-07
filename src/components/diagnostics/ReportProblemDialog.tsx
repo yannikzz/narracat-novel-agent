@@ -4,6 +4,13 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  DIALOG_BODY_CLASS,
+  DIALOG_CONTENT_FORM_CLASS,
+  DIALOG_FOOTER_SECTIONED_CLASS,
+  DIALOG_HEADER_SECTIONED_CLASS,
+  DIALOG_SCROLL_SHELL_CLASS,
+} from '@/design-system'
 import { getDiagnosticsReport, revealLogFile } from '@/lib/ipc'
 import {
   buildGitHubIssueUrl,
@@ -96,7 +103,7 @@ export function ReportProblemDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className={`${DIALOG_SCROLL_SHELL_CLASS} ${DIALOG_CONTENT_FORM_CLASS}`} data-report-problem-dialog="true">
         <ReportProblemDialogPanel
           report={report}
           loadError={loadError}
@@ -111,7 +118,11 @@ export function ReportProblemDialog({
   )
 }
 
-/** 弹窗内容面板；单独导出便于 SSR 测试（惯例同 ConfirmDialogPanel）。 */
+/**
+ * 弹窗内容面板；单独导出便于 SSR 测试。
+ * 形态 = 内容型三段式（§9.7）：有输入框 + 可滚动预览，不是轻确认框——第一版照着 ConfirmDialogPanel 抄成了
+ * 裸容器，就是把两种形态抄混的典型（治理见 dialog-governance.test）。
+ */
 export function ReportProblemDialogPanel({
   report,
   loadError,
@@ -131,63 +142,66 @@ export function ReportProblemDialogPanel({
 }) {
   const ready = report !== null
   return (
-    <div data-report-problem-panel="true" className="grid gap-4">
-      <DialogHeader className="pr-8 text-left">
+    <>
+      <DialogHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
         <DialogTitle className="text-lg leading-tight">报告问题</DialogTitle>
-        <DialogDescription>
-          下面是将要一起提交的内容：版本、系统和最近的日志（已抹掉本机路径与密钥）。确认后会打开 GitHub 的新建 Issue 页面，需要一个 GitHub 账号。
-        </DialogDescription>
+        <DialogDescription className="sr-only">生成脱敏诊断信息并提交到 GitHub Issue</DialogDescription>
       </DialogHeader>
 
-      <label className="grid gap-1.5">
-        <span className="text-xs font-medium text-foreground">发生了什么</span>
-        <Textarea
-          value={description}
-          rows={3}
-          placeholder="做了什么操作、看到了什么、期望是什么"
-          className="text-sm"
-          data-report-problem-description="true"
-          onChange={(event) => onDescriptionChange(event.target.value)}
-        />
-      </label>
-
-      {loadError ? (
-        <p className="text-xs text-destructive">诊断信息读取失败：{loadError}</p>
-      ) : !ready ? (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" />
-          正在收集诊断信息…
+      <div className={`${DIALOG_BODY_CLASS} grid gap-4`} data-report-problem-panel="true">
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          下面是将要一起提交的内容：版本、系统和最近的日志（已抹掉本机路径与密钥）。确认后会打开 GitHub 的新建 Issue 页面，需要一个 GitHub 账号。
         </p>
-      ) : (
-        <div className="grid gap-1.5">
-          <span className="text-xs font-medium text-foreground">将要提交的诊断信息</span>
-          <pre
-            className="max-h-56 overflow-auto rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs leading-5 text-muted-foreground whitespace-pre-wrap [overflow-wrap:anywhere]"
-            data-report-problem-preview="true"
-          >
-            {renderEnvironmentTable(report)}
-            {'\n\n'}
-            {report.logTail.length > 0 ? report.logTail.join('\n') : '（还没有日志）'}
-          </pre>
-        </div>
-      )}
 
-      <DialogFooter className="sm:justify-between">
-        <div className="flex items-center gap-1.5">
-          <Button type="button" variant="ghost" size="sm" onClick={onRevealLog} data-report-problem-reveal-log="true">
-            <FolderOpen className="size-3.5" />
-            打开日志文件夹
-          </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={!ready} onClick={onCopy} data-report-problem-copy="true">
-            <Copy className="size-3.5" />
-            复制诊断信息
-          </Button>
-        </div>
-        <Button type="button" size="sm" disabled={!ready} onClick={onSubmit} data-report-problem-submit="true">
-          <ExternalLink className="size-3.5" />
+        <label className="grid gap-1.5">
+          <span className="text-sm font-medium text-foreground">发生了什么</span>
+          <Textarea
+            value={description}
+            rows={3}
+            placeholder="做了什么操作、看到了什么、期望是什么"
+            className="text-sm"
+            data-report-problem-description="true"
+            onChange={(event) => onDescriptionChange(event.target.value)}
+          />
+        </label>
+
+        {loadError ? (
+          <p className="text-xs text-destructive">诊断信息读取失败：{loadError}</p>
+        ) : !ready ? (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            正在收集诊断信息…
+          </p>
+        ) : (
+          <div className="grid gap-1.5">
+            <span className="text-sm font-medium text-foreground">将要提交的诊断信息</span>
+            <pre
+              className="max-h-56 overflow-auto rounded-md border border-border bg-surface px-3 py-2 font-mono text-xs leading-5 text-muted-foreground whitespace-pre-wrap [overflow-wrap:anywhere]"
+              data-report-problem-preview="true"
+            >
+              {renderEnvironmentTable(report)}
+              {'\n\n'}
+              {report.logTail.length > 0 ? report.logTail.join('\n') : '（还没有日志）'}
+            </pre>
+          </div>
+        )}
+      </div>
+
+      <DialogFooter className={DIALOG_FOOTER_SECTIONED_CLASS}>
+        {/* 次要动作靠左用 sm:mr-auto：DialogFooter 窄屏会 flex-col-reverse，两端式布局在窄屏下顺序会乱（§9.7） */}
+        <Button type="button" variant="ghost" className="sm:mr-auto" onClick={onRevealLog} data-report-problem-reveal-log="true">
+          <FolderOpen className="size-4" />
+          打开日志文件夹
+        </Button>
+        <Button type="button" variant="secondary" disabled={!ready} onClick={onCopy} data-report-problem-copy="true">
+          <Copy className="size-4" />
+          复制诊断信息
+        </Button>
+        <Button type="button" disabled={!ready} onClick={onSubmit} data-report-problem-submit="true">
+          <ExternalLink className="size-4" />
           在 GitHub 提交
         </Button>
       </DialogFooter>
-    </div>
+    </>
   )
 }

@@ -75,3 +75,30 @@ export const WARNING_PILL_CLASS =
 
 export const DESTRUCTIVE_INLINE_CLASS =
   'rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive'
+
+// ── 弹窗容器档位（docs/design.md §9.7）────────────────────────────────────────
+// 弹窗只有两种形态：内容型三段式（装表单/长文/对比）与轻确认框（一句话后果 + 两个按钮）。
+// 宽度档位只能从这里取——DialogContent 原语的默认值（bg-floating p-6 gap-4 sm:max-w-lg）是轻确认框
+// 的形态，内容型必须整套覆盖；散在业务文件里各写一遍就是漂移的来源（dialog-governance.test 守着）。
+
+/** 三段式底座：bg-workspace 盖掉浮层色、p-0 由内部分区自管间距、gap-0 去掉段间距、overflow-hidden 让圆角裁内容。 */
+export const DIALOG_SECTIONED_BASE_CLASS = 'gap-0 overflow-hidden bg-workspace p-0'
+/** 内容可能超高的三段式外壳：容器成 flex 列并限高，正文区配 DIALOG_BODY_CLASS 自滚。 */
+export const DIALOG_SCROLL_SHELL_CLASS = 'flex max-h-[calc(100dvh-4rem)] flex-col'
+/** 表单档 560：单栏表单、短清单。 */
+export const DIALOG_CONTENT_FORM_CLASS = `${DIALOG_SECTIONED_BASE_CLASS} sm:max-w-[560px]`
+/** 长文档 680：详情、长文、含预览的清单。 */
+export const DIALOG_CONTENT_DOCUMENT_CLASS = `${DIALOG_SECTIONED_BASE_CLASS} sm:max-w-[680px]`
+/** 对比档 1320：同屏并排多个同构选项横向比较，且必须窄窗降栏（grid-cols-1 lg:grid-cols-3）。 */
+export const DIALOG_CONTENT_COMPARE_CLASS = `${DIALOG_SECTIONED_BASE_CLASS} sm:max-w-[1320px]`
+/** 轻确认框 448：一句话后果 + 取消/确认，用原语默认的 bg-floating p-6 裸容器。 */
+export const DIALOG_CONTENT_CONFIRM_CLASS = 'sm:max-w-md'
+
+/** 三段式头：可见标题 + 底边线；Description 用 sr-only（内容本身就是说明）。 */
+export const DIALOG_HEADER_SECTIONED_CLASS = 'shrink-0 border-b border-border px-6 pb-5 pt-6 text-left'
+/** 轻确认框头：只给关闭钮让位；Description 必须可见（后果说明就是这个弹窗的正文）。 */
+export const DIALOG_HEADER_CONFIRM_CLASS = 'pr-8 text-left'
+/** 三段式正文：自滚。 */
+export const DIALOG_BODY_CLASS = 'min-h-0 flex-1 overflow-y-auto px-6 py-5'
+/** 三段式按钮条：顶边线，配 DialogFooter 默认右对齐。 */
+export const DIALOG_FOOTER_SECTIONED_CLASS = 'shrink-0 border-t border-border px-6 py-4'

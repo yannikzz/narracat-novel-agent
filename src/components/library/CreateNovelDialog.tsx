@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { DESTRUCTIVE_INLINE_CLASS } from '@/design-system'
+import { DESTRUCTIVE_INLINE_CLASS, DIALOG_CONTENT_FORM_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
 import { createNovelProject } from '@/lib/ipc'
 import { useNovelStore } from '@/lib/novel-store'
@@ -273,7 +273,7 @@ export function CreateNovelDialog({
           {triggerLabel}
         </Button>
       </DialogTrigger>
-      <DialogContent className="overflow-hidden bg-workspace p-0 sm:max-w-[560px]">
+      <DialogContent className={DIALOG_CONTENT_FORM_CLASS}>
         <CreateNovelDialogPanel
           automationLevel={automationLevel}
           creating={creating}

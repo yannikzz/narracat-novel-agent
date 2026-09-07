@@ -48,6 +48,7 @@ import {
   selectDirectory,
   setApiKey,
   testConnection,
+  revealLogFile,
 } from '@/lib/ipc'
 import { buildPoolEntry, modelEntryKey } from '@shared/lib/model-slots'
 import { useNovelStore } from '@/lib/novel-store'
@@ -882,7 +883,7 @@ export function SettingsRoute() {
               {activeSectionId === 'about' ? (
                 <>
                   <AboutBrandStory />
-                  <div data-settings-about-list="true">
+                  <div data-settings-about-list="true" className="space-y-5">
                     <SettingsCard>
                       <SettingsRow title="客户端版本">
                         <div className="text-right text-sm tabular">{clientVersion}</div>
@@ -893,11 +894,6 @@ export function SettingsRoute() {
                       <SettingsRow title="NarraCat Agent Core 版本">
                         <div className="truncate text-right text-sm tabular">
                           {diagnostics?.version ?? '未检测'}
-                        </div>
-                      </SettingsRow>
-                      <SettingsRow title="报告问题" description="生成脱敏诊断，预览后一键提交到 GitHub Issue">
-                        <div className="text-right">
-                          <ReportProblemButton variant="outline" size="sm" />
                         </div>
                       </SettingsRow>
                       <SettingsRow title="作者">
@@ -926,6 +922,22 @@ export function SettingsRoute() {
                           >
                             MiSans 字体
                           </a>
+                        </div>
+                      </SettingsRow>
+                    </SettingsCard>
+                    {/* 诊断与反馈单独一张卡：用户出了问题会来找「诊断」这个词，版本卡保持纯信息。
+                        工作台失败卡片上另有就地入口（AgentTerminalNotice）。 */}
+                    <SettingsCard>
+                      <SettingsRow title="报告问题" description="生成脱敏诊断（版本、系统、最近日志），预览后一键提交到 GitHub Issue">
+                        <div className="text-right">
+                          <ReportProblemButton variant="outline" size="sm" />
+                        </div>
+                      </SettingsRow>
+                      <SettingsRow title="日志文件" description="主进程运行日志，反馈问题时可整份附上">
+                        <div className="text-right">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => void revealLogFile()} data-settings-reveal-log="true">
+                            打开日志文件夹
+                          </Button>
                         </div>
                       </SettingsRow>
                       {/* 规避 Electron 41.2.1（对应 Chromium 146）在 Windows 打包版（asar）渲染原生 <details> 挂起主线程的

@@ -4,6 +4,18 @@
 
 ## Current Branch
 
+**2026-09-07（弹窗规范治理：两种形态 + 档位常量 + 治理测试；「报告问题」入口归位，同分支）**：产品主人指出「报告问题」弹窗没照规范写、怀疑规范有两套。子 Agent 盘完全仓 22 个弹窗：**不是两套规范，是规范只写了一半**——`design.md` §9.7 只定义了「内容型三段式」，全仓 8 个「轻确认框」在规范空白区各自发挥；`DialogContent` 原语默认值（`bg-floating p-6 gap-4 sm:max-w-lg`）恰是规范要求覆盖掉的，谁忘了覆盖谁就漂；规范自相矛盾（一处说 p-6 给 modal，一处说不要 p-6）；`check:design` 68 条契约零条碰弹窗；「复用先行」没有 design-system 常量可复用，业务文件各提各的常量把漂移固化进了常量名。结果：11 种宽度、3 种取消钮、3 种页脚。我写「报告问题」时照 `ConfirmDialogPanel` 抄，抄的是轻确认框模板装的却是内容型，还漏了 `sm:` 前缀让宽度根本没生效（twMerge 不会剔不同 variant group 的类）。
+
+规范侧落地（**规范→常量→守卫三件套**，与 typography 治理同构）：
+- `surfaces.ts` 新增 `DIALOG_*` 常量：三段式底座 `gap-0 overflow-hidden bg-workspace p-0` + 三档宽度（FORM 560 / DOCUMENT 680 / COMPARE 1320）+ 轻确认框 CONFIRM 448 + 滚动外壳 + header/body/footer 三段。
+- §9.7 改写：先判形态再写代码，**分界线**=有输入框/清单/预览/多段内容任一项→内容型，只有一句话后果+两个按钮→轻确认框；补轻确认框条款（可见 Description、取消 secondary、离开拦截三钮）；补 **Dialog 还是 Sheet** 判据；删掉 p-6 矛盾条款；圆角表登记 `rounded-modal` token。
+- `dialog-governance.test.ts`：扫全部生产 tsx 的 `DialogContent`/`SheetContent`，className 必须引用 `DIALOG_CONTENT_*`（直接或经业务常量，业务常量定义里必须含 design-system 常量），字面量宽度一律红；`ACCEPTED_DEBT` 表登记存量偏差附原因，**表里文件若已合规会红**（防债务清了表还留着）。`check:design` 加 requiredContracts（规范文本 + 常量导出）与 forbidden（弹层动效 ≥300ms）。
+- 零视觉变化迁移 11 处：5 个 560 字面量→FORM，2 个滚动 560→SCROLL_SHELL+FORM，PACK_DETAIL 三常量→DOCUMENT/HEADER/BODY，POLISH→COMPARE，ConfirmDialog 与章节离开拦截→CONFIRM。⚠️ **一处可见变化**：底座含 `gap-0`，PACK_DETAIL / BookVoiceAnchors / 能力包导出这三个多子元素弹窗的 header 与正文之间原有 16px 空白消失（正是规范说的「标题下方一片空白」bug，真机看一眼确认）。`sheet.tsx` 开场动效 500ms→200ms。
+- 债务表 4 条（书架 4 弹窗 640/520/520/440、Agent 新对话确认 400、角色聊天离开拦截 384、版本历史 Sheet 960）等产品主人看一眼归档。
+- 「报告问题」改成三段式 FORM 档 + 页脚次要动作 `sm:mr-auto`（不再两端式，DialogFooter 窄屏 flex-col-reverse 会乱序）；入口从版本卡挪到独立的「诊断与反馈」卡（报告问题 / 日志文件 / 原诊断折叠区），版本卡回归纯信息。
+
+验证：typecheck / check:design / check:architecture 绿；全量 3641 测试绿。dev 已在跑，待产品主人真机看：关于页新卡、报告问题弹窗三段式、三个多子元素弹窗的 gap-0。
+
 **2026-09-07（Windows「提交选择」点不了 → 主进程日志文件 + 报告问题闭环，同分支未提交 PR）**：用户补了截图——**单题、选项已选、按钮亮着、无转圈**，把子 Agent 排第一的「多题灰钮」根因直接推翻。重读提交链：点击后只有三种结局（成功收口 / toast 失败并复位 / 一直转圈），「点了什么都没发生」在代码里**不存在这条路径**；顶栏 drag 死区已排除（卡片在滚动视口内）；截图右缘的绿色猫头圆钮全仓没有，是用户机器上别的软件的悬浮窗。剩两个候选：①点击没送到按钮（第三方悬浮窗透明命中区之类）；②截图是点击前拍的，点击后 IPC 卡在事件落盘（Windows 资料目录在 OneDrive / 被杀软实时扫描时文件追加被锁）→ 永久转圈。**需要报告者一句话定案**：点了之后按钮有没有转圈、有没有闪过提示。
 
 真正的教训是**观测盲区**：打包版主进程没有任何日志文件，`console.warn` 全部丢掉——那条链上每个失败分支其实都有 warn，我们就是拿不到。故本轮不押注根因，先把三件事做掉（产品主人拍板）并顺势把日志体系闭环：

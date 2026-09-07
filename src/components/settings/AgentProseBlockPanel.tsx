@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/cn'
 import type { ProseBlockView } from '@shared/types/prose-block'
+import { DIALOG_CONTENT_FORM_CLASS } from '@/design-system'
 
 /**
  * 「恢复默认」二次确认文案：必须指名当前 Agent，不能读起来像全局操作——按钮长在这个 Agent 的
@@ -227,7 +228,7 @@ export function AgentProseBlockPanelView({
         }}
       >
         <DialogContent
-          className="overflow-hidden bg-workspace p-0 sm:max-w-[560px]"
+          className={DIALOG_CONTENT_FORM_CLASS}
           data-prose-block-detail-dialog={selectedView?.id}
         >
           {selectedView ? (

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { DIALOG_CONTENT_COMPARE_CLASS, DIALOG_HEADER_SECTIONED_CLASS } from '@/design-system'
 
 const setupSource = readFileSync(fileURLToPath(new URL('./PolishSetupDialog.tsx', import.meta.url)), 'utf-8')
 const versionsSource = readFileSync(
@@ -51,18 +52,22 @@ describe('配置弹窗形态', () => {
     expect(setupSource).toContain('（主力模型还没测试连接）')
   })
 
-  test('容器遵 design.md §9.7：bg-workspace + p-0 三段式，不用默认的 bg-floating/p-6', () => {
-    expect(setupSource).toContain('bg-workspace p-0')
+  test('容器遵 design.md §9.7：对比档常量（bg-workspace + p-0 + gap-0 三段式），不用默认的 bg-floating/p-6', () => {
+    // 宽度与底座不再手写，从 design-system 的对比档常量取（dialog-governance.test 守着全仓）
+    expect(setupSource).toContain('DIALOG_CONTENT_COMPARE_CLASS')
+    expect(DIALOG_CONTENT_COMPARE_CLASS).toContain('bg-workspace')
+    expect(DIALOG_CONTENT_COMPARE_CLASS).toContain('p-0')
     // p-0 管不到段间距：DialogContent 默认的 gap-4 会在标题下方留出一片空白（真机看出来的）
-    expect(setupSource).toContain('gap-0')
+    expect(DIALOG_CONTENT_COMPARE_CLASS).toContain('gap-0')
     // 按语义分片断言，不钉整串 class——整串一改就红，而红的原因往往与规范无关
-    expect(setupSource).toContain('border-b border-border px-6 pb-5 pt-6 text-left') // header
+    expect(setupSource).toContain('DIALOG_HEADER_SECTIONED_CLASS') // header
+    expect(DIALOG_HEADER_SECTIONED_CLASS).toContain('border-b border-border px-6 pb-5 pt-6 text-left')
     expect(setupSource).toContain('overflow-y-auto px-6 py-5') // 内容区自滚 + 规范内边距
     expect(setupSource).toContain('border-t border-border bg-active/40 px-6 py-4') // 按钮条
   })
 
   test('弹窗够宽——三栏并排读得下要求正文', () => {
-    expect(setupSource).toContain('sm:max-w-[1320px]')
+    expect(DIALOG_CONTENT_COMPARE_CLASS).toContain('sm:max-w-[1320px]')
   })
 
   test('高度吃满可用空间，要求输入框跟着长高（不靠 min-h 撑）', () => {

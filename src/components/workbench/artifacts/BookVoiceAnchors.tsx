@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { READING_BODY_FONT_CLASS } from '@/design-system'
+import { DIALOG_CONTENT_FORM_CLASS, DIALOG_SCROLL_SHELL_CLASS, READING_BODY_FONT_CLASS } from '@/design-system'
 import { listStyleAnchors, submitStyleAnchor } from '@/lib/ipc'
 
 export interface StyleAnchorItem {
@@ -128,7 +128,7 @@ export function BookVoiceAnchors({
       <Dialog open={openedAnchor !== null} onOpenChange={(open) => !open && setOpenedAnchorId(null)}>
         {/* 容器规范 docs/design.md §9.7：长文内容型弹窗须 flex flex-col + max-h 上限，
             否则 400 字多换行的样章在小窗口会把底部删除按钮挤出视口（对齐 PackDetailContent 三段式）。 */}
-        <DialogContent className="flex max-h-[calc(100dvh-4rem)] flex-col overflow-hidden bg-workspace p-0 sm:max-w-[560px]">
+        <DialogContent className={`${DIALOG_SCROLL_SHELL_CLASS} ${DIALOG_CONTENT_FORM_CLASS}`}>
           {openedAnchor && (
             <>
               <DialogHeader className="shrink-0 border-b border-border px-6 pb-5 pt-6 text-left">

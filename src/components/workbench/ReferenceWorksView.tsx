@@ -14,13 +14,7 @@ import {
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  DESTRUCTIVE_INLINE_CLASS,
-  EMPTY_PRIMARY_BODY_CLASS,
-  EMPTY_PRIMARY_TITLE_CLASS,
-  GROUP_CLASS,
-  WORKBENCH_GUIDE_ACTION_CLASS,
-} from '@/design-system'
+import { DESTRUCTIVE_INLINE_CLASS, DIALOG_CONTENT_FORM_CLASS, EMPTY_PRIMARY_BODY_CLASS, EMPTY_PRIMARY_TITLE_CLASS, GROUP_CLASS, WORKBENCH_GUIDE_ACTION_CLASS } from '@/design-system'
 import { importReferenceSourceFiles, pasteReferenceSource, removeReferenceSource, resetReferenceWorks } from '@/lib/ipc'
 import {
   REMOVE_REFERENCE_SOURCE_CONFIRM,
@@ -289,7 +283,7 @@ export function ReferenceWorksView({
           粘贴一个片段
         </Button>
       </DialogTrigger>
-      <DialogContent className="overflow-hidden bg-workspace p-0 sm:max-w-[560px]">
+      <DialogContent className={DIALOG_CONTENT_FORM_CLASS}>
         <ReferenceWorksPasteDialogPanel
           busy={busy}
           content={content}

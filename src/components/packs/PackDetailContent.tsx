@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { BadgeCheck, Package } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/workbench/MarkdownRenderer'
 import { Disclosure } from '@/components/ui/disclosure'
-import { MUTED_PILL_CLASS } from '@/design-system'
+import { DIALOG_BODY_CLASS, DIALOG_CONTENT_DOCUMENT_CLASS, DIALOG_HEADER_SECTIONED_CLASS, DIALOG_SCROLL_SHELL_CLASS, MUTED_PILL_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
 import type { CapabilityPackDetail, PackCardEntry, PackLocalSource } from '@shared/types/capability-pack'
 import { CARD_TYPE_LABELS } from './pack-card-labels'
@@ -10,10 +10,9 @@ import { CARD_TYPE_LABELS } from './pack-card-labels'
 // 详情/导入确认弹窗容器规范（docs/design.md §9.7，对齐新建小说弹窗）：bg-workspace 覆盖默认浮层色、
 // p-0 由内部分区自管间距、可见 DialogHeader（border-b）+ 滚动正文区；两处宿主（设置页导入确认 /
 // 工作台详情）共用，避免各写一套漂移。
-export const PACK_DETAIL_DIALOG_CONTENT_CLASS =
-  'flex max-h-[calc(100dvh-4rem)] flex-col overflow-hidden bg-workspace p-0 sm:max-w-[680px]'
-export const PACK_DETAIL_DIALOG_HEADER_CLASS = 'shrink-0 border-b border-border px-6 pb-5 pt-6 text-left'
-export const PACK_DETAIL_DIALOG_BODY_CLASS = 'min-h-0 flex-1 overflow-y-auto px-6 py-5'
+export const PACK_DETAIL_DIALOG_CONTENT_CLASS = `${DIALOG_SCROLL_SHELL_CLASS} ${DIALOG_CONTENT_DOCUMENT_CLASS}`
+export const PACK_DETAIL_DIALOG_HEADER_CLASS = DIALOG_HEADER_SECTIONED_CLASS
+export const PACK_DETAIL_DIALOG_BODY_CLASS = DIALOG_BODY_CLASS
 
 const ICON_TILE_CLASS = 'flex size-12 shrink-0 items-center justify-center rounded-row'
 const SECTION_TITLE_CLASS = 'text-xs font-medium leading-5 text-muted-foreground'
