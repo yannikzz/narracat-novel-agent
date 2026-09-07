@@ -187,7 +187,6 @@ export function GlobalNotificationBell({
     initialProjectionRef.current ? completeLoad() : EMPTY_LOAD_STATE,
   )
   const loadStateRef = useRef(loadState)
-  const initialLoadStartedRef = useRef(false)
   const mountedRef = useRef(false)
   const requestSequenceRef = useRef(0)
   const navigate = useNavigate()
@@ -236,10 +235,11 @@ export function GlobalNotificationBell({
       }
     }
 
-    if (!initialLoadStartedRef.current) {
-      initialLoadStartedRef.current = true
-      void loadNotifications()
-    }
+    // 每次挂载都发一次首载，不用「只发一次」的 ref 守卫：卸载时 requestSequence 已经 +1，上一次挂载的
+    // 请求回来会被当成过期丢掉、且不复位 loading——React StrictMode（dev）会把 effect 挂载→卸载→再挂载，
+    // 守卫让第二次挂载不再发请求，于是铃铛永远转圈、列表永远空（2026-09-07 dev 撞到）。
+    // 陈旧请求由 requestSequence 兜底，重复首载最多多读一次本地 JSON，无害。
+    void loadNotifications()
     const unsubscribe = onResultNotificationsChanged((next) => {
       requestSequenceRef.current += 1
       updatePayload(next)
