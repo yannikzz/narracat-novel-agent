@@ -1,6 +1,7 @@
 import { AlertCircle, CirclePause } from 'lucide-react'
 import { Link } from 'react-router'
 import { BrandIllustration } from '@/components/brand'
+import { ReportProblemButton } from '@/components/diagnostics/ReportProblemDialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 import { MarkdownRenderer } from '../MarkdownRenderer'
@@ -88,12 +89,21 @@ function AgentTerminalNotice({ part }: { part: Extract<AgentMessagePart, { type:
       >
         <Icon className="size-3.5" />
       </span>
-      <div className="min-w-0 break-words [overflow-wrap:anywhere]">
+      <div className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
         <div className="text-sm font-medium leading-5 text-foreground">{part.title}</div>
         {detail && (
           <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{detail}</div>
         )}
       </div>
+      {/* 出错当场就能报：描述预填失败原因，日志尾里正好是这次 run 的 warn/error。中断态不是 bug，不给入口。 */}
+      {!interrupted && (
+        <ReportProblemButton
+          variant="ghost"
+          size="xs"
+          className="shrink-0 text-muted-foreground"
+          initialDescription={`运行失败：${part.detail ?? ''}`.trim()}
+        />
+      )}
     </div>
   )
 }

@@ -870,7 +870,12 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
 
     async answerQuestion(answer) {
       const pending = pendingQuestions.get(answer.requestId)
-      if (!pending) return { accepted: false }
+      if (!pending) {
+        // 用户点了「提交选择」但主进程已经不在等这道题：留一行日志，事后能分清是问题过期、
+        // run 已结束，还是渲染端拿着一个主进程从没登记过的 requestId。
+        console.warn(`[narracat] 回答的问题不在等待中：requestId=${answer.requestId} pending=${pendingQuestions.size}`)
+        return { accepted: false }
+      }
 
       const published = await sendEventSafe({
         type: 'question.answered',

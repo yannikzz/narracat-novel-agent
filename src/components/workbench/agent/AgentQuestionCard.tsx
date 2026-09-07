@@ -20,6 +20,32 @@ export interface QuestionAnswerState {
 
 const EMPTY_ANSWER: QuestionAnswerState = { selected: [], custom: '' }
 
+/** 提交等待上限：正常路径几十毫秒就回，15 秒还没回一定是卡在主进程那头。 */
+export const QUESTION_SUBMIT_TIMEOUT_MS = 15_000
+
+export class SubmitTimeoutError extends Error {
+  constructor() {
+    super('提交回答超时')
+    this.name = 'SubmitTimeoutError'
+  }
+}
+
+export function withSubmitTimeout<T>(operation: Promise<T>, timeoutMs = QUESTION_SUBMIT_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SubmitTimeoutError()), timeoutMs)
+    operation.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
 export function AgentQuestionCard({ part }: { part: QuestionPart }) {
   const [answers, setAnswers] = useState<Record<string, QuestionAnswerState>>(() =>
     initialAnswerStates(part.questions, part.answers),
@@ -59,18 +85,22 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      await answerAgentQuestion({
-        requestId: part.questionRequestId,
-        answers: Object.fromEntries(
-          questions.map((question) => [
-            question.question,
-            serializeAnswerState(answers[question.question] ?? EMPTY_ANSWER),
-          ]),
-        ),
-      })
+      // 主进程答复要经过事件落盘；磁盘被锁（OneDrive / 杀软）时 invoke 会无限等，按钮就永远转圈。
+      // 超时按失败处理并复位，让用户能再点；主进程若稍后真的收下了，question.answered 事件照样把卡片收口。
+      await withSubmitTimeout(
+        answerAgentQuestion({
+          requestId: part.questionRequestId,
+          answers: Object.fromEntries(
+            questions.map((question) => [
+              question.question,
+              serializeAnswerState(answers[question.question] ?? EMPTY_ANSWER),
+            ]),
+          ),
+        }),
+      )
     } catch (error) {
       console.error(error)
-      toast.error('提交回答失败，请重试')
+      toast.error(error instanceof SubmitTimeoutError ? '提交没有收到回应，请重试' : '提交回答失败，请重试')
       setSubmitting(false)
     }
   }

@@ -1,3 +1,4 @@
+import { warnIfSlow } from '../../logging/main-log.ts'
 import type {
   AgentEvent,
   AgentEventEnvelopeV1,
@@ -180,7 +181,8 @@ export function createAgentEventSink(options: AgentEventSinkOptions): AgentEvent
       payload,
     }
     try {
-      if (durability === 'durable') await options.store.appendDurableEvent(envelope)
+      // 落盘慢就是环境问题（OneDrive / 杀软锁文件），症状是按钮点了没反应；超阈值记 warn 才查得出来。
+      if (durability === 'durable') await warnIfSlow(`事件落盘 ${payload.type}`, options.store.appendDurableEvent(envelope))
     } catch (error) {
       state.nextSeq = seq
       throw error

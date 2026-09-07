@@ -21,6 +21,7 @@ import {
 } from '@/components/settings/CapabilityPackLibraryPanel'
 import { ModelProviderDetailPanel } from '@/components/settings/ModelProviderDetailPanel'
 import { ModelProviderListPanel } from '@/components/settings/ModelProviderListPanel'
+import { ReportProblemButton } from '@/components/diagnostics/ReportProblemDialog'
 import { MODEL_PROVIDERS, parseModelProviderParam } from '@/components/settings/model-providers'
 import { UpdateRow } from '@/components/settings/UpdateRow.tsx'
 import { TelemetryPanel } from '@/components/settings/TelemetryPanel'
@@ -892,6 +893,11 @@ export function SettingsRoute() {
                       <SettingsRow title="NarraCat Agent Core 版本">
                         <div className="truncate text-right text-sm tabular">
                           {diagnostics?.version ?? '未检测'}
+                        </div>
+                      </SettingsRow>
+                      <SettingsRow title="报告问题" description="生成脱敏诊断，预览后一键提交到 GitHub Issue">
+                        <div className="text-right">
+                          <ReportProblemButton variant="outline" size="sm" />
                         </div>
                       </SettingsRow>
                       <SettingsRow title="作者">

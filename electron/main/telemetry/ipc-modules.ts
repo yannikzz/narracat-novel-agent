@@ -166,6 +166,8 @@ export const IPC_CHANNEL_MODULES: Readonly<Record<string, TelemetryModule | null
   // ── 基建：探针 / 门控 / 通知 / 导航 / 窗口 / 项目管理读写 ────────────
   ping: null,
   'app:get-process-health': null,
+  'app:get-diagnostics-report': null,
+  'app:reveal-log-file': null,
   'release-guard:check': null,
   'narracat:diagnostics': null,
   'corpus:health-probe': null,

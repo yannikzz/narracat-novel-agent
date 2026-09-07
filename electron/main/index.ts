@@ -21,6 +21,7 @@ import {
   type ProcessHealthStore,
 } from './process-health.ts'
 import { setProcessHealthStore } from './ipc/app.ts'
+import { installMainLog } from './logging/main-log.ts'
 
 /**
  * 进程健康取证（#39）的 store。窗口创建早于 app.whenReady 完成的场景不存在，
@@ -63,6 +64,8 @@ function spawnMainWindow(): BrowserWindow {
 }
 
 async function main() {
+  // 日志文件要最先装：后面每一步的 console.warn/error 才有处落。userData 路径在 ready 前就可取。
+  installMainLog({ dir: join(app.getPath('userData'), 'logs') })
   await app.whenReady()
 
   const appRoot = app.getAppPath()

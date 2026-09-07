@@ -4,6 +4,17 @@
 
 ## Current Branch
 
+**2026-09-07（Windows「提交选择」点不了 → 主进程日志文件 + 报告问题闭环，同分支未提交 PR）**：用户补了截图——**单题、选项已选、按钮亮着、无转圈**，把子 Agent 排第一的「多题灰钮」根因直接推翻。重读提交链：点击后只有三种结局（成功收口 / toast 失败并复位 / 一直转圈），「点了什么都没发生」在代码里**不存在这条路径**；顶栏 drag 死区已排除（卡片在滚动视口内）；截图右缘的绿色猫头圆钮全仓没有，是用户机器上别的软件的悬浮窗。剩两个候选：①点击没送到按钮（第三方悬浮窗透明命中区之类）；②截图是点击前拍的，点击后 IPC 卡在事件落盘（Windows 资料目录在 OneDrive / 被杀软实时扫描时文件追加被锁）→ 永久转圈。**需要报告者一句话定案**：点了之后按钮有没有转圈、有没有闪过提示。
+
+真正的教训是**观测盲区**：打包版主进程没有任何日志文件，`console.warn` 全部丢掉——那条链上每个失败分支其实都有 warn，我们就是拿不到。故本轮不押注根因，先把三件事做掉（产品主人拍板）并顺势把日志体系闭环：
+
+- **主进程日志文件**（`electron/main/logging/main-log.ts`）：`<userData>/logs/main.log`，2MB 轮转留 3 份；接管 console 五个方法，`uncaughtExceptionMonitor`（只旁观不改默认行为）+ `unhandledRejection` 也落盘。入口 `index.ts` 第一行装，后面每一步的 warn 才有处落。本机文件不脱敏（取证要保真）。
+- **提交超时**：提问卡 `withSubmitTimeout` 15 秒，超时复位按钮并提示「提交没有收到回应」；主进程若稍后真收下了，`question.answered` 事件照样收口。主进程侧 `answerQuestion` 找不到 pending 时补一行 warn（分清过期 / run 已结束 / 渲染端拿着没登记过的 id）。
+- **落盘慢告警**：事件汇 `appendDurableEvent` 包 `warnIfSlow`，≥2 秒记 warn。把「是不是杀软/同步盘在锁文件」变成可查。
+- **报告问题闭环**（`src/components/diagnostics/ReportProblemDialog.tsx` + `app:get-diagnostics-report` / `app:reveal-log-file`）：主进程组装诊断包（版本 / 系统 / 已脱敏日志尾 200 行，脱敏 = 家目录两种斜杠、sk- Key、Bearer、x-api-key），弹窗预览 + 补一句描述 → 打开**预填好的 GitHub 新建 Issue 页**，同时把完整版复制到剪贴板（URL 上限约 8KB，正文按编码后字节 6.5KB 限长、从最旧行砍）。入口两处：设置 → 关于；Agent 运行失败卡片（预填失败原因，中断态不给入口）。**取舍：第一步走预填链接不走服务端代发**——零后端、用户看得见自己发出去什么；代价是要 GitHub 账号且能访问 GitHub，给没账号的留了「复制诊断信息」。Worker 代发留第二步（要先处理垃圾投递与隐私托管）。
+
+验证：typecheck / check:design / check:architecture 绿；全量测试绿。**真机未验**：Windows 上装一版看 logs/main.log 有没有生出来、「在 GitHub 提交」能不能拉起浏览器。
+
 **2026-09-07（写正文子 agent「一直被截断」：输出上限用户可填 + 截断自动降档重派，未提交 PR）**：上线后用户报「子 agent 内容一直被截断，写正文运行失败」。子 Agent 只读深钻拿到完整根因链：①pi 上游把实发 max_tokens 封在 32000，本仓的 `before_provider_request` 改写扩展只对 deepseek 与新款 Claude 放行（白名单只收有第一手文档的模型），**GLM / Kimi / MiniMax / custom 全部退回 32000**；②这些 provider 默认开思考且 thinking 与正文共用 max_tokens（DeepSeek 与 kimi-k3 官方文档均写明默认开、长度不可限），思考一发散预算就烧光；③截断后 App 把带 ⚠️ 的半章交回主会话，write.md 无处置指令，主会话**用完全相同的参数再派一次**，于是「一直被截断」直到回合/补写上限触顶。正文本身 3000–6000 字只要 2k–4k token，烧的全是思考。
 
 产品主人两条拍板：**不关思考保质量**（「冻结 pi 自己改上限」——其实早就绕过了：官方扩展钩子改写请求体，比 patch node_modules 干净，卡住的只是白名单策略）；**输出上限做成用户可填字段**，自定义模型必须自己填，内置渠道显示建议值可改。落地三刀，全在 App 层、不碰 pi 也不碰引擎：
