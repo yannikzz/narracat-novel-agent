@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 import { Check, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BrandIllustration } from '@/components/brand'
@@ -65,6 +65,13 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
   const isLast = clampedIndex === total - 1
   const isInteractive = part.status === 'running'
   const canSubmit = isInteractive && allQuestionsAnswered(questions, answers) && !submitting
+  // 完成态显示主进程确认的那份答案，不是本地草稿：提交 A 超时后用户改选 B 再点、B 被拒（同一问题只消费
+  // 一次），A 落盘后卡片变「已提交选择」却仍高亮 B——那样界面与 Agent 实际收到的对不上（PR #77 评审复现）。
+  const confirmedAnswers = useMemo(
+    () => (part.status === 'complete' && part.answers ? initialAnswerStates(questions, part.answers) : null),
+    [part.status, part.answers, questions],
+  )
+  const displayAnswers = confirmedAnswers ?? answers
   const statusHeader = getQuestionStatusHeader(questions)
   const showQuestionHeaders = hasMultipleQuestionHeaders(questions)
 
@@ -150,7 +157,7 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
       </div>
 
       {isMultiQuestion && (
-        <QuestionTabs questions={questions} answers={answers} activeIndex={clampedIndex} onSelect={goTo} />
+        <QuestionTabs questions={questions} answers={displayAnswers} activeIndex={clampedIndex} onSelect={goTo} />
       )}
 
       <QuestionBlock
@@ -158,7 +165,7 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
         disabled={!isInteractive || submitting}
         question={activeQuestion}
         showHeader={!isMultiQuestion && showQuestionHeaders}
-        value={answers[activeQuestion.question] ?? EMPTY_ANSWER}
+        value={displayAnswers[activeQuestion.question] ?? EMPTY_ANSWER}
         onChange={(value) =>
           setAnswers((current) => ({
             ...current,
