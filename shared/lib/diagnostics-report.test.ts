@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import type { DiagnosticsReport } from '@shared/types/diagnostics-report'
 import {
   buildGitHubIssueUrl,
+  MAX_ISSUE_URL_LENGTH,
   NARRACAT_GITHUB_REPO,
   renderClipboardReport,
   renderIssueDraft,
@@ -84,6 +85,33 @@ describe('renderIssueDraft', () => {
 
   test('没有日志时正文写明「没有日志」而不是空代码块', () => {
     expect(renderIssueDraft(report({ logTail: [] }), 'x').body).toContain('（没有日志）')
+  })
+})
+
+describe('renderIssueDraft × buildGitHubIssueUrl（链接总长，PR #77 评审 P2）', () => {
+  test('2000 个中文字的描述：正文里截断并注明，链接不超上限；剪贴板版保留全文', () => {
+    const description = '这一段描述很长'.repeat(300)
+    expect([...description].length).toBeGreaterThanOrEqual(2000)
+    const draft = renderIssueDraft(report(), description)
+    expect(draft.body).toContain('描述过长已截断')
+    const url = buildGitHubIssueUrl(draft)
+    expect(url.length).toBeLessThanOrEqual(MAX_ISSUE_URL_LENGTH)
+    expect(renderClipboardReport(report(), description)).toContain(description)
+    expect(renderClipboardReport(report(), description)).not.toContain('描述过长已截断')
+  })
+
+  test('描述与日志都很长：链接仍不超上限，且最新的日志行保留', () => {
+    const description = '描述'.repeat(900)
+    const lines = Array.from({ length: 400 }, (_, index) => `${index} 这是一条比较长的中文日志用来撑爆预算`)
+    const url = buildGitHubIssueUrl(renderIssueDraft(report({ logTail: lines }), description))
+    expect(url.length).toBeLessThanOrEqual(MAX_ISSUE_URL_LENGTH)
+    // URLSearchParams 把空格编成 +，decodeURIComponent 不认，须走 searchParams 解回
+    expect(new URL(url).searchParams.get('body')).toContain('399 这是一条')
+  })
+
+  test('标题限 60 字符，长首行不会把链接撑大', () => {
+    const draft = renderIssueDraft(report(), '标题'.repeat(200))
+    expect(draft.title.length).toBeLessThanOrEqual(60)
   })
 })
 

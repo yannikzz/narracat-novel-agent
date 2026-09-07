@@ -5,8 +5,8 @@ import {
   parseStoredAnswer,
   resolveQuestionTabLabels,
   serializeAnswerState,
+  isSubmitTimeoutError,
   QUESTION_SUBMIT_TIMEOUT_MS,
-  SubmitTimeoutError,
   withSubmitTimeout,
 } from './AgentQuestionCard'
 import type { AgentMessagePart, AgentQuestion } from '@shared/types/agent'
@@ -194,11 +194,17 @@ describe('withSubmitTimeout（提交超时兜底）', () => {
 
   test('主进程一直不回（磁盘被锁）：限时后抛 SubmitTimeoutError，按钮才有机会复位', async () => {
     const never = new Promise<never>(() => {})
-    await expect(withSubmitTimeout(never, 10)).rejects.toBeInstanceOf(SubmitTimeoutError)
+    const error = await withSubmitTimeout(never, 10).catch((e: unknown) => e)
+    expect(isSubmitTimeoutError(error)).toBe(true)
+    // 普通 Error + code，不是 class（AGENTS.md 约束）
+    expect(error).toBeInstanceOf(Error)
+    expect(Object.getPrototypeOf(error)).toBe(Error.prototype)
   })
 
   test('主进程报错：原错误冒泡，不被包成超时', async () => {
-    await expect(withSubmitTimeout(Promise.reject(new Error('问题已过期')), 50)).rejects.toThrow('问题已过期')
+    const error = await withSubmitTimeout(Promise.reject(new Error('问题已过期')), 50).catch((e: unknown) => e)
+    expect((error as Error).message).toBe('问题已过期')
+    expect(isSubmitTimeoutError(error)).toBe(false)
   })
 
   test('默认限时 15 秒——比正常路径（几十毫秒）长两个数量级，不会误伤慢机器', () => {

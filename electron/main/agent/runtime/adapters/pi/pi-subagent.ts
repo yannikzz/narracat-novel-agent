@@ -230,7 +230,7 @@ export function createTaskTool({
             }
             if (message.type === PI_MAX_TURNS_MESSAGE_TYPE) maxTurnsTripped = true
           }
-          return { provider: options.provider, finalText, maxTurnsTripped, abnormalStop }
+          return { provider: options.provider, api: options.model?.api, finalText, maxTurnsTripped, abnormalStop }
         }
 
         await gateConcurrency.acquire()
@@ -238,11 +238,14 @@ export function createTaskTool({
         let retriedWithoutThinking = false
         try {
           outcome = await runChildOnce(thinking)
-          // 只在「默认档 + 截断 + 未中止」时降档重跑；anthropic 渠道跳过——它的默认本就不带思考，
-          // 且 Fable 系对显式 disabled 回 400，重跑只会把一次截断换成一次报错。
+          // 只在「默认档 + 截断 + 未中止」时降档重跑，且仅限 anthropic-messages wire：`thinking: {type:'disabled'}`
+          // 只有这条 wire 会真的发出去；openai-completions 只在 pi 的 compat 探测命中 deepseek/zai 时才带关闭字段，
+          // 自定义网关上两轮请求一模一样，「第二轮已关闭思考」就是谎话（PR #77 评审 P2，假端点抓包证实）。
+          // anthropic 渠道也跳过——它的默认本就不带思考，且 Fable 系对显式 disabled 回 400。
           if (
             outcome.abnormalStop === 'length' &&
             thinking === 'provider-default' &&
+            outcome.api === 'anthropic-messages' &&
             outcome.provider !== 'anthropic' &&
             !childAbort.signal.aborted
           ) {

@@ -581,7 +581,7 @@ export interface ElectronApi {
     requestId: string
     questionRequestId: string
     answers: Record<string, string>
-  }) => Promise<{ accepted: boolean }>
+  }) => Promise<{ accepted: boolean; reason?: 'already-answered' | 'not-pending' }>
   forgetAgentSession: (input: { threadId: string; requestId: string }) => Promise<void>
   getAgentThreadSnapshot: (input: { threadId: string; segmentId?: string }) => Promise<AgentThreadSnapshotV1>
   getAgentEventsAfter: (input: {

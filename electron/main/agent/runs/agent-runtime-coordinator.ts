@@ -18,7 +18,7 @@ import type {
 } from '../../agent-runner.ts'
 import type { AgentConversationStore } from '../events/agent-conversation-store.ts'
 import { createAgentEventSink } from '../events/agent-event-sink.ts'
-import type { AgentRunManager } from './run-manager.ts'
+import type { AgentRunManager, AgentQuestionAnswerResult } from './run-manager.ts'
 
 export interface AgentProjectIdentity {
   id?: string
@@ -54,7 +54,7 @@ export interface AgentRuntimeCoordinator {
   subscribe: (subscriber: AgentRuntimeSubscriber) => () => void
   startRun: (request: AgentRunRequest & { requestId: string }) => Promise<AgentRunStarted>
   cancelRun: (input: AgentCancelRunInput) => Promise<{ cancelled: boolean }>
-  answerQuestion: (input: AgentQuestionAnswerMutationInput) => Promise<{ accepted: boolean }>
+  answerQuestion: (input: AgentQuestionAnswerMutationInput) => Promise<AgentQuestionAnswerResult>
   forgetThreadSession: (input: { threadId: string; requestId: string }) => Promise<void>
   getThreadSnapshot: (threadId: string, segmentId?: string) => Promise<AgentThreadSnapshotV1>
   getEventsAfter: (threadId: string, segmentId: string, afterSeq: number) => Promise<AgentEventsAfterResultV1>

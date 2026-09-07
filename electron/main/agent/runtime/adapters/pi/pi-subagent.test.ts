@@ -319,11 +319,11 @@ describe('createTaskTool 派发', () => {
 
   describe('截断自动降档重派（问题 2 根因②：同参重派只会再截一遍）', () => {
     /** buildChildRunOptions 记录每次派发的 thinking 档与 provider，供断言「第二轮真的关了思考」。 */
-    function makeRecordingBuilder(provider = 'deepseek') {
+    function makeRecordingBuilder(provider = 'deepseek', api: 'anthropic-messages' | 'openai-completions' = 'anthropic-messages') {
       const modes: string[] = []
       const buildChildRunOptions: CreateTaskToolArgs['buildChildRunOptions'] = (_definition, childAbort, mode) => {
         modes.push(mode)
-        return { abortController: childAbort, provider } as unknown as PiRunOptions
+        return { abortController: childAbort, provider, model: { api } } as unknown as PiRunOptions
       }
       return { buildChildRunOptions, modes: () => modes }
     }
@@ -369,6 +369,16 @@ describe('createTaskTool 派发', () => {
       const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
       const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
       expect(builder.modes()).toEqual(['provider-default'])
+      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+    })
+
+    test('openai-completions wire 不重派——关闭思考的字段在这条 wire 上根本发不出去，重跑等于撒谎', async () => {
+      const session = makeSequencedSession([[assistantMessageEnd('半章', 'length')], [assistantMessageEnd('不该到这', 'stop')]])
+      const builder = makeRecordingBuilder('custom', 'openai-completions')
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
+      const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
+      expect(builder.modes()).toEqual(['provider-default'])
+      expect(result.content[0].text).not.toContain('已关闭思考')
       expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
     })
 

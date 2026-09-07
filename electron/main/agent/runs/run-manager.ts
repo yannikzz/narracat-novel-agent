@@ -77,10 +77,16 @@ export interface AgentRunManagerDeps {
   manuscriptRevisionStore?: Pick<ManuscriptRevisionStore, 'begin' | 'complete'>
 }
 
+/** 答题回执：拒收时带原因，渲染端据此区分「刚才那次已收到、正在保存」与「问题已过期」。 */
+export interface AgentQuestionAnswerResult {
+  accepted: boolean
+  reason?: 'already-answered' | 'not-pending'
+}
+
 export interface AgentRunManager {
   startRun: (request: AgentRunRequest) => Promise<AgentRunStarted>
   cancelRun: (runId: string) => Promise<{ cancelled: boolean }>
-  answerQuestion: (answer: AgentQuestionAnswerInput) => Promise<{ accepted: boolean }>
+  answerQuestion: (answer: AgentQuestionAnswerInput) => Promise<AgentQuestionAnswerResult>
   forgetThreadSession: (threadId: string) => void
   hasActiveRunForThread: (threadId: string) => boolean
   getRunStatus: (runId: string) => AgentRunActiveStatus | undefined
@@ -103,6 +109,8 @@ interface PendingQuestion {
   resolve: (answer: AgentQuestionAnswerInput) => void
   reject: (error: Error) => void
   cleanup: () => void
+  /** 已收到答案、正在落盘：同一问题第二次提交据此拒掉（同一请求只消费一次）。 */
+  answering?: boolean
 }
 
 function isTerminalEvent(
@@ -194,6 +202,20 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
   const sdkSessionsByThread = new Map<string, SdkThreadSession>()
   let sessionEnvironmentGeneration = 0
   const pendingQuestions = new Map<string, PendingQuestion>()
+  /**
+   * 已被消费过的问题 id（有界）：同一问题第二次提交必须拒掉——渲染端提交超时后允许再点，若主进程
+   * 还在给第一次落盘，两次都收下会让 Agent 拿到答案 A、界面与历史却显示答案 B（PR #77 评审 P1）。
+   * 「正在落盘」期间靠 PendingQuestion.answering 标记；落盘完成后条目已从 map 摘掉，靠这个集合区分
+   * 「已答过」与「根本没登记过」，渲染端据此给不同提示。
+   */
+  const answeredQuestionIds = new Set<string>()
+  const ANSWERED_QUESTION_MEMORY = 500
+  function rememberAnswered(requestId: string): void {
+    answeredQuestionIds.add(requestId)
+    if (answeredQuestionIds.size > ANSWERED_QUESTION_MEMORY) {
+      answeredQuestionIds.delete(answeredQuestionIds.values().next().value!)
+    }
+  }
   const now = deps.now ?? (() => new Date().toISOString())
   const createRunId = deps.createRunId ?? randomUUID
   /** per-run runtime 解析（A/B 门）：deps.runtime（测试注入）恒优先；生产按 config.agentRuntime
@@ -871,11 +893,16 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
     async answerQuestion(answer) {
       const pending = pendingQuestions.get(answer.requestId)
       if (!pending) {
+        if (answeredQuestionIds.has(answer.requestId)) return { accepted: false, reason: 'already-answered' }
         // 用户点了「提交选择」但主进程已经不在等这道题：留一行日志，事后能分清是问题过期、
         // run 已结束，还是渲染端拿着一个主进程从没登记过的 requestId。
         console.warn(`[narracat] 回答的问题不在等待中：requestId=${answer.requestId} pending=${pendingQuestions.size}`)
-        return { accepted: false }
+        return { accepted: false, reason: 'not-pending' }
       }
+      // 先占坑再落盘：落盘期间（磁盘被锁可达十几秒）第二次提交必须被拒，不能两份答案都进历史。
+      if (pending.answering) return { accepted: false, reason: 'already-answered' }
+      pending.answering = true
+      rememberAnswered(answer.requestId)
 
       const published = await sendEventSafe({
         type: 'question.answered',

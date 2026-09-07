@@ -14,6 +14,11 @@ export const NARRACAT_GITHUB_REPO = 'yannikzz/narracat-novel-agent'
  * 所以正文按**编码后字节**限长，超出的日志行从最旧的那头砍。
  */
 const MAX_ENCODED_BODY_BYTES = 6_500
+/** 描述在正文里的预算（编码后字节，约 200 个中文字）：超出的部分只留在剪贴板；不限它一段长描述就能把链接撑到 414。 */
+const MAX_ENCODED_DESCRIPTION_BYTES = 1_800
+const DESCRIPTION_TRUNCATED_NOTE = '…（描述过长已截断，完整内容已复制到剪贴板）'
+/** 整条链接的硬上限（GitHub 对 GET 约 8KB 就 414），拼完再兜一次底。 */
+export const MAX_ISSUE_URL_LENGTH = 7_600
 
 /** 脱敏：家目录 → `~`；常见 API Key / Bearer 形态整段抹掉。日志文件本体不脱敏（本机取证要保真）。 */
 export function sanitizeLogText(text: string, options: { homeDir?: string } = {}): string {
@@ -63,19 +68,43 @@ export interface IssueDraft {
   body: string
 }
 
+/** 按编码后字节截断（中文每字 9 字节），末尾附说明；不超预算原样返回。 */
+function truncateToEncodedBytes(text: string, budget: number, note: string): string {
+  if (encodedBytes(text) <= budget) return text
+  const noteBytes = encodedBytes(note)
+  let end = 0
+  let used = 0
+  for (const char of text) {
+    const cost = encodedBytes(char)
+    if (used + cost > budget - noteBytes) break
+    used += cost
+    end += char.length
+  }
+  return `${text.slice(0, end)}${note}`
+}
+
 /**
- * Issue 正文：环境表 + 用户描述 + 已脱敏日志尾。日志段按编码后字节预算裁剪（从最旧行砍），
- * 保证最终 URL 不超 GitHub 上限；完整日志由渲染端另行复制到剪贴板。
+ * Issue 正文：环境表 + 用户描述 + 已脱敏日志尾。描述与日志段都按编码后字节预算裁剪（日志从最旧行砍），
+ * 保证最终 URL 不超 GitHub 上限；完整描述与日志由渲染端另行复制到剪贴板（descriptionBudget=Infinity）。
  */
-export function renderIssueDraft(report: DiagnosticsReport, description: string): IssueDraft {
+export function renderIssueDraft(
+  report: DiagnosticsReport,
+  description: string,
+  options: { descriptionBudget?: number } = {},
+): IssueDraft {
   const trimmed = description.trim()
   const firstLine = trimmed.split('\n')[0]?.trim() ?? ''
-  const title = `[${platformLabel(report.platform)}] ${firstLine || '问题反馈'}`.slice(0, 120)
+  const title = `[${platformLabel(report.platform)}] ${firstLine || '问题反馈'}`.slice(0, 60)
+  const bodyDescription = truncateToEncodedBytes(
+    trimmed,
+    options.descriptionBudget ?? MAX_ENCODED_DESCRIPTION_BYTES,
+    DESCRIPTION_TRUNCATED_NOTE,
+  )
 
   const head = [
     '## 问题描述',
     '',
-    trimmed || '（请在这里写下发生了什么、你做了什么操作、期望看到什么）',
+    bodyDescription || '（请在这里写下发生了什么、你做了什么操作、期望看到什么）',
     '',
     '## 环境',
     '',
@@ -105,14 +134,31 @@ function encodedBytes(text: string): number {
 }
 
 export function buildGitHubIssueUrl(draft: IssueDraft, repo = NARRACAT_GITHUB_REPO): string {
-  const params = new URLSearchParams({ title: draft.title, body: draft.body, labels: 'bug' })
-  return `https://github.com/${repo}/issues/new?${params.toString()}`
+  const build = (body: string) =>
+    `https://github.com/${repo}/issues/new?${new URLSearchParams({ title: draft.title, body, labels: 'bug' }).toString()}`
+  let url = build(draft.body)
+  // 兜底：预算是按段估的，拼完仍超长就从日志块尾部逐行砍（最旧行在前，砍前面的）。
+  let body = draft.body
+  while (url.length > MAX_ISSUE_URL_LENGTH) {
+    const fenceStart = body.indexOf('```\n')
+    const fenceEnd = body.lastIndexOf('\n```')
+    if (fenceStart < 0 || fenceEnd <= fenceStart) break
+    const inner = body.slice(fenceStart + 4, fenceEnd)
+    const lines = inner.split('\n')
+    if (lines.length <= 1) break
+    body = `${body.slice(0, fenceStart + 4)}${lines.slice(1).join('\n')}${body.slice(fenceEnd)}`
+    url = build(body)
+  }
+  return url
 }
 
 /** 剪贴板用的完整版：不裁日志（Issue 正文里放不下的部分让用户贴进评论）。 */
 export function renderClipboardReport(report: DiagnosticsReport, description: string): string {
   return [
-    renderIssueDraft({ ...report, logTail: [] }, description).body.replace('（没有日志）', ''),
+    renderIssueDraft({ ...report, logTail: [] }, description, { descriptionBudget: Number.POSITIVE_INFINITY }).body.replace(
+      '（没有日志）',
+      '',
+    ),
     '```',
     ...report.logTail,
     '```',

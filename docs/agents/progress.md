@@ -4,6 +4,10 @@
 
 ## Current Branch
 
+**2026-09-07（PR #77 评审修复四条）**：①**P1 同一问题只消费一次**——渲染端提交超时后允许再点，主进程若还在给第一次落盘，两次都收下会让 Agent 拿到答案 A、界面与历史显示答案 B（评审用真实 run-manager 复现）。修：`PendingQuestion.answering` 占坑 + 有界 `answeredQuestionIds`，第二次提交回 `{accepted:false, reason:'already-answered'}`，渲染端据此提示「已收到正在保存」并保持提交中，不复位；回执类型贯通 coordinator / ipc / preload / ipc.d.ts。②**P2 openai-completions wire 不重派**——`thinking:{type:'disabled'}` 只在 anthropic-messages wire 发得出去，pi 的 openai-completions 仅 compat 命中 deepseek/zai 才带关闭字段，自定义网关两轮请求一模一样却声称「已关闭思考」；重派条件加 `api === 'anthropic-messages'`。③**P2 描述过长撑爆链接**——描述进预算（编码后 1800 字节≈200 中文字，超出截断并注明），标题限 60 字符，`buildGitHubIssueUrl` 拼完再按 7600 兜底逐行砍日志；剪贴板版 descriptionBudget=Infinity 保全文。④**规范：去 class**——`SubmitTimeoutError` 改成普通 Error 挂 `code`，`isSubmitTimeoutError` 判。全量 3646 绿。
+
+**教训**：提交超时 + 允许重试的组合，必须在服务端配幂等（首次占坑）；「关闭思考」这类协议字段要按 wire 逐条核实是否真的发出去，不能因为 anthropic wire 生效就在另一条 wire 上也声称生效。
+
 **2026-09-07（弹窗规范治理：两种形态 + 档位常量 + 治理测试；「报告问题」入口归位，同分支）**：产品主人指出「报告问题」弹窗没照规范写、怀疑规范有两套。子 Agent 盘完全仓 22 个弹窗：**不是两套规范，是规范只写了一半**——`design.md` §9.7 只定义了「内容型三段式」，全仓 8 个「轻确认框」在规范空白区各自发挥；`DialogContent` 原语默认值（`bg-floating p-6 gap-4 sm:max-w-lg`）恰是规范要求覆盖掉的，谁忘了覆盖谁就漂；规范自相矛盾（一处说 p-6 给 modal，一处说不要 p-6）；`check:design` 68 条契约零条碰弹窗；「复用先行」没有 design-system 常量可复用，业务文件各提各的常量把漂移固化进了常量名。结果：11 种宽度、3 种取消钮、3 种页脚。我写「报告问题」时照 `ConfirmDialogPanel` 抄，抄的是轻确认框模板装的却是内容型，还漏了 `sm:` 前缀让宽度根本没生效（twMerge 不会剔不同 variant group 的类）。
 
 规范侧落地（**规范→常量→守卫三件套**，与 typography 治理同构）：
