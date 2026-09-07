@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -92,6 +92,7 @@ export function ManuscriptRevisionSheet({
   const [loadingContent, setLoadingContent] = useState(false)
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const restoreConfirmRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -151,6 +152,33 @@ export function ManuscriptRevisionSheet({
     selectedContent?.visibleText.replace(/\r\n?/g, '\n').trimEnd() ===
     currentVisibleText.replace(/\r\n?/g, '\n').trimEnd()
   const restoreDisabled = agentBusy || draftBlocked || restoring || !selectedContent || selectedMatchesCurrent
+
+  /**
+   * 就地确认层的键盘圈禁：Tab / Shift+Tab 只在层内两个按钮间循环，Esc 关闭。
+   * 原先没有圈禁，Tab 会从「确认恢复」跑到背后 Sheet 的关闭钮（PR #82 评审浏览器实测）。
+   */
+  function handleRestoreConfirmKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      if (!restoring) setRestoreConfirmOpen(false)
+      event.stopPropagation()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const focusable = Array.from(
+      restoreConfirmRef.current?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? [],
+    )
+    if (focusable.length === 0) return
+    const first = focusable[0]!
+    const last = focusable[focusable.length - 1]!
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !restoreConfirmRef.current?.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (active === last || !restoreConfirmRef.current?.contains(active))) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   async function confirmRestore() {
     if (!selectedContent || restoreDisabled) return
@@ -282,9 +310,10 @@ export function ManuscriptRevisionSheet({
             </Button>
         </SheetFooter>
 
-        {/* 恢复确认是 Sheet 内的就地浮层，刻意不换成 ConfirmDialog：嵌套 Radix Dialog 在 Linux CI 的 happy-dom
-            里挂不出来（PR #82 撞到，本机绿），而这一层不走 DialogContent、不在弹窗档位守卫范围内。
-            样式按轻确认框口径：浮层面板常量 + text-lg 标题，取消 secondary。 */}
+        {/* 恢复确认是 Sheet 内的就地浮层，刻意不换成 ConfirmDialog：同进程里任何先跑的 SSR 测试一旦 import 过
+            Radix Dialog（无 document 时模块级捕获 useLayoutEffect 为 no-op），后面 happy-dom 里嵌套的 Portal 就永远
+            挂不出来（PR #82 两轮 CI 红，本机按同样顺序可复现）。这一层不走 DialogContent、不在弹窗档位守卫范围内；
+            样式按轻确认框口径：浮层面板常量 + text-lg 标题 + 取消 secondary；键盘圈禁见 handleRestoreConfirmKeyDown。 */}
         {restoreConfirmOpen && (
           <div
             className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-5 backdrop-blur-[1px]"
@@ -295,10 +324,13 @@ export function ManuscriptRevisionSheet({
             }}
           >
             <section
+              ref={restoreConfirmRef}
               aria-describedby="manuscript-revision-restore-description"
               aria-labelledby="manuscript-revision-restore-title"
+              aria-modal="true"
               className={`${FLOATING_PANEL_CLASS} w-full max-w-md p-6`}
               role="alertdialog"
+              onKeyDown={handleRestoreConfirmKeyDown}
             >
               <h2 id="manuscript-revision-restore-title" className="text-lg font-semibold leading-tight text-foreground">
                 恢复这个正文版本？

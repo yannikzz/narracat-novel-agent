@@ -56,11 +56,9 @@ import { UpdateReadyBanner } from '@/components/settings/UpdateReadyBanner'
 import {
   DESTRUCTIVE_INLINE_CLASS,
   DIALOG_BODY_CLASS,
-  DIALOG_CONTENT_CONFIRM_CLASS,
   DIALOG_CONTENT_DOCUMENT_CLASS,
   DIALOG_CONTENT_FORM_CLASS,
   DIALOG_FOOTER_SECTIONED_CLASS,
-  DIALOG_HEADER_CONFIRM_CLASS,
   DIALOG_HEADER_SECTIONED_CLASS,
   EMPTY_COMPACT_BODY_CLASS,
   EMPTY_COMPACT_TITLE_CLASS,
@@ -112,11 +110,12 @@ const STATUS_FILTER_OPTIONS: Array<{ value: LibraryStatusFilter; label: string }
   { value: 'invalid', label: '需检查' },
 ]
 
-// 四个弹窗按 §9.7 归档（弹窗债务表清零）：元数据 = 内容型长文档（封面预设网格要宽）；删除 = 内容型表单
-// （有确认输入框）；备份 / 无效项目 = 轻确认框（一段后果 + 两个按钮）。
+// 四个弹窗按 §9.7 分界线归档（弹窗债务表清零）：元数据 = 内容型长文档（封面预设网格要宽）；
+// 删除 = 内容型表单（有确认输入框）；备份 = 内容型表单（说明 + 警示块 + 报错块，多段内容）；
+// 无效项目 = 内容型表单（两段说明 + 最多三个按钮）。轻确认框只留给「一句话后果 + 两个按钮」。
 export const LIBRARY_PROJECT_METADATA_DIALOG_CONTENT_CLASS = `${DIALOG_CONTENT_DOCUMENT_CLASS} max-h-[calc(100dvh-2rem)]`
 export const LIBRARY_PROJECT_DELETE_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_FORM_CLASS
-export const LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_CONFIRM_CLASS
+export const LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_FORM_CLASS
 
 const LIBRARY_AUTOMATION_LEVEL_LABELS: Record<NovelAutomationLevel, string> = {
   auto: CREATE_NOVEL_AUTOMATION_AUTO_LABEL,
@@ -793,6 +792,64 @@ function LibraryProjectDeleteDialog({
   )
 }
 
+/** 备份弹窗内容面板；单独导出便于 SSR 断言三段式结构（惯例同 LibraryProjectDeletePanel）。 */
+export function LibraryProjectBackupPanel({
+  backingUp,
+  backupBlocked,
+  errorMessage,
+  onCancel,
+  onConfirm,
+  project,
+}: {
+  backingUp: boolean
+  backupBlocked: boolean
+  errorMessage: string | null
+  onCancel: () => void
+  onConfirm: () => void
+  project: NovelProjectSummary
+}) {
+  return (
+    <div data-library-project-backup-panel="true" className="grid">
+      <DialogHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
+        <DialogTitle className="text-lg leading-tight">备份小说项目</DialogTitle>
+        <DialogDescription className="sr-only">把这部小说的完整内容打包备份到你选择的位置。</DialogDescription>
+      </DialogHeader>
+
+      <div className={`${DIALOG_BODY_CLASS} grid gap-4`}>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          备份会包含“{project.title}”的完整小说内容、草稿、修订记录和项目内未知文件。
+          备份文件不加密，请妥善保管。
+        </p>
+
+        <div className="rounded-row bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
+          创建期间会暂时阻止 Agent 和项目写入，以保证备份内容来自同一时刻。
+        </div>
+
+        {backupBlocked && (
+          <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
+            Agent 正在处理这部小说，结束后才能备份。
+          </div>
+        )}
+        {errorMessage && (
+          <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
+            {errorMessage}
+          </div>
+        )}
+      </div>
+
+      <DialogFooter className={DIALOG_FOOTER_SECTIONED_CLASS}>
+        <Button type="button" variant="secondary" disabled={backingUp} onClick={onCancel}>
+          取消
+        </Button>
+        <Button type="button" disabled={backingUp || backupBlocked} onClick={onConfirm}>
+          {backingUp && <Loader2 className="size-4 animate-spin" />}
+          选择位置并备份
+        </Button>
+      </DialogFooter>
+    </div>
+  )
+}
+
 function LibraryProjectBackupDialog({
   backupBlocked,
   onOpenChange,
@@ -833,39 +890,15 @@ function LibraryProjectBackupDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS}>
-        <DialogHeader className={DIALOG_HEADER_CONFIRM_CLASS}>
-          <DialogTitle className="text-lg leading-tight">备份小说项目</DialogTitle>
-          <DialogDescription>
-            备份会包含“{project.title}”的完整小说内容、草稿、修订记录和项目内未知文件。
-            备份文件不加密，请妥善保管。
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="rounded-row bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
-          创建期间会暂时阻止 Agent 和项目写入，以保证备份内容来自同一时刻。
-        </div>
-
-        {backupBlocked && (
-          <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
-            Agent 正在处理这部小说，结束后才能备份。
-          </div>
-        )}
-        {errorMessage && (
-          <div className={`${DESTRUCTIVE_INLINE_CLASS} text-xs`} role="alert">
-            {errorMessage}
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button type="button" variant="secondary" disabled={backingUp} onClick={() => onOpenChange(false)}>
-            取消
-          </Button>
-          <Button type="button" disabled={backingUp || backupBlocked} onClick={() => void createBackup()}>
-            {backingUp && <Loader2 className="size-4 animate-spin" />}
-            选择位置并备份
-          </Button>
-        </DialogFooter>
+      <DialogContent className={LIBRARY_PROJECT_BACKUP_DIALOG_CONTENT_CLASS} data-library-project-backup-dialog="true">
+        <LibraryProjectBackupPanel
+          backingUp={backingUp}
+          backupBlocked={backupBlocked}
+          errorMessage={errorMessage}
+          project={project}
+          onCancel={() => onOpenChange(false)}
+          onConfirm={() => void createBackup()}
+        />
       </DialogContent>
     </Dialog>
   )
@@ -1000,7 +1033,7 @@ export function LibraryProjectManagementMenu({ project }: { project: NovelProjec
 }
 
 
-export const LIBRARY_INVALID_PROJECT_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_CONFIRM_CLASS
+export const LIBRARY_INVALID_PROJECT_DIALOG_CONTENT_CLASS = DIALOG_CONTENT_FORM_CLASS
 
 /**
  * 损坏项目说明浮层（#38）。
@@ -1024,23 +1057,26 @@ export function LibraryInvalidProjectPanel({
   removing: boolean
 }) {
   return (
-    <div data-library-invalid-project-panel="true" className="grid gap-5">
-      <DialogHeader className={DIALOG_HEADER_CONFIRM_CLASS}>
+    <div data-library-invalid-project-panel="true" className="grid">
+      <DialogHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
         <DialogTitle className="text-lg leading-tight">这本书暂时打不开</DialogTitle>
-        <DialogDescription>
-          “{project.title}”的项目文件不完整，NarraCat 读不出它的进度和正文。常见原因是文件夹被移动或重命名，也可能是它所在的磁盘没有连接。
-        </DialogDescription>
+        <DialogDescription className="sr-only">项目文件不完整，先打开所在文件夹检查，或把它从书架移除。</DialogDescription>
       </DialogHeader>
 
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        建议先打开文件夹看一眼：文件还在的话，放回原处就能恢复。
-        {canRemove
-          ? '确认不需要了，可以只把它从书架上移除——不会删掉任何文件。'
-          : '这本书就放在你的小说文件夹里，确认不要了请用卡片右上角「更多」里的删除。'}
-      </p>
+      <div className={`${DIALOG_BODY_CLASS} grid gap-3`}>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          “{project.title}”的项目文件不完整，NarraCat 读不出它的进度和正文。常见原因是文件夹被移动或重命名，也可能是它所在的磁盘没有连接。
+        </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          建议先打开文件夹看一眼：文件还在的话，放回原处就能恢复。
+          {canRemove
+            ? '确认不需要了，可以只把它从书架上移除——不会删掉任何文件。'
+            : '这本书就放在你的小说文件夹里，确认不要了请用卡片右上角「更多」里的删除。'}
+        </p>
+      </div>
 
       {/* 「知道了」靠左用 sm:mr-auto 而非两端式：DialogFooter 窄屏 flex-col-reverse，两端式会乱序（§9.7） */}
-      <DialogFooter>
+      <DialogFooter className={DIALOG_FOOTER_SECTIONED_CLASS}>
         <Button type="button" variant="secondary" className="sm:mr-auto" onClick={onCancel}>
           知道了
         </Button>

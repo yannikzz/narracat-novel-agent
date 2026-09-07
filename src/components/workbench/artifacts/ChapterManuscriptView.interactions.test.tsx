@@ -543,6 +543,15 @@ describe('正文编辑态分支交互（真实 DOM）', () => {
     await waitFor(() => {
       expect(document.querySelector('[data-manuscript-revision-restore-confirm="true"]')).not.toBeNull()
     })
+    // 键盘圈禁：确认层内 Tab 不能跑到背后 Sheet 的关闭钮（PR #82 评审浏览器实测的既有缺陷）
+    const layer = document.querySelector<HTMLElement>('[data-manuscript-revision-restore-confirm="true"] section')
+    const layerButtons = Array.from(layer?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+    expect(layerButtons.map((button) => button.textContent)).toEqual(['取消', '确认恢复'])
+    layerButtons[1]!.focus()
+    fireEvent.keyDown(layer as HTMLElement, { key: 'Tab' })
+    expect(document.activeElement).toBe(layerButtons[0])
+    fireEvent.keyDown(layer as HTMLElement, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(layerButtons[1])
     const confirmButton = Array.from(
       document.querySelectorAll<HTMLButtonElement>('[data-manuscript-revision-restore-confirm="true"] button'),
     ).find((button) => button.textContent === '确认恢复')
