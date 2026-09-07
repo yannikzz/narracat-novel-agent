@@ -87,6 +87,7 @@ import type {
 } from '@shared/types/planned-state'
 import type { ProseBlockView } from '@shared/types/prose-block'
 import type { ProcessHealthReport } from '@shared/types/process-health'
+import type { DiagnosticsReport } from '@shared/types/diagnostics-report'
 import type { TelemetryState } from '@shared/types/telemetry'
 
 export function ping(): Promise<string> {
@@ -172,6 +173,14 @@ export function getNarraCatDiagnostics(): Promise<NarraCatAgentCoreDiagnostics> 
 /** 进程健康记录（#39）：界面崩溃 / 子进程退出 / 主线程卡死的留痕。 */
 export function getProcessHealth(): Promise<ProcessHealthReport> {
   return window.electron.getProcessHealth()
+}
+
+export function getDiagnosticsReport(): Promise<DiagnosticsReport> {
+  return window.electron.getDiagnosticsReport()
+}
+
+export function revealLogFile(): Promise<void> {
+  return window.electron.revealLogFile()
 }
 
 /**
@@ -433,6 +442,17 @@ export function cancelAgentRun(runId: string): Promise<{ cancelled: boolean }> {
   return window.electron.cancelAgentRun({ runId, requestId: crypto.randomUUID() })
 }
 
+/** 拒收原因挂在 error.code 上（不写 class，AGENTS.md 约束）：'already-answered' = 刚才那次主进程已收到、正在保存。 */
+export const QUESTION_ANSWER_REJECTED_CODES = ['already-answered', 'not-pending'] as const
+export type QuestionAnswerRejectedCode = (typeof QUESTION_ANSWER_REJECTED_CODES)[number]
+
+export function questionAnswerRejectedCode(error: unknown): QuestionAnswerRejectedCode | null {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === 'string' && (QUESTION_ANSWER_REJECTED_CODES as readonly string[]).includes(code)
+    ? (code as QuestionAnswerRejectedCode)
+    : null
+}
+
 export function answerAgentQuestion(answer: AgentQuestionAnswer): Promise<{ accepted: boolean }> {
   return window.electron.answerAgentQuestion({
     requestId: crypto.randomUUID(),
@@ -440,7 +460,11 @@ export function answerAgentQuestion(answer: AgentQuestionAnswer): Promise<{ acce
     answers: answer.answers,
   }).then((result) => {
     if (!result.accepted) {
-      throw new Error('问题已过期或当前运行已结束。')
+      const code: QuestionAnswerRejectedCode = result.reason ?? 'not-pending'
+      throw Object.assign(
+        new Error(code === 'already-answered' ? '刚才的提交主进程已收到，正在保存。' : '问题已过期或当前运行已结束。'),
+        { code },
+      )
     }
 
     return result

@@ -309,7 +309,9 @@ describe('AgentPartView', () => {
     expect(html).toContain('bg-destructive/10')
     expect(html).toContain('text-foreground')
     expect(html).toContain('text-muted-foreground')
-    expect(html).not.toContain('border-destructive')
+    // 钉的是通知自己的外框没有红边；卡片里「报告问题」按钮基类带 aria-invalid:border-destructive 变体，
+    // 那是冒号前缀的条件类，不算外框——用词边界排除掉它。
+    expect(html).not.toMatch(/(^|[\s"])border-destructive/)
   })
 
   test('renders AskUserQuestion choices as selectable options', () => {

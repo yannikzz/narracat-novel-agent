@@ -6,6 +6,13 @@ import { Switch } from '@/components/ui/switch'
 import { SettingsRow } from '@/components/settings/SettingsLayout'
 import { GROUP_CLASS, MUTED_PILL_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
+import {
+  documentedMaxOutputTokens,
+  MAX_OUTPUT_TOKENS_RANGE,
+  normalizeMaxOutputTokens,
+  PI_UPSTREAM_MAX_OUTPUT_CAP,
+  suggestedMaxOutputTokens,
+} from '@shared/lib/model-output-limits'
 import { isEntryVerified, modelEntryKey } from '@shared/lib/model-slots'
 import type { WireId } from '@shared/types/config'
 import type { AppConfig, ConnectionTestResult, ModelPoolEntry, ProviderId } from '@shared/types/ipc'
@@ -36,6 +43,7 @@ export function ModelProviderDetailPanel({
   onRefreshModels,
   onToggleModel,
   onAddCustomModel,
+  onSetMaxOutputTokens,
   onSetPrimary,
   onSetLight,
 }: {
@@ -59,6 +67,8 @@ export function ModelProviderDetailPanel({
   onRefreshModels: () => void | Promise<void>
   onToggleModel: (modelId: string, enabled: boolean) => void
   onAddCustomModel: (modelId: string) => void
+  /** 每模型输出上限；undefined = 清掉用户值、回到跟随建议值。 */
+  onSetMaxOutputTokens: (modelId: string, maxOutputTokens: number | undefined) => void
   onSetPrimary: (key: string) => void
   onSetLight: (key: string | null) => void
 }) {
@@ -238,6 +248,7 @@ export function ModelProviderDetailPanel({
             busy={busy}
             poolEntries={poolEntries}
             onToggleModel={onToggleModel}
+            onSetMaxOutputTokens={onSetMaxOutputTokens}
             onSetPrimary={onSetPrimary}
             onSetLight={onSetLight}
           />
@@ -290,6 +301,7 @@ function ModelRow({
   config,
   modelId,
   onSetLight,
+  onSetMaxOutputTokens,
   onSetPrimary,
   onToggleModel,
   poolEntries,
@@ -299,51 +311,127 @@ function ModelRow({
   config: AppConfig
   modelId: string
   onSetLight: (key: string | null) => void
+  onSetMaxOutputTokens: (modelId: string, maxOutputTokens: number | undefined) => void
   onSetPrimary: (key: string) => void
   onToggleModel: (modelId: string, enabled: boolean) => void
   poolEntries: ModelPoolEntry[]
   provider: ProviderId
 }) {
   const key = modelEntryKey({ provider, modelId })
-  const enabled = poolEntries.some((entry) => entry.modelId === modelId)
+  const entry = poolEntries.find((item) => item.modelId === modelId)
+  const enabled = entry !== undefined
   const isPrimary = config.primaryModelKey === key
   const isLight = config.lightModelKey === key
 
   return (
-    <div
-      data-model-toggle={modelId}
-      data-enabled={enabled ? 'true' : 'false'}
-      className="flex min-h-[52px] items-center justify-between gap-3 px-3 py-2.5"
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate font-mono text-xs text-foreground">{modelId}</span>
-        {isPrimary ? <span className={MUTED_PILL_CLASS}>主力</span> : null}
-        {isLight ? <span className={MUTED_PILL_CLASS}>轻量</span> : null}
-        {enabled ? (
-          <div className="flex shrink-0 items-center gap-1.5">
-            {!isPrimary ? (
-              <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => onSetPrimary(key)}>
-                设为主力
+    <div data-model-toggle={modelId} data-enabled={enabled ? 'true' : 'false'} className="px-3 py-2.5">
+      <div className="flex min-h-[32px] items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-mono text-xs text-foreground">{modelId}</span>
+          {isPrimary ? <span className={MUTED_PILL_CLASS}>主力</span> : null}
+          {isLight ? <span className={MUTED_PILL_CLASS}>轻量</span> : null}
+          {enabled ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              {!isPrimary ? (
+                <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={() => onSetPrimary(key)}>
+                  设为主力
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={busy}
+                onClick={() => onSetLight(isLight ? null : key)}
+              >
+                {isLight ? '跟随主力' : '设为轻量'}
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              disabled={busy}
-              onClick={() => onSetLight(isLight ? null : key)}
-            >
-              {isLight ? '跟随主力' : '设为轻量'}
-            </Button>
-          </div>
-        ) : null}
+            </div>
+          ) : null}
+        </div>
+        <Switch
+          checked={enabled}
+          disabled={busy}
+          aria-label={enabled ? `停用 ${modelId}` : `启用 ${modelId}`}
+          onCheckedChange={(checked) => onToggleModel(modelId, checked)}
+        />
       </div>
-      <Switch
-        checked={enabled}
+      {entry ? (
+        <MaxOutputTokensField
+          entry={entry}
+          busy={busy}
+          onCommit={(value) => onSetMaxOutputTokens(modelId, value)}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * 每模型「输出上限」（每次请求的 max_tokens）。三层语义与 shared/lib/model-output-limits 对齐：
+ * 留空 = 跟随建议值（有文档依据的模型给建议值做占位，随版本更新）；填了 = 权威值原样发出；
+ * 建议值也没有的（自定义渠道 / 未核实模型）留空按上游 32000 发。
+ * 输入是打字字段，不逐键落盘：失焦或回车时才提交；越界只标红不落盘。
+ */
+function MaxOutputTokensField({
+  busy,
+  entry,
+  onCommit,
+}: {
+  busy: boolean
+  entry: ModelPoolEntry
+  onCommit: (value: number | undefined) => void
+}) {
+  const stored = entry.maxOutputTokens
+  const [draft, setDraft] = useState(stored === undefined ? '' : String(stored))
+  // 池落盘回显（stored 变了）时同步草稿；用户正在打字的中间态不受影响（只在 stored 真变时才对齐）。
+  const [seenStored, setSeenStored] = useState(stored)
+  if (seenStored !== stored) {
+    setSeenStored(stored)
+    setDraft(stored === undefined ? '' : String(stored))
+  }
+
+  const suggested = suggestedMaxOutputTokens(entry.provider, entry.modelId)
+  const documented = documentedMaxOutputTokens(entry.provider, entry.modelId)
+  const trimmed = draft.trim()
+  const parsed = trimmed.length === 0 ? undefined : normalizeMaxOutputTokens(trimmed)
+  const invalid = trimmed.length > 0 && parsed === undefined
+
+  function commit() {
+    if (invalid) return
+    if (parsed === stored) return
+    onCommit(parsed)
+  }
+
+  const hint = invalid
+    ? `请输入 ${MAX_OUTPUT_TOKENS_RANGE.min}–${MAX_OUTPUT_TOKENS_RANGE.max} 之间的整数`
+    : suggested !== undefined
+      ? `留空按建议值 ${suggested.toLocaleString('en-US')}${documented !== undefined ? `，官方上限 ${documented.toLocaleString('en-US')}` : ''}`
+      : `该模型上限未核实，留空按 ${PI_UPSTREAM_MAX_OUTPUT_CAP.toLocaleString('en-US')} 发送`
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2" data-model-max-output-tokens={entry.modelId}>
+      <label className="text-xs text-muted-foreground" htmlFor={`max-output-${entry.provider}-${entry.modelId}`}>
+        输出上限
+      </label>
+      <Input
+        id={`max-output-${entry.provider}-${entry.modelId}`}
+        inputMode="numeric"
+        value={draft}
         disabled={busy}
-        aria-label={enabled ? `停用 ${modelId}` : `启用 ${modelId}`}
-        onCheckedChange={(checked) => onToggleModel(modelId, checked)}
+        aria-invalid={invalid || undefined}
+        placeholder={String(suggested ?? PI_UPSTREAM_MAX_OUTPUT_CAP)}
+        className="h-7 w-28 font-mono text-xs"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+          }
+        }}
       />
+      <span className={cn('text-xs', invalid ? 'text-destructive' : 'text-muted-foreground')}>{hint}</span>
     </div>
   )
 }

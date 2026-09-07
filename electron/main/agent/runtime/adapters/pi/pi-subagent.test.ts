@@ -40,6 +40,19 @@ function makeScriptedSession(events: unknown[]) {
   return { runSession, calls: () => calls }
 }
 
+/** 按调用次序返回不同脚本的假子会话（重派用例：首轮截断、次轮收笔）。 */
+function makeSequencedSession(scripts: unknown[][]) {
+  const calls: RunPiSessionArgs[] = []
+  const runSession = ((args: RunPiSessionArgs) => {
+    const events = scripts[calls.length] ?? []
+    calls.push(args)
+    return (async function* () {
+      for (const event of events) yield event
+    })()
+  }) as FakeRunSession
+  return { runSession, calls: () => calls }
+}
+
 function makeChannelRecorder() {
   const channel = createSubagentEventChannel()
   const seen: PiSubagentEventMessage[] = []
@@ -302,6 +315,94 @@ describe('createTaskTool 派发', () => {
     const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
     expect(result.content[0].text).toContain('输出上限')
     expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+  })
+
+  describe('截断自动降档重派（问题 2 根因②：同参重派只会再截一遍）', () => {
+    /** buildChildRunOptions 记录每次派发的 thinking 档与 provider，供断言「第二轮真的关了思考」。 */
+    function makeRecordingBuilder(provider = 'deepseek', api: 'anthropic-messages' | 'openai-completions' = 'anthropic-messages') {
+      const modes: string[] = []
+      const buildChildRunOptions: CreateTaskToolArgs['buildChildRunOptions'] = (_definition, childAbort, mode) => {
+        modes.push(mode)
+        return { abortController: childAbort, provider, model: { api } } as unknown as PiRunOptions
+      }
+      return { buildChildRunOptions, modes: () => modes }
+    }
+
+    test('默认档首轮 length → 用 thinking=off 重派一次；次轮收笔即视同正常交付（无 ⚠️、无 details）', async () => {
+      const session = makeSequencedSession([[assistantMessageEnd('半章', 'length')], [assistantMessageEnd('整章', 'stop')]])
+      const builder = makeRecordingBuilder()
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
+      const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
+      expect(builder.modes()).toEqual(['provider-default', 'off'])
+      expect(session.calls()).toHaveLength(2)
+      expect(result.content[0].text).toContain('已关闭思考重派一次')
+      expect(result.content[0].text).toContain('整章')
+      expect(result.content[0].text).not.toContain('半章')
+      expect(result.content[0].text).not.toContain('⚠️')
+      expect(result.details).toBeUndefined()
+    })
+
+    test('两轮都 length → 才交回 ⚠️，文案指向设置页的输出上限；details 仍打 length', async () => {
+      const session = makeSequencedSession([[assistantMessageEnd('半章', 'length')], [assistantMessageEnd('还是半章', 'length')]])
+      const builder = makeRecordingBuilder()
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
+      const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
+      expect(builder.modes()).toEqual(['provider-default', 'off'])
+      expect(result.content[0].text).toContain('两轮都达到输出上限')
+      expect(result.content[0].text).toContain('输出上限')
+      expect(result.content[0].text).toContain('还是半章')
+      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+    })
+
+    test("派发本就带 thinking:'off' 时不重派——没有思考可关，重跑只是再烧一遍", async () => {
+      const session = makeSequencedSession([[assistantMessageEnd('半章', 'length')], [assistantMessageEnd('不该到这', 'stop')]])
+      const builder = makeRecordingBuilder()
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
+      const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写', thinking: 'off' })
+      expect(builder.modes()).toEqual(['off'])
+      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+    })
+
+    test('anthropic 渠道不重派——默认本就不带思考，且 Fable 系对显式 disabled 回 400', async () => {
+      const session = makeSequencedSession([[assistantMessageEnd('半章', 'length')], [assistantMessageEnd('不该到这', 'stop')]])
+      const builder = makeRecordingBuilder('anthropic')
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
+      const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
+      expect(builder.modes()).toEqual(['provider-default'])
+      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+    })
+
+    test('openai-completions wire 不重派——关闭思考的字段在这条 wire 上根本发不出去，重跑等于撒谎', async () => {
+      const session = makeSequencedSession([[assistantMessageEnd('半章', 'length')], [assistantMessageEnd('不该到这', 'stop')]])
+      const builder = makeRecordingBuilder('custom', 'openai-completions')
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
+      const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
+      expect(builder.modes()).toEqual(['provider-default'])
+      expect(result.content[0].text).not.toContain('已关闭思考')
+      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+    })
+
+    test('stopReason=error 不重派——那不是思考烧预算，是服务端问题', async () => {
+      const session = makeSequencedSession([
+        [{ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: '502', content: [] } }],
+        [assistantMessageEnd('不该到这', 'stop')],
+      ])
+      const builder = makeRecordingBuilder()
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
+      const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
+      expect(builder.modes()).toEqual(['provider-default'])
+      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'error' })
+    })
+
+    test('重派轮的事件仍推进同一个 parentToolCallId（UI 折叠在同一张分组卡下）', async () => {
+      const session = makeSequencedSession([[assistantMessageEnd('半章', 'length')], [assistantMessageEnd('整章', 'stop')]])
+      const { channel, seen } = makeChannelRecorder()
+      const builder = makeRecordingBuilder()
+      const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions, channel })
+      await runTool(tool, 'tc-9', { subagent_type: 'chapter-writer', prompt: '写' })
+      expect(seen()).toHaveLength(2)
+      expect(seen().every((message) => message.parentToolCallId === 'tc-9')).toBe(true)
+    })
   })
 
   test('正常收笔零文本不误报异常终止：文案与 details 均与既有行为一致', async () => {

@@ -379,6 +379,80 @@ describe('createAgentRunManager', () => {
     expect(events.some((event) => event.type === 'run.failed')).toBe(false)
   })
 
+  test('同一问题只消费一次：第一次答案还在落盘时第二次提交被拒，Agent 拿到的与历史里的是同一份（PR #77 评审 P1）', async () => {
+    const events: AgentEvent[] = []
+    const questionReady = createDeferred<void>()
+    const answeredGate = createDeferred<void>()
+    const completed = createDeferred<AgentEvent>()
+    let receivedAnswers: Record<string, string> | undefined
+
+    async function* questioningQuery(args: RunClaudeAgentQueryArgs): AsyncIterable<unknown> {
+      const canUseTool = args.options.canUseTool
+      if (!canUseTool) throw new Error('expected canUseTool bridge')
+      const permission = canUseTool(
+        'AskUserQuestion',
+        {
+          questions: [
+            {
+              header: '概念',
+              question: '关于什么？',
+              options: [
+                { label: 'A', description: 'a' },
+                { label: 'B', description: 'b' },
+              ],
+            },
+          ],
+        },
+        { signal: new AbortController().signal, toolUseID: 'q-1', title: 'Answer?' },
+      )
+      questionReady.resolve(undefined)
+      const decision = await permission
+      receivedAnswers = (decision as { updatedInput?: { answers?: Record<string, string> } }).updatedInput?.answers
+      yield { type: 'result', subtype: 'success', usage: { input_tokens: 1, output_tokens: 1 } }
+    }
+
+    const manager = createAgentRunManager({
+      readConfig: async () => deepseekConfig,
+      getApiKey: async () => 'sk-test-key',
+      agentCoreManifestExists: () => true,
+      readNarraCatCommandFile: (_pluginPath, commandName) => `---\ndescription: ${commandName}\n---\n执行 ${commandName}。`,
+      runtime: fakeRuntime(questioningQuery),
+      // 模拟磁盘被锁：question.answered 的落盘挂住，直到测试放行。
+      sendEvent: async (event) => {
+        events.push(event)
+        if (event.type === 'question.answered') await answeredGate.promise
+        if (event.type === 'run.completed') completed.resolve(event)
+      },
+      appRoot: '/workspace/narracat-decktop',
+      now: fixedNow,
+      createRunId: () => 'run-1',
+    })
+
+    await manager.startRun({ threadId: 'thread-1', command: 'setup', prompt: '开始', projectPath: '/novels/stars' })
+    await withTimeout(questionReady.promise, 'question requested')
+
+    const first = manager.answerQuestion({ requestId: 'q-1', answers: { '关于什么？': 'A' } })
+    // 渲染端超时后再点了一次，换了个答案：必须被拒，且原因是「已答过」
+    expect(await manager.answerQuestion({ requestId: 'q-1', answers: { '关于什么？': 'B' } })).toEqual({
+      accepted: false,
+      reason: 'already-answered',
+    })
+
+    answeredGate.resolve(undefined)
+    expect(await first).toEqual({ accepted: true })
+    await withTimeout(completed.promise, 'completion after answer')
+
+    // 落盘完成后再来一次，仍然是「已答过」而不是「问题过期」
+    expect(await manager.answerQuestion({ requestId: 'q-1', answers: { '关于什么？': 'B' } })).toEqual({
+      accepted: false,
+      reason: 'already-answered',
+    })
+    expect(receivedAnswers).toEqual({ '关于什么？': 'A' })
+    const answered = events.filter((event) => event.type === 'question.answered')
+    expect(answered).toHaveLength(1)
+    expect((answered[0] as { answers: Record<string, string> }).answers).toEqual({ '关于什么？': 'A' })
+  })
+
   test('fails a run after start when the active provider has no API key', async () => {
     const events: AgentEvent[] = []
     const manager = createAgentRunManager({

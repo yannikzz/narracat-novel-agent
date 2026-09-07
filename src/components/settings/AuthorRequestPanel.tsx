@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { addAuthorRequest, listAuthorRequests, listProseBlocks, removeAuthorRequest, updateAuthorRequest } from '@/lib/ipc'
 import { computeAgentInstructionBudget } from '@shared/lib/skill-budget'
 import type { AuthorRequest } from '@shared/types/author-request'
+import { DIALOG_CONTENT_FORM_CLASS } from '@/design-system'
 
 /** 列表行摘要：取第一段有内容的行，超长截断。作者写的是一段话，行上只需认得出是哪条。 */
 export function summarizeRequest(text: string): string {
@@ -247,7 +248,7 @@ export function AuthorRequestPanel({ agentId }: { agentId: string }) {
       />
       <Dialog open={editingId !== null} onOpenChange={(open) => (open ? undefined : setEditingId(null))}>
         <DialogContent
-          className="overflow-hidden bg-workspace p-0 sm:max-w-[560px]"
+          className={DIALOG_CONTENT_FORM_CLASS}
           data-author-request-dialog={agentId}
         >
           {editingId !== null ? (

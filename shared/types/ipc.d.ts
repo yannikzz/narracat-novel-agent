@@ -3,6 +3,7 @@
 
 import type { AppConfig, ProviderId } from './config'
 import type { MemoryGraphSnapshot } from './memory-graph'
+import type { DiagnosticsReport } from './diagnostics-report'
 import type { CardLintFinding } from '@shared/lib/capability-pack-lint'
 import type {
   AgentEventEnvelopeV1,
@@ -382,6 +383,10 @@ export interface ElectronApi {
   ping: () => Promise<string>
   /** 进程健康记录（#39）：渲染进程崩溃 / 子进程崩溃 / 主线程挂死的留痕。 */
   getProcessHealth: () => Promise<ProcessHealthReport>
+  /** 「报告问题」诊断包：版本 / 系统 + 已脱敏的主进程日志尾。 */
+  getDiagnosticsReport: () => Promise<DiagnosticsReport>
+  /** 在文件管理器里定位主进程日志文件。 */
+  revealLogFile: () => Promise<void>
   /** 在系统文件管理器中定位项目文件夹（损坏项目的自救入口，#38）。 */
   revealProjectFolder: (projectPath: string) => Promise<void>
   checkReleaseGuard: () => Promise<ReleaseGateVerdict>
@@ -576,7 +581,7 @@ export interface ElectronApi {
     requestId: string
     questionRequestId: string
     answers: Record<string, string>
-  }) => Promise<{ accepted: boolean }>
+  }) => Promise<{ accepted: boolean; reason?: 'already-answered' | 'not-pending' }>
   forgetAgentSession: (input: { threadId: string; requestId: string }) => Promise<void>
   getAgentThreadSnapshot: (input: { threadId: string; segmentId?: string }) => Promise<AgentThreadSnapshotV1>
   getAgentEventsAfter: (input: {

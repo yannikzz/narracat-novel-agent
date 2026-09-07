@@ -18,6 +18,9 @@ import { testProviderConnection, type ConnectionTestResult } from '../provider-t
 import { fetchProviderModels } from '../provider-models.ts'
 import type { ProviderModelListResult } from '@shared/types/ipc'
 import type { ProcessHealthReport } from '@shared/types/process-health'
+import type { DiagnosticsReport } from '@shared/types/diagnostics-report'
+import { buildDiagnosticsReport } from '../diagnostics-report.ts'
+import { getMainLog } from '../logging/main-log.ts'
 import type { ProcessHealthStore } from '../process-health.ts'
 import {
   listResultNotifications,
@@ -275,6 +278,34 @@ export function registerAppIpcHandlers(): void {
 
   ipcMain.handle('narracat:diagnostics', async () => {
     return readNarraCatAgentCoreDiagnostics(currentAgentCorePath())
+  })
+
+  // 「报告问题」诊断包：版本 / 系统 + 已脱敏的主进程日志尾。渲染端预览后才带去 GitHub。
+  ipcMain.handle('app:get-diagnostics-report', async (): Promise<DiagnosticsReport> => {
+    let agentCoreVersion: string | null = null
+    try {
+      agentCoreVersion = (await readNarraCatAgentCoreDiagnostics(currentAgentCorePath())).version ?? null
+    } catch {
+      // 引擎信息读不到不影响报告本身。
+    }
+    return buildDiagnosticsReport({
+      appVersion: app.getVersion(),
+      agentCoreVersion,
+      platform: process.platform,
+      arch: process.arch,
+      osVersion: process.getSystemVersion(),
+      electronVersion: process.versions.electron ?? '',
+      locale: app.getLocale(),
+      log: getMainLog(),
+    })
+  })
+
+  // 在文件管理器里定位主进程日志（用户要把完整日志贴进 Issue 时用）。日志还没写过时先建空文件，避免点了没反应。
+  ipcMain.handle('app:reveal-log-file', async (): Promise<void> => {
+    const log = getMainLog()
+    if (!log) return
+    await writeFile(log.path, '', { flag: 'wx' }).catch(() => {})
+    shell.showItemInFolder(log.path)
   })
 
   ipcMain.handle('embedding:health-probe', async () => {

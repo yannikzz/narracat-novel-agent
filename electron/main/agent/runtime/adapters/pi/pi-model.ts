@@ -9,33 +9,21 @@
 import type { Model } from '@mariozechner/pi-ai'
 import type { AppConfig } from '@shared/types/config'
 import { resolveLightModel, resolvePrimaryModel } from '@shared/lib/model-slots'
+import { PI_UPSTREAM_MAX_OUTPUT_CAP, TARGET_MAX_OUTPUT_TOKENS } from '@shared/lib/model-output-limits'
 
 /** 窗口值与 SDK 侧 CLAUDE_CODE_MAX_CONTEXT_TOKENS 对齐。 */
 const ONE_M_CONTEXT_WINDOW = 1_000_000
 const DEFAULT_CONTEXT_WINDOW = 200_000
-/** 我们**想要**的输出上限。⚠️ 注意它当前并不等于实发值——上游把实发封在 32000，见下方
- * PI_UPSTREAM_MAX_OUTPUT_CAP。原为 32000（对齐 SDK 路径的 Claude CLI 默认值），真机撞顶后抬到 64000。
- *
- * 为什么 32000 不够：DeepSeek V4 默认开着 thinking，而 thinking 计入 output_tokens。真机第 22 章
- * （3912 字）走一次冷改实测 output 21561 tokens，其中 **87% 是 thinking**——32000 只剩三分之一
- * 余量，生产上冷改还要带任务书、正文路径与四遍指令，撞顶是必然。撞顶的后果不只是慢：主会话
- * 会一路降级重试（先禁止贴正文、再砍遍数、最后拆成定点补丁），把「冷改必须整章重缝」这条已被
- * 盲读验证过的质量纪律给跨了。
- *
- * provider 不是瓶颈：deepseek-v4-flash 输出上限 384K。卡住的也不是这个常量——是上游的 32000 硬顶。
- *
- * 注意这里只加余量，不动 thinking。thinking 的分档开关另见下方 PiThinkingMode（issue #42）：
- * 冷改关、热写开，冷改那 87% 已有盲读证据可以白省。超限仍触发 stopReason='length'，由事件映射
- * fail-loud。 */
-export const TARGET_MAX_OUTPUT_TOKENS = 64_000
-
 /**
- * 上游硬顶（本机假端点抓包实测，pi-ai@0.73.1）：**实发 max_tokens 恒为
- * `min(model.maxTokens, 32000)`，我们这边配多少都越不过 32000。**
+ * 输出上限两个常量的本体已搬到 shared/lib/model-output-limits（设置页要给「输出上限」字段填建议值，
+ * 渲染端也得读到）；这里 re-export 保住既有导入点。
  *
- * 链路：`pi-agent-core/dist/agent.js:114` 的 `streamFn = options.streamFn ?? streamSimple`
- * ——`pi-coding-agent/dist/core/sdk.js:190` 构造 Agent 时不接受外部 streamFn，生产恒走
- * `streamSimple` → `anthropic.js:561` 的 `streamSimpleAnthropic` → `simple-options.js:1` 的
+ * - TARGET_MAX_OUTPUT_TOKENS（64000）= 我们**想要**的输出上限，也是建议值的封顶。
+ * - PI_UPSTREAM_MAX_OUTPUT_CAP（32000）= 上游硬顶。⚠️ 两者不相等：不装配改写扩展时实发恒为 32000。
+ *
+ * 上游硬顶的链路（pi-ai@0.73.1，本机假端点抓包实测）：`pi-agent-core/dist/agent.js:114` 的
+ * `streamFn = options.streamFn ?? streamSimple`——`pi-coding-agent/dist/core/sdk.js:190` 构造 Agent
+ * 时不接受外部 streamFn，生产恒走 `streamSimple` → `anthropic.js:561` → `simple-options.js:1` 的
  *
  *     maxTokens: options?.maxTokens ?? (model.maxTokens > 0 ? Math.min(model.maxTokens, 32000) : undefined)
  *
@@ -51,14 +39,18 @@ export const TARGET_MAX_OUTPUT_TOKENS = 64_000
  * ## 怎么突破 32000（已做）
  *
  * 唯一口子是官方扩展事件 `before_provider_request`（`sdk.js:215` 的 `onPayload` →
- * `anthropic.js:318` 用返回值整份替换 params），直接改写请求体里的 `max_tokens`。实现与白名单
- * 在 `pi-max-output-tokens.ts`——**只对查得到第一手文档依据的模型抬**，其余照旧 32000：各家上限
- * 差得很远，发一个超上限的值是硬 400。
+ * `anthropic.js:318` 用返回值整份替换 params），直接改写请求体里的 `max_tokens`。实现在
+ * `pi-max-output-tokens.ts`，取值规则（用户值 > 文档建议值 > 不改写）在 shared/lib/model-output-limits。
  *
- * 所以「实发多少」现在有两种情况：装配了那个扩展 → TARGET；没装配 → 本函数返回的 32000。
+ * 所以「实发多少」有两种情况：装配了那个扩展 → 解析出的值；没装配 → 本函数返回的 32000。
  * `effectivePiMaxTokens` 描述的是**没有扩展时**的上游行为，别拿它当全局结论。
+ *
+ * 为什么 32000 不够：DeepSeek V4 默认开着 thinking，而 thinking 计入 output_tokens。真机第 22 章
+ * （3912 字）走一次冷改实测 output 21561 tokens，其中 **87% 是 thinking**——32000 只剩三分之一
+ * 余量。撞顶的后果不只是慢：主会话会一路降级重试，把「冷改必须整章重缝」这条已被盲读验证过的
+ * 质量纪律给跨了。thinking 的分档开关另见下方 PiThinkingMode（issue #42）。
  */
-export const PI_UPSTREAM_MAX_OUTPUT_CAP = 32_000
+export { PI_UPSTREAM_MAX_OUTPUT_CAP, TARGET_MAX_OUTPUT_TOKENS }
 const DEFAULT_MAX_TOKENS = TARGET_MAX_OUTPUT_TOKENS
 
 /**

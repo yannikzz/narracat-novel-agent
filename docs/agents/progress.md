@@ -4,6 +4,45 @@
 
 ## Current Branch
 
+**2026-09-07（PR #77 评审修复四条）**：①**P1 同一问题只消费一次**——渲染端提交超时后允许再点，主进程若还在给第一次落盘，两次都收下会让 Agent 拿到答案 A、界面与历史显示答案 B（评审用真实 run-manager 复现）。修：`PendingQuestion.answering` 占坑 + 有界 `answeredQuestionIds`，第二次提交回 `{accepted:false, reason:'already-answered'}`，渲染端据此提示「已收到正在保存」并保持提交中，不复位；回执类型贯通 coordinator / ipc / preload / ipc.d.ts。②**P2 openai-completions wire 不重派**——`thinking:{type:'disabled'}` 只在 anthropic-messages wire 发得出去，pi 的 openai-completions 仅 compat 命中 deepseek/zai 才带关闭字段，自定义网关两轮请求一模一样却声称「已关闭思考」；重派条件加 `api === 'anthropic-messages'`。③**P2 描述过长撑爆链接**——描述进预算（编码后 1800 字节≈200 中文字，超出截断并注明），标题限 60 字符，`buildGitHubIssueUrl` 拼完再按 7600 兜底逐行砍日志；剪贴板版 descriptionBudget=Infinity 保全文。④**规范：去 class**——`SubmitTimeoutError` 改成普通 Error 挂 `code`，`isSubmitTimeoutError` 判。全量 3646 绿。
+
+**教训**：提交超时 + 允许重试的组合，必须在服务端配幂等（首次占坑）；「关闭思考」这类协议字段要按 wire 逐条核实是否真的发出去，不能因为 anthropic wire 生效就在另一条 wire 上也声称生效。
+
+**2026-09-07（弹窗规范治理：两种形态 + 档位常量 + 治理测试；「报告问题」入口归位，同分支）**：产品主人指出「报告问题」弹窗没照规范写、怀疑规范有两套。子 Agent 盘完全仓 22 个弹窗：**不是两套规范，是规范只写了一半**——`design.md` §9.7 只定义了「内容型三段式」，全仓 8 个「轻确认框」在规范空白区各自发挥；`DialogContent` 原语默认值（`bg-floating p-6 gap-4 sm:max-w-lg`）恰是规范要求覆盖掉的，谁忘了覆盖谁就漂；规范自相矛盾（一处说 p-6 给 modal，一处说不要 p-6）；`check:design` 68 条契约零条碰弹窗；「复用先行」没有 design-system 常量可复用，业务文件各提各的常量把漂移固化进了常量名。结果：11 种宽度、3 种取消钮、3 种页脚。我写「报告问题」时照 `ConfirmDialogPanel` 抄，抄的是轻确认框模板装的却是内容型，还漏了 `sm:` 前缀让宽度根本没生效（twMerge 不会剔不同 variant group 的类）。
+
+规范侧落地（**规范→常量→守卫三件套**，与 typography 治理同构）：
+- `surfaces.ts` 新增 `DIALOG_*` 常量：三段式底座 `gap-0 overflow-hidden bg-workspace p-0` + 三档宽度（FORM 560 / DOCUMENT 680 / COMPARE 1320）+ 轻确认框 CONFIRM 448 + 滚动外壳 + header/body/footer 三段。
+- §9.7 改写：先判形态再写代码，**分界线**=有输入框/清单/预览/多段内容任一项→内容型，只有一句话后果+两个按钮→轻确认框；补轻确认框条款（可见 Description、取消 secondary、离开拦截三钮）；补 **Dialog 还是 Sheet** 判据；删掉 p-6 矛盾条款；圆角表登记 `rounded-modal` token。
+- `dialog-governance.test.ts`：扫全部生产 tsx 的 `DialogContent`/`SheetContent`，className 必须引用 `DIALOG_CONTENT_*`（直接或经业务常量，业务常量定义里必须含 design-system 常量），字面量宽度一律红；`ACCEPTED_DEBT` 表登记存量偏差附原因，**表里文件若已合规会红**（防债务清了表还留着）。`check:design` 加 requiredContracts（规范文本 + 常量导出）与 forbidden（弹层动效 ≥300ms）。
+- 零视觉变化迁移 11 处：5 个 560 字面量→FORM，2 个滚动 560→SCROLL_SHELL+FORM，PACK_DETAIL 三常量→DOCUMENT/HEADER/BODY，POLISH→COMPARE，ConfirmDialog 与章节离开拦截→CONFIRM。⚠️ **一处可见变化**：底座含 `gap-0`，PACK_DETAIL / BookVoiceAnchors / 能力包导出这三个多子元素弹窗的 header 与正文之间原有 16px 空白消失（正是规范说的「标题下方一片空白」bug，真机看一眼确认）。`sheet.tsx` 开场动效 500ms→200ms。
+- 债务表 4 条（书架 4 弹窗 640/520/520/440、Agent 新对话确认 400、角色聊天离开拦截 384、版本历史 Sheet 960）等产品主人看一眼归档。
+- 「报告问题」改成三段式 FORM 档 + 页脚次要动作 `sm:mr-auto`（不再两端式，DialogFooter 窄屏 flex-col-reverse 会乱序）；入口从版本卡挪到独立的「诊断与反馈」卡（报告问题 / 日志文件 / 原诊断折叠区），版本卡回归纯信息。
+
+验证：typecheck / check:design / check:architecture 绿；全量 3641 测试绿。dev 已在跑，待产品主人真机看：关于页新卡、报告问题弹窗三段式、三个多子元素弹窗的 gap-0。
+
+**2026-09-07（Windows「提交选择」点不了 → 主进程日志文件 + 报告问题闭环，同分支未提交 PR）**：用户补了截图——**单题、选项已选、按钮亮着、无转圈**，把子 Agent 排第一的「多题灰钮」根因直接推翻。重读提交链：点击后只有三种结局（成功收口 / toast 失败并复位 / 一直转圈），「点了什么都没发生」在代码里**不存在这条路径**；顶栏 drag 死区已排除（卡片在滚动视口内）；截图右缘的绿色猫头圆钮全仓没有，是用户机器上别的软件的悬浮窗。剩两个候选：①点击没送到按钮（第三方悬浮窗透明命中区之类）；②截图是点击前拍的，点击后 IPC 卡在事件落盘（Windows 资料目录在 OneDrive / 被杀软实时扫描时文件追加被锁）→ 永久转圈。**需要报告者一句话定案**：点了之后按钮有没有转圈、有没有闪过提示。
+
+真正的教训是**观测盲区**：打包版主进程没有任何日志文件，`console.warn` 全部丢掉——那条链上每个失败分支其实都有 warn，我们就是拿不到。故本轮不押注根因，先把三件事做掉（产品主人拍板）并顺势把日志体系闭环：
+
+- **主进程日志文件**（`electron/main/logging/main-log.ts`）：`<userData>/logs/main.log`，2MB 轮转留 3 份；接管 console 五个方法，`uncaughtExceptionMonitor`（只旁观不改默认行为）+ `unhandledRejection` 也落盘。入口 `index.ts` 第一行装，后面每一步的 warn 才有处落。本机文件不脱敏（取证要保真）。
+- **提交超时**：提问卡 `withSubmitTimeout` 15 秒，超时复位按钮并提示「提交没有收到回应」；主进程若稍后真收下了，`question.answered` 事件照样收口。主进程侧 `answerQuestion` 找不到 pending 时补一行 warn（分清过期 / run 已结束 / 渲染端拿着没登记过的 id）。
+- **落盘慢告警**：事件汇 `appendDurableEvent` 包 `warnIfSlow`，≥2 秒记 warn。把「是不是杀软/同步盘在锁文件」变成可查。
+- **报告问题闭环**（`src/components/diagnostics/ReportProblemDialog.tsx` + `app:get-diagnostics-report` / `app:reveal-log-file`）：主进程组装诊断包（版本 / 系统 / 已脱敏日志尾 200 行，脱敏 = 家目录两种斜杠、sk- Key、Bearer、x-api-key），弹窗预览 + 补一句描述 → 打开**预填好的 GitHub 新建 Issue 页**，同时把完整版复制到剪贴板（URL 上限约 8KB，正文按编码后字节 6.5KB 限长、从最旧行砍）。入口两处：设置 → 关于；Agent 运行失败卡片（预填失败原因，中断态不给入口）。**取舍：第一步走预填链接不走服务端代发**——零后端、用户看得见自己发出去什么；代价是要 GitHub 账号且能访问 GitHub，给没账号的留了「复制诊断信息」。Worker 代发留第二步（要先处理垃圾投递与隐私托管）。
+
+验证：typecheck / check:design / check:architecture 绿；全量测试绿。**真机未验**：Windows 上装一版看 logs/main.log 有没有生出来、「在 GitHub 提交」能不能拉起浏览器。
+
+**2026-09-07（写正文子 agent「一直被截断」：输出上限用户可填 + 截断自动降档重派，未提交 PR）**：上线后用户报「子 agent 内容一直被截断，写正文运行失败」。子 Agent 只读深钻拿到完整根因链：①pi 上游把实发 max_tokens 封在 32000，本仓的 `before_provider_request` 改写扩展只对 deepseek 与新款 Claude 放行（白名单只收有第一手文档的模型），**GLM / Kimi / MiniMax / custom 全部退回 32000**；②这些 provider 默认开思考且 thinking 与正文共用 max_tokens（DeepSeek 与 kimi-k3 官方文档均写明默认开、长度不可限），思考一发散预算就烧光；③截断后 App 把带 ⚠️ 的半章交回主会话，write.md 无处置指令，主会话**用完全相同的参数再派一次**，于是「一直被截断」直到回合/补写上限触顶。正文本身 3000–6000 字只要 2k–4k token，烧的全是思考。
+
+产品主人两条拍板：**不关思考保质量**（「冻结 pi 自己改上限」——其实早就绕过了：官方扩展钩子改写请求体，比 patch node_modules 干净，卡住的只是白名单策略）；**输出上限做成用户可填字段**，自定义模型必须自己填，内置渠道显示建议值可改。落地三刀，全在 App 层、不碰 pi 也不碰引擎：
+
+- **shared/lib/model-output-limits**（新，双进程共用）：三层取值 **用户值 > 文档建议值 min(64000, 官方上限) > 不改写（走上游 32000）**。白名单按第一手文档扩到 GLM 全系（128K / 4.5 系 96K）、kimi-k3（131K）、haiku-4-5（64K）；MiniMax 与 kimi-k2.6 官方未写最大输出，不收。`ModelPoolEntry.maxOutputTokens?` 可选字段，归一化层越界即剥掉回到缺省语义；旧配置零影响。请求体改写从「只抬不降」改成「两个方向都改」——用户值是权威值，自定义后端上限可能不到 32000。
+- **截断自动降档重派**（`pi-subagent.ts`）：首轮跑 provider 默认档、被 `length` 截断 → 关闭思考重跑一次；成功即视同正常交付并附一句 ℹ️ 说明；仍截断才交回 ⚠️，文案指向设置页。**anthropic 渠道跳过**（默认本就不带思考，且 Fable 系对显式 disabled 回 400）；派发本就 `thinking:'off'` 或 `error` 终态不重派。重派轮事件仍推同一 parentToolCallId，UI 折叠在同一张卡下。
+- **设置页每模型「输出上限」字段**（`ModelProviderDetailPanel`）：已启用条目行下方一行，有文档依据的以建议值做占位并提示官方上限，未核实的提示「留空按 32,000 发送」，失焦/回车提交、越界只标红不落盘。**留空 = 跟随建议值**（占位而非写死进配置，白名单更新后老用户自动受益）。
+
+验证：typecheck / check:design / check:architecture 绿；全量 3606 测试绿（改了 4 处文案断言）。**真机 dogfood 未做**：要点是 GLM/Kimi 渠道写一章看请求体 max_tokens 是否 64000、以及故意填 8192 观察截断→关思考重派→⚠️ 全链。
+
+顺带查出但**未动**的两条（等拍板）：① Windows「setup 弹窗提交按钮点不了」根因是多题提问卡「提交只在末题、全答完才亮、灰了不说话」的产品逻辑而非 drag 死区（`AgentQuestionCard.tsx:37,151`），另有 `accepted:false` 被吞成永久转圈；② 内置目录里 `glm-5.2[1m]` 与当初 `kimi-k3[1m]` 同构、极可能 404，且 `LEGACY_DEFAULT_MODELS` 是目录第二份副本；目录本身可按 2026-09-07 核实的官方列表更新（deepseek-v4-flash / claude-opus-5 / glm-5.3 / MiniMax-M2.7）。产品其实**已有「刷新清单」按钮**能联网拉模型列表，只是结果不落盘、Kimi 被隐藏。
+
 **2026-09-02（作者自持的正文润色通道，ADR-0041，PR #72 开着、CI 绿、待合并）**：产品直出的 AI 味仍重，本轮加的**不是**更好的润色配方——2026-07-27 那次 3 策略 × 2 模型的成品润色实验已被产品主人盲读判「基本没差别」，症状（怪比喻、上下文不连贯）在生成层。本轮换立论：**作者想自己动手时手上没有工具**，所以做的是**通道**，定位为「不承诺效果的自主权工具」，**出厂零模板**（内置模板 = 效果背书，锅会回到产品身上）。
 
 责任边界一句话：**账房归我们（事实不许动）、花归用户（怎么写他说了算）**。这条线在两处以同一形态落地——喂给模型的只有「不许动的人名/数字清单」，绝不喂风格指令；给作者的空槽引导只有骨架三行（要它做什么 / 不要它做什么 / 必须保留什么），一个风格词都不给。

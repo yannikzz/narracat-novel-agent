@@ -15,6 +15,26 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 GlobalRegistrator.register()
 
 const { afterAll, afterEach, beforeEach, describe, expect, mock, test } = await import('bun:test')
+
+// 四个 IPC mock 必须在动态 import 组件之前就把 `@/lib/ipc` 模块整个换掉——
+// mock.module 在 bun test 里是进程级的：同进程里任何先跑的文件（如 CharacterStatePanel.future-plans-effect
+// .test.ts）对 `@/lib/ipc` 做过 mock.module，后续 import 拿到的就是它那份 mock，本文件只往 window.electron
+// 里塞函数根本不会被调到。这条顺序依赖在 mac 本机跑不出（文件顺序不同），Linux CI 上一出现就是整组
+// 「data-state-ledger 永远不出现」（PR #77 撞到）。照 use-planned-state-counts.test.ts 的套路：展开真实模块，
+// 只覆写本文件关心的四个导出，其余保持真实，不炸同进程里别的文件。
+const readPlannedStateMock = mock(async () => snapshot())
+const updateChapterStateChangesMock = mock(async () => ({ ok: true }) as { ok: boolean; message?: string })
+const submitAuthoredStateMock = mock(async () => ({ ok: true }) as { ok: boolean; message?: string })
+const resolvePlannedStateMock = mock(async () => ({ ok: true }) as { ok: boolean; message?: string })
+const actualIpc = await import('@/lib/ipc')
+mock.module('@/lib/ipc', () => ({
+  ...actualIpc,
+  readPlannedState: readPlannedStateMock,
+  updateChapterStateChanges: updateChapterStateChangesMock,
+  submitAuthoredState: submitAuthoredStateMock,
+  resolvePlannedState: resolvePlannedStateMock,
+}))
+
 const { act, cleanup, fireEvent, render, waitFor } = await import('@testing-library/react')
 const { renderToStaticMarkup } = await import('react-dom/server')
 const { useAgentStore } = await import('@/lib/agent-store')
@@ -372,10 +392,6 @@ describe('toJsonEntries', () => {
 // ② 真实 DOM：有状态组件（加载/编辑/保存/活动 run 互斥/toast）
 // ---------------------------------------------------------------------------
 
-const readPlannedStateMock = mock(async () => snapshot())
-const updateChapterStateChangesMock = mock(async () => ({ ok: true }) as { ok: boolean; message?: string })
-const submitAuthoredStateMock = mock(async () => ({ ok: true }) as { ok: boolean; message?: string })
-const resolvePlannedStateMock = mock(async () => ({ ok: true }) as { ok: boolean; message?: string })
 const toastErrorMock = mock(() => {})
 const toastSuccessMock = mock(() => {})
 

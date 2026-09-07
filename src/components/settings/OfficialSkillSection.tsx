@@ -11,6 +11,7 @@ import {
 import { MarkdownRenderer } from '@/components/workbench/MarkdownRenderer'
 import { readOfficialSkillBody } from '@/lib/ipc'
 import { getOfficialSkillDisplay, VERIFIED_OFFICIAL_SKILLS } from './official-skill-copy'
+import { DIALOG_CONTENT_FORM_CLASS } from '@/design-system'
 
 /**
  * 「它自带的本事」：该 Agent 自带、由 NarraCat 维护的能力，只读。
@@ -112,7 +113,7 @@ export function OfficialSkillSection({ agentId }: { agentId: string }) {
       <OfficialSkillSectionView agentId={agentId} onOpen={setOpenedSkillId} />
       <Dialog open={openedSkillId !== null} onOpenChange={(open) => (open ? undefined : setOpenedSkillId(null))}>
         <DialogContent
-          className="overflow-hidden bg-workspace p-0 sm:max-w-[560px]"
+          className={DIALOG_CONTENT_FORM_CLASS}
           data-official-skill-detail-dialog={openedSkillId ?? undefined}
         >
           {display ? (

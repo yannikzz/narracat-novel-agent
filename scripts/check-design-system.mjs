@@ -38,6 +38,11 @@ const requiredContracts = [
   ['docs/design.md', 'Workbench 使用固定 px 侧栏 + 流式内容区'],
   ['docs/design.md', 'Workbench 内容生命周期'],
   ['docs/design.md', '生成类 Markdown 产物统一进入 reading canvas'],
+  // 弹窗两种形态 + 档位常量（§9.7）：规范文本与 design-system 导出缺一即红，dialog-governance.test 再扫使用点。
+  ['docs/design.md', '轻确认框'],
+  ['docs/design.md', 'Dialog 还是 Sheet'],
+  ['src/design-system/surfaces.ts', 'DIALOG_CONTENT_CONFIRM_CLASS'],
+  ['src/design-system/surfaces.ts', 'DIALOG_CONTENT_FORM_CLASS'],
   ['docs/design.md', '文本框选色'],
   ['docs/design.md', '拖动过程中只更新 grid style'],
   ['docs/design.md', '透明轨道、`10px` 视觉占位'],
@@ -100,6 +105,7 @@ const forbidden = [
   [/bg-(blue|purple|green|orange|red|gray|slate)-\d/, 'use semantic background tokens instead of hardcoded palette classes'],
   [/shadow-(sm|md|lg|xl|2xl)/, 'use approved low-opacity product shadow tokens'],
   [/active:translate-y-px/, 'pressed state must use scale, not vertical translation'],
+  [/data-\[state=(open|closed)\]:duration-[3-9]\d\d/, 'overlay enter/exit must stay within 150-200ms (design.md §8.2)'],
   [/var\(--(bg-|fg-|control|sidebar|stage|app-chrome|border-subtle|border-hairline|accent-surface|color-accent)/, 'use design-system semantic tokens/classes instead of legacy visual variables'],
 ]
 

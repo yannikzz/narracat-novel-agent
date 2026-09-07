@@ -21,6 +21,7 @@ import {
 } from '@/components/settings/CapabilityPackLibraryPanel'
 import { ModelProviderDetailPanel } from '@/components/settings/ModelProviderDetailPanel'
 import { ModelProviderListPanel } from '@/components/settings/ModelProviderListPanel'
+import { ReportProblemButton } from '@/components/diagnostics/ReportProblemDialog'
 import { MODEL_PROVIDERS, parseModelProviderParam } from '@/components/settings/model-providers'
 import { UpdateRow } from '@/components/settings/UpdateRow.tsx'
 import { TelemetryPanel } from '@/components/settings/TelemetryPanel'
@@ -47,6 +48,7 @@ import {
   selectDirectory,
   setApiKey,
   testConnection,
+  revealLogFile,
 } from '@/lib/ipc'
 import { buildPoolEntry, modelEntryKey } from '@shared/lib/model-slots'
 import { useNovelStore } from '@/lib/novel-store'
@@ -427,6 +429,21 @@ export function SettingsRoute() {
     onToggleModel(modelId, true)
   }
 
+  // 每模型输出上限（max_tokens）：undefined = 清掉用户值、回到「跟随建议值」。字段级改动即时落盘，
+  // 与切槽位同语义；合法性由输入框自己把关（越界不会调到这里），归一化层再兜一次底。
+  function onSetMaxOutputTokens(modelId: string, maxOutputTokens: number | undefined) {
+    if (!modelSub) return
+    const key = modelEntryKey({ provider: modelSub, modelId })
+    void commitConfig((current) => ({
+      ...current,
+      modelPool: current.modelPool.map((entry) => {
+        if (modelEntryKey(entry) !== key) return entry
+        const { maxOutputTokens: _dropped, ...rest } = entry
+        return maxOutputTokens === undefined ? rest : { ...rest, maxOutputTokens }
+      }),
+    }))
+  }
+
   async function onSaveApiKey() {
     if (!modelSub) return
     setSavingKey(true)
@@ -751,6 +768,7 @@ export function SettingsRoute() {
                     onRefreshModels={onRefreshModels}
                     onToggleModel={onToggleModel}
                     onAddCustomModel={onAddCustomModel}
+                    onSetMaxOutputTokens={onSetMaxOutputTokens}
                     onSetPrimary={onSetPrimary}
                     onSetLight={onSetLight}
                   />
@@ -865,7 +883,7 @@ export function SettingsRoute() {
               {activeSectionId === 'about' ? (
                 <>
                   <AboutBrandStory />
-                  <div data-settings-about-list="true">
+                  <div data-settings-about-list="true" className="space-y-5">
                     <SettingsCard>
                       <SettingsRow title="客户端版本">
                         <div className="text-right text-sm tabular">{clientVersion}</div>
@@ -904,6 +922,22 @@ export function SettingsRoute() {
                           >
                             MiSans 字体
                           </a>
+                        </div>
+                      </SettingsRow>
+                    </SettingsCard>
+                    {/* 诊断与反馈单独一张卡：用户出了问题会来找「诊断」这个词，版本卡保持纯信息。
+                        工作台失败卡片上另有就地入口（AgentTerminalNotice）。 */}
+                    <SettingsCard>
+                      <SettingsRow title="报告问题" description="生成脱敏诊断（版本、系统、最近日志），预览后一键提交到 GitHub Issue">
+                        <div className="text-right">
+                          <ReportProblemButton variant="outline" size="sm" />
+                        </div>
+                      </SettingsRow>
+                      <SettingsRow title="日志文件" description="主进程运行日志，反馈问题时可整份附上">
+                        <div className="text-right">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => void revealLogFile()} data-settings-reveal-log="true">
+                            打开日志文件夹
+                          </Button>
                         </div>
                       </SettingsRow>
                       {/* 规避 Electron 41.2.1（对应 Chromium 146）在 Windows 打包版（asar）渲染原生 <details> 挂起主线程的

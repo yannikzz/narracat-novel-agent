@@ -262,6 +262,26 @@ describe('app config', () => {
     expect(config.modelPool).toEqual([{ provider: 'glm', modelId: 'glm-4.5-air', verification: null }])
   })
 
+  test('modelPool 归一化：maxOutputTokens 合法则保留，越界/非整数/缺省一律不带字段（回到跟随建议值）', () => {
+    const config = normalizeAppConfig({
+      ...POOL_DEFAULT_FIELDS,
+      modelPool: [
+        { provider: 'deepseek', modelId: 'keep', verification: null, maxOutputTokens: 128000 },
+        { provider: 'deepseek', modelId: 'string-form', verification: null, maxOutputTokens: '96000' },
+        { provider: 'deepseek', modelId: 'too-small', verification: null, maxOutputTokens: 10 },
+        { provider: 'deepseek', modelId: 'fraction', verification: null, maxOutputTokens: 64000.5 },
+        { provider: 'deepseek', modelId: 'absent', verification: null },
+      ],
+    })
+    expect(config.modelPool).toEqual([
+      { provider: 'deepseek', modelId: 'keep', verification: null, maxOutputTokens: 128000 },
+      { provider: 'deepseek', modelId: 'string-form', verification: null, maxOutputTokens: 96000 },
+      { provider: 'deepseek', modelId: 'too-small', verification: null },
+      { provider: 'deepseek', modelId: 'fraction', verification: null },
+      { provider: 'deepseek', modelId: 'absent', verification: null },
+    ])
+  })
+
   test('modelPool 归一化：验证快照的 Key 代际与当前 apiKeyMetadata 不符 → 自愈清空 verification', () => {
     const config = normalizeAppConfig(
       {

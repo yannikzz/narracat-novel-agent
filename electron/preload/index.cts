@@ -7,6 +7,8 @@ const api = {
   setTitleBarOverlaySymbolColor: (symbolColor: string) =>
     ipcRenderer.invoke('window:set-titlebar-overlay-symbol-color', symbolColor),
   getProcessHealth: () => ipcRenderer.invoke('app:get-process-health'),
+  getDiagnosticsReport: () => ipcRenderer.invoke('app:get-diagnostics-report'),
+  revealLogFile: () => ipcRenderer.invoke('app:reveal-log-file'),
   checkReleaseGuard: () => ipcRenderer.invoke('release-guard:check'),
   getTelemetryState: () => ipcRenderer.invoke('telemetry:get-state'),
   setTelemetryEnabled: (enabled: boolean) => ipcRenderer.invoke('telemetry:set-enabled', enabled),

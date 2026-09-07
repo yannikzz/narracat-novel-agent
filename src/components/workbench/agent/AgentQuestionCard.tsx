@@ -1,11 +1,11 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 import { Check, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { BrandIllustration } from '@/components/brand'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { AGENT_QUESTION_INPUT_CLASS, AGENT_QUESTION_OPTION_CLASS, AGENT_QUESTION_TITLE_CLASS } from '@/design-system'
-import { answerAgentQuestion } from '@/lib/ipc'
+import { answerAgentQuestion, questionAnswerRejectedCode } from '@/lib/ipc'
 import { cn } from '@/lib/cn'
 import type { AgentMessagePart, AgentQuestion } from '@shared/types/agent'
 
@@ -19,6 +19,36 @@ export interface QuestionAnswerState {
 }
 
 const EMPTY_ANSWER: QuestionAnswerState = { selected: [], custom: '' }
+
+/** 提交等待上限：正常路径几十毫秒就回，15 秒还没回一定是卡在主进程那头。 */
+export const QUESTION_SUBMIT_TIMEOUT_MS = 15_000
+
+/** 超时错误不写 class（AGENTS.md 约束）：普通 Error 挂 code，用 isSubmitTimeoutError 判。 */
+export const SUBMIT_TIMEOUT_CODE = 'question-submit-timeout'
+
+export function createSubmitTimeoutError(): Error & { code: typeof SUBMIT_TIMEOUT_CODE } {
+  return Object.assign(new Error('提交回答超时'), { code: SUBMIT_TIMEOUT_CODE } as const)
+}
+
+export function isSubmitTimeoutError(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === SUBMIT_TIMEOUT_CODE
+}
+
+export function withSubmitTimeout<T>(operation: Promise<T>, timeoutMs = QUESTION_SUBMIT_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(createSubmitTimeoutError()), timeoutMs)
+    operation.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
 
 export function AgentQuestionCard({ part }: { part: QuestionPart }) {
   const [answers, setAnswers] = useState<Record<string, QuestionAnswerState>>(() =>
@@ -35,6 +65,13 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
   const isLast = clampedIndex === total - 1
   const isInteractive = part.status === 'running'
   const canSubmit = isInteractive && allQuestionsAnswered(questions, answers) && !submitting
+  // 完成态显示主进程确认的那份答案，不是本地草稿：提交 A 超时后用户改选 B 再点、B 被拒（同一问题只消费
+  // 一次），A 落盘后卡片变「已提交选择」却仍高亮 B——那样界面与 Agent 实际收到的对不上（PR #77 评审复现）。
+  const confirmedAnswers = useMemo(
+    () => (part.status === 'complete' && part.answers ? initialAnswerStates(questions, part.answers) : null),
+    [part.status, part.answers, questions],
+  )
+  const displayAnswers = confirmedAnswers ?? answers
   const statusHeader = getQuestionStatusHeader(questions)
   const showQuestionHeaders = hasMultipleQuestionHeaders(questions)
 
@@ -59,18 +96,28 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      await answerAgentQuestion({
-        requestId: part.questionRequestId,
-        answers: Object.fromEntries(
-          questions.map((question) => [
-            question.question,
-            serializeAnswerState(answers[question.question] ?? EMPTY_ANSWER),
-          ]),
-        ),
-      })
+      // 主进程答复要经过事件落盘；磁盘被锁（OneDrive / 杀软）时 invoke 会无限等，按钮就永远转圈。
+      // 超时按失败处理并复位，让用户能再点；主进程若稍后真的收下了，question.answered 事件照样把卡片收口。
+      await withSubmitTimeout(
+        answerAgentQuestion({
+          requestId: part.questionRequestId,
+          answers: Object.fromEntries(
+            questions.map((question) => [
+              question.question,
+              serializeAnswerState(answers[question.question] ?? EMPTY_ANSWER),
+            ]),
+          ),
+        }),
+      )
     } catch (error) {
       console.error(error)
-      toast.error('提交回答失败，请重试')
+      if (questionAnswerRejectedCode(error) === 'already-answered') {
+        // 超时后再点，主进程说「刚才那次已收到、正在保存」：同一问题只消费一次，这次不算失败，
+        // 按钮保持提交中，等 question.answered 事件把卡片收口（保证界面显示的就是 Agent 拿到的那份答案）。
+        toast.info('刚才的提交已收到，正在保存，请稍候')
+        return
+      }
+      toast.error(isSubmitTimeoutError(error) ? '提交没有收到回应，请重试' : '提交回答失败，请重试')
       setSubmitting(false)
     }
   }
@@ -110,7 +157,7 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
       </div>
 
       {isMultiQuestion && (
-        <QuestionTabs questions={questions} answers={answers} activeIndex={clampedIndex} onSelect={goTo} />
+        <QuestionTabs questions={questions} answers={displayAnswers} activeIndex={clampedIndex} onSelect={goTo} />
       )}
 
       <QuestionBlock
@@ -118,7 +165,7 @@ export function AgentQuestionCard({ part }: { part: QuestionPart }) {
         disabled={!isInteractive || submitting}
         question={activeQuestion}
         showHeader={!isMultiQuestion && showQuestionHeaders}
-        value={answers[activeQuestion.question] ?? EMPTY_ANSWER}
+        value={displayAnswers[activeQuestion.question] ?? EMPTY_ANSWER}
         onChange={(value) =>
           setAnswers((current) => ({
             ...current,

@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { METADATA_TEXT_CLASS } from '@/design-system'
+import { DIALOG_CONTENT_COMPARE_CLASS, DIALOG_HEADER_SECTIONED_CLASS, METADATA_TEXT_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
 import { getConfig, getPolishSettings, listPolishRecipes, savePolishRecipe, setStandingPolishSlot } from '@/lib/ipc'
 import { usePolishRun } from '@/lib/polish-store'
@@ -43,12 +43,10 @@ export const POLISH_SLOT_LABELS: Record<PolishSlotId, string> = {
  * 单栏表单与长文清单的，680 摊到每栏不足 210px，要求正文会被压成一条缝。
  */
 export const POLISH_SETUP_DIALOG_CONTENT_CLASS = [
-  // gap-0 是必须的：DialogContent 默认带 gap-4，三段式下会在 header/内容/按钮条之间白白多出 16px，
-  // 表现为标题下方一大片空白（真机看出来的）。p-0 只去掉外圈内边距，管不到段间距。
-  'flex flex-col gap-0 overflow-hidden bg-workspace p-0',
+  // 对比档底座已含 gap-0（DialogContent 默认 gap-4 会在三段之间白白多出 16px，真机看出来的）。
+  `flex flex-col ${DIALOG_CONTENT_COMPARE_CLASS}`,
   // 高度吃满可用空间：三栏各要一个能写下几行要求的输入框，靠内容撑出来的高度不够用。
   'h-[min(860px,calc(100dvh-4rem))] max-h-[calc(100dvh-4rem)]',
-  'sm:max-w-[1320px]',
 ].join(' ')
 
 /**
@@ -203,7 +201,7 @@ export function PolishSetupDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={POLISH_SETUP_DIALOG_CONTENT_CLASS} data-polish-setup-dialog="true">
-        <DialogHeader className="shrink-0 border-b border-border px-6 pb-5 pt-6 text-left">
+        <DialogHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
           <DialogTitle className="text-lg leading-tight">润色第 {chapter} 章</DialogTitle>
           <DialogDescription className="sr-only">
             为本章配置润色方案并开始润色，结果在正文页横向对比。

@@ -101,7 +101,7 @@ describe('mapPiMessageToAgentEvents', () => {
 
   test('Task 结果 details 带异常终态标记 → tool.failed（子会话异常终止，任务卡不谎报成功）', () => {
     for (const [abnormalStop, error] of [
-      ['length', '子 agent 单次回复达到输出上限被截断，本次派发未完成，请重试或把任务拆小。'],
+      ['length', '子 agent 回复达到输出上限被截断，本次派发未完成。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小。'],
       ['error', '子 agent 因模型或服务端错误异常终止，本次派发未完成。'],
     ] as const) {
       const events = mapPiMessageToAgentEvents(ctx, {

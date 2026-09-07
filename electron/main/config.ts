@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { normalizeMaxOutputTokens } from '@shared/lib/model-output-limits'
 import { findPoolEntry, modelEntryKey, resolvePrimaryModel } from '@shared/lib/model-slots'
 import {
   DEFAULT_MODEL_POOL,
@@ -252,10 +253,13 @@ function normalizeModelPool(
     const key = modelEntryKey({ provider: providerId, modelId })
     if (seen.has(key)) continue
     seen.add(key)
+    // 输出上限：越界/非整数即剥掉（回到「跟随建议值」语义），不把脏值带进运行时。
+    const maxOutputTokens = normalizeMaxOutputTokens(item.maxOutputTokens)
     pool.push({
       provider: providerId,
       modelId,
       verification: normalizeEntryVerification(item.verification, providerId, context),
+      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     })
   }
   return pool

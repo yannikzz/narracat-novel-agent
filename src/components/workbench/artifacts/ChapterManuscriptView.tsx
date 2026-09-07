@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { WORKBENCH_READING_CANVAS_CLASS } from '@/design-system'
+import { DIALOG_CONTENT_CONFIRM_CLASS, WORKBENCH_READING_CANVAS_CLASS } from '@/design-system'
 import {
   clearStandingPolishOutcome,
   discardManuscriptDraft,
@@ -541,7 +541,7 @@ function ManuscriptLeaveDialog({ open, resolving }: { open: boolean; resolving: 
         if (!nextOpen && !resolving) void resolveManuscriptLeave('continue-editing')
       }}
     >
-      <DialogContent showCloseButton={false} className="sm:max-w-md" data-manuscript-leave-dialog="true">
+      <DialogContent showCloseButton={false} className={DIALOG_CONTENT_CONFIRM_CLASS} data-manuscript-leave-dialog="true">
         <DialogHeader>
           <DialogTitle>正文还没有保存</DialogTitle>
           <DialogDescription>

@@ -234,7 +234,7 @@ NarraCat 主品牌色为 `#04C853`。它是产品身份色，不是成功状态�
 | 12px | `gap-3` / `p-3` | **小节内** — card 内部、popover 内部 |
 | 16px | `gap-4` / `p-4` | **组间分隔** — 小区块之间 |
 | 20px | `gap-5` / `p-5` | **面板头部** — WorkspacePanel header、紧凑页面边距 |
-| 24px | `gap-6` / `p-6` | **卡片内容** — GlassCard、modal、表单组 |
+| 24px | `gap-6` / `p-6` | **卡片内容** — GlassCard、轻确认框（内容型弹窗是 `p-0` 三段式，见 §9.7）、表单组 |
 | 32px | `gap-8` / `p-8` | **页面内容** — ViewShell body、宽松 dashboard |
 
 **规则：** 主工作区采用 floating card 时，外层 gutter 默认为 `mt-1.5 mr-3 mb-3`；页面内容区优先使用 `p-6` 或 `p-8`。Header / titlebar / panel header 必须有垂直呼吸感：单行 header 高度不低于 `h-12`，带标题+副标题或右侧 actions 的 titlebar 使用 `h-14` 到 `h-16`，上下留白不低于 10px，避免文字和按钮贴近上下 hairline。如果需要分割线，先确认能否通过间距和 hairline 透明度解决。
@@ -596,7 +596,7 @@ type BrandIllustrationPurpose =
 | `rounded-[14px]` | 14px | dropdown、SkillCard、popover 内容 |
 | `rounded-[16px]` | 16px | chat bubble、空状态 icon tile |
 | `rounded-[18px]` | 18px | floating workspace card、基础 GlassCard |
-| `rounded-[22px]` | 22px | modal、FloatingInput full、GlassCard md |
+| `rounded-[22px]`（token `rounded-modal`） | 22px | modal、FloatingInput full、GlassCard md |
 | `rounded-[26px]` | 26px | NoteCard、compact input shell |
 | `rounded-[30px]` | 30px | hero/stat 大卡片 |
 | `rounded-full` | 999px | avatar、pill badge、状态点、等宽高 icon-only submit/send |
@@ -719,20 +719,52 @@ Workbench 中间内容区不是普通页面容器，而是 Novel project 当前�
 
 ---
 
-### 9.7 弹窗（Dialog）容器规范
+### 9.7 弹窗（Dialog / Sheet）规范
 
-基准样板 = 新建小说弹窗（`CreateNovelDialog`）。所有内容型弹窗遵循：
+弹窗**只有两种形态**，先判形态再写代码。档位与分段 class 一律从 `src/design-system/surfaces.ts` 的
+`DIALOG_*` 常量取，不在业务文件里手写宽度——手写就是漂移的起点（`dialog-governance.test.ts` 扫所有
+`DialogContent` / `SheetContent`，宽度不来自常量即红）。
 
-- 容器：`bg-workspace p-0 overflow-hidden`（覆盖 DialogContent 默认的 `bg-floating p-6`——内部分区自管间距），宽度按内容 `sm:max-w-[560px]`（表单）到 `sm:max-w-[680px]`（含长文/清单），高度上限 `max-h-[calc(100dvh-2rem)]` 或 `-4rem`。
-- 结构三段式：可见 `DialogHeader`（`border-b border-border px-6 pb-5 pt-6 text-left` + `DialogTitle` `text-lg leading-tight` + sr-only `DialogDescription`）→ 内容区（`px-6 py-5`，超长内容自滚 `min-h-0 flex-1 overflow-y-auto`）→ 如有操作按钮，底部 `border-t border-border px-6 py-4` 右对齐按钮条。
-- **对比型弹窗**（同屏并排多个同构选项供横向比较，例：润色方案三槽）走独立宽度档：上限
-  `sm:max-w-[1320px]`，且**必须窄窗降栏**（`grid-cols-1 lg:grid-cols-3`）。常规档的 560–680 是
-  按单栏表单与长文清单定的，摊到三栏每栏不足 210px，并排比较这件事本身就不成立了。除此之外
-  的三段式、底色、内边距规则一律照旧。
-- 三段式容器必须显式写 `gap-0`：`DialogContent` 默认带 `gap-4`，`p-0` 只去掉外圈内边距、管不到
-  段间距，漏掉它会在标题下方留出一片空白。
-- 不要用默认 `bg-floating` + `p-6` 裸容器装成页内容——那是轻确认框的形态。
-- 复用先行：同一内容组件多处弹窗承载时，容器 class 提为导出常量（例：`PACK_DETAIL_DIALOG_CONTENT_CLASS`），不要各写一套。
+**分界线**：弹窗里有输入框、清单、预览、多段内容中的任意一样 → 内容型；只有「一句话后果 + 两个按钮」→ 轻确认框。
+拿不准就按内容型写——把内容塞进轻确认框会挤，把确认框做成三段式只是多两条线。
+
+#### 内容型（三段式）
+
+基准样板 = 新建小说弹窗（`CreateNovelDialog`）。
+
+- 容器：`DIALOG_CONTENT_FORM_CLASS`（560，单栏表单）/ `DIALOG_CONTENT_DOCUMENT_CLASS`（680，详情、长文、含预览的清单）/
+  `DIALOG_CONTENT_COMPARE_CLASS`（1320，同屏并排多个同构选项横向比较，**必须窄窗降栏** `grid-cols-1 lg:grid-cols-3`）。
+  三档共用底座 `gap-0 overflow-hidden bg-workspace p-0`：覆盖原语默认的 `bg-floating p-6 gap-4`，内部分区自管间距；
+  `gap-0` 不能省——`p-0` 只去掉外圈内边距，管不到段间距，漏掉它会在标题下方留出一片空白。
+- 内容可能超高时外面再套 `DIALOG_SCROLL_SHELL_CLASS`（flex 列 + `max-h-[calc(100dvh-4rem)]`），正文用 `DIALOG_BODY_CLASS` 自滚。
+- 结构三段式：`DialogHeader` 用 `DIALOG_HEADER_SECTIONED_CLASS`（底边线 + `DialogTitle` `text-lg leading-tight` +
+  **sr-only** `DialogDescription`，内容本身就是说明）→ 正文 `DIALOG_BODY_CLASS` → 如有操作按钮，`DialogFooter` 用
+  `DIALOG_FOOTER_SECTIONED_CLASS`（顶边线，默认右对齐）。
+- 页脚按钮：取消 `secondary`，主钮默认 `variant` 与默认 `size`（不用 `size="sm"`，与轻确认框同重量）；危险操作 `destructive`。
+  次要动作（删除、打开文件夹）放页脚左侧时用 `sm:mr-auto` 而不是 `sm:justify-between`——`DialogFooter` 窄屏会
+  `flex-col-reverse`，两端式布局在窄屏下顺序会乱。
+
+#### 轻确认框
+
+- 容器：`DIALOG_CONTENT_CONFIRM_CLASS`（448），**保留**原语默认的 `bg-floating p-6`——这是唯一允许用裸容器的形态。
+- `DialogHeader` 用 `DIALOG_HEADER_CONFIRM_CLASS`（`pr-8` 给关闭钮让位）+ `DialogTitle` `text-lg leading-tight` +
+  **可见** `DialogDescription`（后果说明就是这个弹窗的正文，要用大白话讲清「会发生什么、能不能恢复」）。
+- 页脚：取消 `secondary` 在左，确认在右（危险操作 `destructive`）；离开拦截类三钮（放弃 / 继续编辑 / 保留）允许，
+  放弃用 `ghost`。通用场景直接用 `useConfirmDialog`，不要再手写一个。
+- 不给关闭钮（`showCloseButton={false}`）只在「关掉等于没回答、而这个回答必须给」时用（离开拦截）。
+
+#### Dialog 还是 Sheet
+
+- **Dialog**：用户要在这里做完一件事再回去（表单、确认、向导），内容不依赖背后页面的位置。
+- **Sheet**：用户要对照背后的页面看（版本历史对照正文），内容是从页面侧边"抽"出来的。Sheet 也走三段式底座
+  （`gap-0 bg-workspace p-0`），宽度上限 960。除此之外一律用 Dialog——目前全仓只有 `ManuscriptRevisionSheet` 一个。
+- 弹层出入 150–200ms（§8.2），Dialog 与 Sheet 原语都钉在 `duration-200`，`check:design` 禁止 300 以上。
+
+#### 已登记的存量偏差
+
+`dialog-governance.test.ts` 的 `ACCEPTED_DEBT` 表登记了尚未归档的弹窗（书架的 4 个 library 弹窗、Agent 新对话确认、
+角色聊天离开拦截、版本历史 Sheet），每条附原因；清掉一条就从表里删一条，表里的文件若已合规测试会红（防止债务
+清了表还留着）。新弹窗不得进表。
 
 ### 9.8 设置页二级视图导航（面包屑规范）
 

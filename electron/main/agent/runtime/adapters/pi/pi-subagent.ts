@@ -41,6 +41,15 @@ const ABNORMAL_STOP_RESULT_PREFIX: Record<PiSubagentAbnormalStop, string> = {
   length: '⚠️ 子 agent 单次回复达到输出上限被截断，本次派发未完成，交付不可信：请核实产物，按需重新派发或把任务拆小。以下为已产出部分：',
   error: '⚠️ 子 agent 因模型或服务端错误异常终止，本次派发未完成，交付不可信：请核实产物后重新派发。以下为已产出部分：',
 }
+/**
+ * 截断自动降档（问题 2 根因②）：首轮跑在 provider 默认思考档、被 `length` 截断 → 大概率是 thinking
+ * 把 max_tokens 烧光（deepseek / kimi 默认开思考且长度不可限）。用完全相同的参数交回主会话让它
+ * 重派，只会再截一遍——这里改成关闭思考重跑一次，只有真出事那次才牺牲思考，平时不动。
+ * 重跑后仍截断才把 ⚠️ 交回去；重跑成功则视同正常交付（半章已被第二轮 Write 覆盖）。
+ */
+const LENGTH_RETRY_NOTE = 'ℹ️ 首轮因输出上限被截断（多为思考占满预算），已关闭思考重派一次，以下为重派结果：'
+const LENGTH_RETRY_EXHAUSTED_PREFIX =
+  '⚠️ 子 agent 两轮都达到输出上限被截断（第二轮已关闭思考），本次派发未完成，交付不可信：请核实产物；可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小。以下为已产出部分：'
 const EMPTY_RESULT_TEXT = '（子 agent 未产出文本）'
 const ABORTED_ERROR_TEXT = '子 agent 任务已随主任务中止'
 /** `Task(narracat:x)` 与 `Task(x)` 两种写法都认（命令文本里的命名空间前缀零改动）。 */
@@ -199,17 +208,15 @@ export function createTaskTool({
           else upstreamSignal.addEventListener('abort', abortChild, { once: true })
         }
 
-        await gateConcurrency.acquire()
-        let finalText = ''
-        let maxTurnsTripped = false
-        // 与 maxTurnsTripped 同为「一旦命中就粘住」：任何一轮撞上截断/报错，这一遍交付就已不可信，
-        // 后续正常收笔不该把它洗回成功。
-        let abnormalStop: PiSubagentAbnormalStop | undefined
-        try {
-          for await (const message of runSession({
-            prompt: String(params.prompt ?? ''),
-            options: buildChildRunOptions(definition, childAbort, thinking),
-          })) {
+        /** 跑一次子会话，收口成交付文本 + 终态旗标；事件照常推进 channel（重派轮的事件排在同一分组卡下）。 */
+        const runChildOnce = async (mode: PiThinkingMode) => {
+          const options = buildChildRunOptions(definition, childAbort, mode)
+          let finalText = ''
+          let maxTurnsTripped = false
+          // 与 maxTurnsTripped 同为「一旦命中就粘住」：任何一轮撞上截断/报错，这一遍交付就已不可信，
+          // 后续正常收笔不该把它洗回成功。
+          let abnormalStop: PiSubagentAbnormalStop | undefined
+          for await (const message of runSession({ prompt: String(params.prompt ?? ''), options })) {
             channel.push({ type: PI_SUBAGENT_EVENT_MESSAGE_TYPE, parentToolCallId: toolCallId, agentId, message })
             if (!isRecord(message)) continue
             if (message.type === 'message_end') {
@@ -223,10 +230,34 @@ export function createTaskTool({
             }
             if (message.type === PI_MAX_TURNS_MESSAGE_TYPE) maxTurnsTripped = true
           }
+          return { provider: options.provider, api: options.model?.api, finalText, maxTurnsTripped, abnormalStop }
+        }
+
+        await gateConcurrency.acquire()
+        let outcome: Awaited<ReturnType<typeof runChildOnce>>
+        let retriedWithoutThinking = false
+        try {
+          outcome = await runChildOnce(thinking)
+          // 只在「默认档 + 截断 + 未中止」时降档重跑，且仅限 anthropic-messages wire：`thinking: {type:'disabled'}`
+          // 只有这条 wire 会真的发出去；openai-completions 只在 pi 的 compat 探测命中 deepseek/zai 时才带关闭字段，
+          // 自定义网关上两轮请求一模一样，「第二轮已关闭思考」就是谎话（PR #77 评审 P2，假端点抓包证实）。
+          // anthropic 渠道也跳过——它的默认本就不带思考，且 Fable 系对显式 disabled 回 400。
+          if (
+            outcome.abnormalStop === 'length' &&
+            thinking === 'provider-default' &&
+            outcome.api === 'anthropic-messages' &&
+            outcome.provider !== 'anthropic' &&
+            !childAbort.signal.aborted
+          ) {
+            console.warn(`[narracat] pi 子 agent 首轮被截断（stopReason=length），关闭思考重派：${agentId}`)
+            retriedWithoutThinking = true
+            outcome = await runChildOnce('off')
+          }
         } finally {
           gateConcurrency.release()
           for (const upstreamSignal of upstream) upstreamSignal.removeEventListener('abort', abortChild)
         }
+        const { finalText, maxTurnsTripped, abnormalStop } = outcome
 
         if (childAbort.signal.aborted) throw new Error(ABORTED_ERROR_TEXT)
 
@@ -235,7 +266,14 @@ export function createTaskTool({
           // 这个信号此前不落任何地方（#29「未确认项」正是因此无从复盘）：主进程日志留一条，
           // 事后能查出是 length 还是 error。
           console.warn(`[narracat] pi 子 agent 异常终止（stopReason=${abnormalStop}）：${agentId}`)
-          parts.push(ABNORMAL_STOP_RESULT_PREFIX[abnormalStop])
+          parts.push(
+            abnormalStop === 'length' && retriedWithoutThinking
+              ? LENGTH_RETRY_EXHAUSTED_PREFIX
+              : ABNORMAL_STOP_RESULT_PREFIX[abnormalStop],
+          )
+        } else if (retriedWithoutThinking) {
+          // 重派成功：主会话需要知道这份交付是关着思考写出来的（不是它要求的档位），但不必当失败处理。
+          parts.push(LENGTH_RETRY_NOTE)
         }
         if (maxTurnsTripped) parts.push(MAX_TURNS_RESULT_PREFIX)
         parts.push(finalText || EMPTY_RESULT_TEXT)

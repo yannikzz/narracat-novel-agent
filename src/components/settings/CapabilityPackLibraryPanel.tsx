@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
 import { Textarea } from '@/components/ui/textarea'
-import { DESTRUCTIVE_INLINE_CLASS, MUTED_PILL_CLASS } from '@/design-system'
+import { DESTRUCTIVE_INLINE_CLASS, DIALOG_CONTENT_FORM_CLASS, DIALOG_SCROLL_SHELL_CLASS, MUTED_PILL_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
 import {
   PACK_DETAIL_DIALOG_BODY_CLASS,
@@ -583,7 +583,7 @@ function ExportPackConfirmDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[calc(100dvh-4rem)] flex-col overflow-hidden bg-workspace p-0 sm:max-w-[560px]"
+        className={`${DIALOG_SCROLL_SHELL_CLASS} ${DIALOG_CONTENT_FORM_CLASS}`}
         data-capability-pack-export-dialog="true"
       >
         <DialogHeader className="shrink-0 border-b border-border px-6 pb-5 pt-6 text-left">

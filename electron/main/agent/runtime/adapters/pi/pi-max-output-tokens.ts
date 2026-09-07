@@ -1,5 +1,5 @@
 /**
- * 兑现输出上限的扩展：把请求体里的 `max_tokens` 抬到我们真正想要的值。
+ * 兑现输出上限的扩展：把请求体里的 `max_tokens` 改成我们真正想发的值。
  *
  * ## 为什么需要它
  *
@@ -13,71 +13,40 @@
  * `sdk.js:215` 的 `onPayload` → `anthropic.js:318`（openai wire 是 `openai-completions.js:78`）
  * 拿返回值**整份替换** params。本扩展就挂在这里。
  *
- * ## 为什么不能盲抬
+ * ## 发多少
  *
- * 各家各模型的输出上限差得很远，发一个超过上限的 `max_tokens` 是**硬 400**，整条链当场断。
- * 所以这里只对**查得到第一手文档依据**的模型抬，其余一个字都不改、照旧走上游的 32000。
- * 失败方向朝着「维持现状」：白名单漏了某个模型，最坏结果是它还是 32000，不会把谁打挂。
- *
- * 加新条目的门槛：**必须附第一手文档出处与核对日期**，二手转述（聚合站、搜索摘要）不算。
+ * 取值规则住在 shared/lib/model-output-limits（设置页共用同一份）：**用户在池条目上填的值 >
+ * 文档建议值 > 不改写**。用户值是权威值——自定义渠道的后端上限只有用户知道，填得比 32000 低也
+ * 照发（那多半是这个后端真的只有那么多，发 32000 反而是硬 400）。
  */
 import { createSyntheticSourceInfo } from '@mariozechner/pi-coding-agent'
 import type { Extension } from '@mariozechner/pi-coding-agent'
-import { TARGET_MAX_OUTPUT_TOKENS } from './pi-model.ts'
+import { resolveMaxOutputTokens } from '@shared/lib/model-output-limits'
+import { findPoolEntry, type ModelSlotView } from '@shared/lib/model-slots'
 
 /**
- * 已核实的模型输出上限（tokens），键为 `provider/模型 id`。
- *
- * - `deepseek/*`：DeepSeek 官方文档 https://api-docs.deepseek.com/quick_start/pricing
- *   （2026-08-21 核对）——v4-pro 与 v4-flash 均为 context 1M / max output 384K。
- * - `anthropic/*`：Anthropic 官方文档（2026-08-21 核对）——Fable 5 / Opus 5 / Opus 4.8 /
- *   Opus 4.7 / Opus 4.6 / Sonnet 5 / Sonnet 4.6 输出上限均为 128K。更老的 Claude（Sonnet 4.5、
- *   Haiku 4.5、Opus 4.1…）各自不同且普遍更低，**故一律不收**。
- *
- * 未列入的（minimax / glm / custom，以及任何我们没查过的模型 id）一律不抬——查 GLM 与 MiniMax
- * 时只找到聚合站的二手数字，够不上上面那条门槛。
+ * 本次 run 该发多少 `max_tokens`；`undefined` = 没依据，别动请求体（走上游 32000）。
+ * 按 `provider/modelId` 找池条目读用户值；条目不在池里（如轻量槽别名解析出的 id）只剩文档建议值。
  */
-const DOCUMENTED_MAX_OUTPUT_TOKENS: Readonly<Record<string, number>> = Object.freeze({
-  'deepseek/deepseek-v4-pro': 384_000,
-  'deepseek/deepseek-v4-flash': 384_000,
-  'anthropic/claude-fable-5': 128_000,
-  'anthropic/claude-mythos-5': 128_000,
-  'anthropic/claude-opus-5': 128_000,
-  'anthropic/claude-opus-4-8': 128_000,
-  'anthropic/claude-opus-4-7': 128_000,
-  'anthropic/claude-opus-4-6': 128_000,
-  'anthropic/claude-sonnet-5': 128_000,
-  'anthropic/claude-sonnet-4-6': 128_000,
-})
-
-/** 长上下文变体与基础模型是同一个模型，输出上限相同（`claude-opus-5[1m]` → `claude-opus-5`）。 */
-function stripContextSuffix(modelId: string): string {
-  return modelId.replace(/\[1m\]$/, '')
-}
-
-/**
- * 本次 run 该发多少 `max_tokens`；`undefined` = 查不到依据，别动请求体。
- * 取 TARGET 与文档上限的较小值——文档上限比我们想要的还低时，抬到文档上限就是硬 400。
- */
-export function resolvePiMaxOutputTokens(provider: string, modelId: string): number | undefined {
-  const documented = DOCUMENTED_MAX_OUTPUT_TOKENS[`${provider}/${stripContextSuffix(modelId)}`]
-  if (documented === undefined) return undefined
-  return Math.min(TARGET_MAX_OUTPUT_TOKENS, documented)
+export function resolvePiMaxOutputTokens(config: ModelSlotView, provider: string, modelId: string): number | undefined {
+  // pi Model 的 provider 是裸 string，池键格式与 modelEntryKey 一致（`provider/modelId`）。
+  const entry = findPoolEntry(config, `${provider}/${modelId}`)
+  return resolveMaxOutputTokens({ provider, modelId, maxOutputTokens: entry?.maxOutputTokens })
 }
 
 /** 两条 wire 的字段名不同：anthropic 恒为 max_tokens，openai 视 compat 可能是 max_completion_tokens。 */
 const MAX_TOKENS_FIELDS = ['max_tokens', 'max_completion_tokens'] as const
 
 /**
- * 只抬不降：请求体里已经比目标值大就原样放行（那多半是别处有意设的，我们没有理由压它）。
- * 字段缺席也原样放行——凭空加一个字段是在猜 provider 的契约，不是我们该做的事。
+ * 字段存在且与目标值不同就改写（两个方向都改：用户填的值是权威值）。
+ * 字段缺席原样放行——凭空加一个字段是在猜 provider 的契约，不是我们该做的事。
  */
 export function patchMaxOutputTokens(payload: unknown, maxTokens: number): unknown {
   if (typeof payload !== 'object' || payload === null) return payload
   const record = payload as Record<string, unknown>
   const field = MAX_TOKENS_FIELDS.find((name) => typeof record[name] === 'number')
   if (!field) return payload
-  if ((record[field] as number) >= maxTokens) return payload
+  if (record[field] === maxTokens) return payload
   return { ...record, [field]: maxTokens }
 }
 

@@ -90,6 +90,7 @@ function noopProps(overrides: Record<string, unknown> = {}) {
     onRefreshModels: () => {},
     onToggleModel: () => {},
     onAddCustomModel: () => {},
+    onSetMaxOutputTokens: () => {},
     onSetPrimary: () => {},
     onSetLight: () => {},
     ...overrides,
@@ -223,6 +224,32 @@ describe('ModelProviderDetailPanel（SSR 结构断言）', () => {
       config: baseConfig({ modelPool: [], apiKeyMetadata: {} }),
     })
     expect(html).toContain('glm-4.5-air')
+  })
+
+  test('输出上限字段：只在已启用条目行渲染；有文档依据的模型以建议值做占位、提示官方上限', () => {
+    const html = render()
+    const field = html.match(/data-model-max-output-tokens="deepseek-v4-pro"[\s\S]*?<\/div>/)?.[0] ?? ''
+    expect(field).not.toBe('')
+    expect(field).toContain('输出上限')
+    expect(field).toContain('placeholder="64000"')
+    expect(field).toContain('留空按建议值 64,000')
+    expect(field).toContain('官方上限 384,000')
+    // 未启用的行没有这个字段
+    expect(html).not.toContain('data-model-max-output-tokens="deepseek-v4-flash"')
+  })
+
+  test('输出上限字段：用户已填的值回显在输入框；未核实的模型提示留空按 32,000 发送', () => {
+    const html = render({
+      provider: 'custom',
+      config: baseConfig({
+        modelPool: [{ provider: 'custom', modelId: 'my-gateway-model', verification: null, maxOutputTokens: 8192 }],
+        primaryModelKey: 'custom/my-gateway-model',
+      }),
+    })
+    const field = html.match(/data-model-max-output-tokens="my-gateway-model"[\s\S]*?<\/div>/)?.[0] ?? ''
+    expect(field).toContain('value="8192"')
+    expect(field).toContain('placeholder="32000"')
+    expect(field).toContain('该模型上限未核实，留空按 32,000 发送')
   })
 
   test('添加自定义模型：空输入禁用（SSR 默认态）', () => {

@@ -179,7 +179,7 @@ export function registerAgentIpcHandlers(): void {
     return getAgentRuntimeCoordinator().cancelRun(normalizeAgentCancelRun(input))
   })
 
-  ipcMain.handle('agent:answer-question', async (event, input: unknown): Promise<{ accepted: boolean }> => {
+  ipcMain.handle('agent:answer-question', async (event, input: unknown): Promise<{ accepted: boolean; reason?: 'already-answered' | 'not-pending' }> => {
     subscribeAgentRuntimeSender(event.sender)
     return getAgentRuntimeCoordinator().answerQuestion(normalizeAgentQuestionAnswer(input))
   })

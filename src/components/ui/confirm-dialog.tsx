@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { DIALOG_CONTENT_CONFIRM_CLASS, DIALOG_HEADER_CONFIRM_CLASS } from '@/design-system'
 
 /**
  * 危险/需确认操作的统一确认弹窗（#400：替换原生 window.confirm）。
@@ -41,7 +42,7 @@ export function ConfirmDialogPanel({
 }) {
   return (
     <div data-confirm-dialog-panel="true" className="grid gap-5">
-      <DialogHeader className="pr-8 text-left">
+      <DialogHeader className={DIALOG_HEADER_CONFIRM_CLASS}>
         <DialogTitle className="text-lg leading-tight">{title}</DialogTitle>
         <DialogDescription className="whitespace-pre-line">{description}</DialogDescription>
       </DialogHeader>
@@ -87,7 +88,7 @@ export function ConfirmDialog({
         if (!next) (onDismiss ?? onCancel)()
       }}
     >
-      <DialogContent className="sm:max-w-md" data-confirm-dialog="true">
+      <DialogContent className={DIALOG_CONTENT_CONFIRM_CLASS} data-confirm-dialog="true">
         <ConfirmDialogPanel {...copy} onCancel={onCancel} onConfirm={onConfirm} />
       </DialogContent>
     </Dialog>
