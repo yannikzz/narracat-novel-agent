@@ -9,7 +9,7 @@ GlobalRegistrator.register()
 
 const { afterAll, afterEach, describe, expect, test } = await import('bun:test')
 const { StrictMode } = await import('react')
-const { act, cleanup, render, waitFor } = await import('@testing-library/react')
+const { act, cleanup, render } = await import('@testing-library/react')
 const { MemoryRouter } = await import('react-router')
 const { GlobalNotificationBell } = await import('./GlobalNotificationBell')
 type ResultNotificationList = import('@shared/types/notifications').ResultNotificationList
@@ -34,10 +34,11 @@ const list: ResultNotificationList = {
 
 let listCalls = 0
 ;(window as unknown as { electron: Record<string, unknown> }).electron = {
+  // 立即返回：StrictMode 的卸载→再挂载在同一次 commit 里同步完成，微任务里回来的第一次请求必然
+  // 落在再挂载之后（序号已 +1 被丢掉）。不用定时器、不用 waitFor 轮询——两者在 Linux CI 的
+  // happy-dom 里曾把这条用例卡到 8 秒（PR #83 首轮）。
   listResultNotifications: async () => {
     listCalls += 1
-    // 让首载跨过 StrictMode 的卸载→再挂载：请求在第一次挂载发出、第二次挂载后才回来
-    await new Promise((resolve) => setTimeout(resolve, 20))
     return list
   },
   onResultNotificationsChanged: () => () => {},
@@ -70,11 +71,15 @@ describe('GlobalNotificationBell（StrictMode 双挂载）', () => {
     )
     const bell = () => view.container.querySelector('[data-global-notification-bell="true"]')
     expect(bell()).not.toBeNull()
-    await waitFor(() => {
-      expect(bell()?.querySelector('.animate-spin')).toBeNull()
+    // 冲刷微任务让两次首载都回来并提交渲染
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
     })
-    // 每次挂载各发一次首载（StrictMode 下 2 次）；陈旧那次被序号丢掉，不会把 loading 卡住
-    expect(listCalls).toBeGreaterThanOrEqual(1)
+    // 每次挂载各发一次首载（StrictMode 下 2 次）：改前的「只首载一次」守卫会让这里是 1，
+    // 第二次挂载拿不到数据、转圈永远不停
+    expect(listCalls).toBe(2)
+    expect(bell()?.querySelector('.animate-spin')).toBeNull()
     expect(bell()?.querySelector('.bg-destructive')).not.toBeNull()
   })
 })
