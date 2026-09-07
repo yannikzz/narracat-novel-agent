@@ -252,6 +252,20 @@ describe('ModelProviderDetailPanel（SSR 结构断言）', () => {
     expect(field).toContain('该模型上限未核实，留空按 32,000 发送')
   })
 
+  test('池里手填的下线 id 当场标「已下线 · 建议 X」，目录内正常 id 不标', () => {
+    const html = render({
+      config: baseConfig({
+        modelPool: [
+          { provider: 'deepseek', modelId: 'deepseek-v4-pro', verification: null },
+          { provider: 'deepseek', modelId: 'deepseek-chat', verification: null },
+        ],
+      }),
+    })
+    expect(html).toContain('data-model-retired="deepseek-chat"')
+    expect(html).toContain('已下线 · 建议 deepseek-v4-flash')
+    expect(html).not.toContain('data-model-retired="deepseek-v4-pro"')
+  })
+
   test('添加自定义模型：空输入禁用（SSR 默认态）', () => {
     const html = render()
     const addButton = html.match(/<button[^>]*>\s*添加\s*<\/button>/)?.[0] ?? ''

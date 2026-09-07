@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { SettingsRow } from '@/components/settings/SettingsLayout'
-import { GROUP_CLASS, MUTED_PILL_CLASS } from '@/design-system'
+import { GROUP_CLASS, MUTED_PILL_CLASS, WARNING_OUTLINE_PILL_CLASS } from '@/design-system'
 import { cn } from '@/lib/cn'
 import {
   documentedMaxOutputTokens,
@@ -16,7 +16,7 @@ import {
 import { isEntryVerified, modelEntryKey } from '@shared/lib/model-slots'
 import type { WireId } from '@shared/types/config'
 import type { AppConfig, ConnectionTestResult, ModelPoolEntry, ProviderId } from '@shared/types/ipc'
-import { canListModels, MODEL_CATALOG, MODEL_PROVIDERS } from './model-providers'
+import { canListModels, MODEL_CATALOG, MODEL_PROVIDERS, retiredModelReplacement } from './model-providers'
 
 /**
  * 渠道详情二级页（渠道两级 UI v2 T4）：四分组——Key 与连接 / 接口协议与地址 / 模型列表 / 添加自定义模型。
@@ -322,12 +322,19 @@ function ModelRow({
   const enabled = entry !== undefined
   const isPrimary = config.primaryModelKey === key
   const isLight = config.lightModelKey === key
+  // 手填过的旧 id 仍留在池里，只在真调用时才 404——在这里当场标出来，别让作者写章时才撞「模型不存在」。
+  const retiredReplacement = retiredModelReplacement(provider, modelId)
 
   return (
     <div data-model-toggle={modelId} data-enabled={enabled ? 'true' : 'false'} className="px-3 py-2.5">
       <div className="flex min-h-[32px] items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-xs text-foreground">{modelId}</span>
+          {retiredReplacement ? (
+            <span className={WARNING_OUTLINE_PILL_CLASS} data-model-retired={modelId} title={`该模型已下线，建议改用 ${retiredReplacement}`}>
+              已下线 · 建议 {retiredReplacement}
+            </span>
+          ) : null}
           {isPrimary ? <span className={MUTED_PILL_CLASS}>主力</span> : null}
           {isLight ? <span className={MUTED_PILL_CLASS}>轻量</span> : null}
           {enabled ? (
