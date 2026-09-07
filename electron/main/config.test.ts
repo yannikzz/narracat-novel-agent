@@ -25,12 +25,12 @@ const LEGACY_DEEPSEEK = {
 const legacyVerified = {
   provider: 'glm',
   baseUrl: 'https://open.bigmodel.cn/api/anthropic',
-  models: { opus: 'glm-5.2[1m]', sonnet: 'glm-5.2[1m]', haiku: 'glm-4.5-air' },
+  models: { opus: 'glm-5.2', sonnet: 'glm-5.2', haiku: 'glm-4.5-air' },
   apiKeyMetadata: { glm: { updatedAt: '2026-08-01T00:00:00.000Z' } },
   modelServiceVerification: {
     provider: 'glm',
     baseUrl: 'https://open.bigmodel.cn/api/anthropic',
-    models: { opus: 'glm-5.2[1m]', sonnet: 'glm-5.2[1m]', haiku: 'glm-4.5-air' },
+    models: { opus: 'glm-5.2', sonnet: 'glm-5.2', haiku: 'glm-4.5-air' },
     apiKeyUpdatedAt: '2026-08-01T00:00:00.000Z',
     verifiedAt: '2026-08-01T12:00:00.000Z',
   },
@@ -310,10 +310,10 @@ describe('模型池迁移', () => {
   test('旧形态迁移：三档去重进池、sonnet→主力、haiku→轻量、旧验证过渡到所有条目', () => {
     const config = normalizeAppConfig(legacyVerified, '/Users/tester')
     expect(config.modelPool.map((e) => `${e.provider}/${e.modelId}`)).toEqual([
-      'glm/glm-5.2[1m]',
+      'glm/glm-5.2',
       'glm/glm-4.5-air',
     ])
-    expect(config.primaryModelKey).toBe('glm/glm-5.2[1m]')
+    expect(config.primaryModelKey).toBe('glm/glm-5.2')
     expect(config.lightModelKey).toBe('glm/glm-4.5-air')
     expect(config.providers.glm.baseUrl).toBe('https://open.bigmodel.cn/api/anthropic')
     expect(config.modelPool.every((e) => e.verification?.verifiedAt === '2026-08-01T12:00:00.000Z')).toBe(true)
@@ -353,14 +353,14 @@ describe('markModelEntryVerified', () => {
       { ...legacyVerified, modelServiceVerification: null },
       '/Users/tester',
     )
-    const marked = markModelEntryVerified(base, 'glm/glm-5.2[1m]', '2026-08-02T08:00:00.000Z')
+    const marked = markModelEntryVerified(base, 'glm/glm-5.2', '2026-08-02T08:00:00.000Z')
     expect(isModelServiceVerified(marked)).toBe(true)
     expect(marked.modelPool.find((e) => e.modelId === 'glm-4.5-air')?.verification).toBeNull()
   })
 
   test('Key 未配置（无 apiKeyMetadata）时拒绝标记', () => {
     const base = normalizeAppConfig({ ...legacyVerified, apiKeyMetadata: {}, modelServiceVerification: null }, '/Users/tester')
-    const marked = markModelEntryVerified(base, 'glm/glm-5.2[1m]', '2026-08-02T08:00:00.000Z')
+    const marked = markModelEntryVerified(base, 'glm/glm-5.2', '2026-08-02T08:00:00.000Z')
     expect(isModelServiceVerified(marked)).toBe(false)
   })
 })
@@ -371,7 +371,7 @@ describe('markProviderVerified', () => {
       {
         apiKeyMetadata: { glm: { updatedAt: '2026-08-01T00:00:00.000Z' } },
         modelPool: [
-          { provider: 'glm', modelId: 'glm-5.2[1m]', verification: null },
+          { provider: 'glm', modelId: 'glm-5.2', verification: null },
           { provider: 'glm', modelId: 'glm-4.5-air', verification: null },
           { provider: 'deepseek', modelId: 'deepseek-v4-pro', verification: null },
         ],
@@ -401,7 +401,7 @@ describe('markProviderVerified', () => {
       {
         apiKeyMetadata: {},
         modelPool: [
-          { provider: 'glm', modelId: 'glm-5.2[1m]', verification: null },
+          { provider: 'glm', modelId: 'glm-5.2', verification: null },
           { provider: 'glm', modelId: 'glm-4.5-air', verification: null },
         ],
       },

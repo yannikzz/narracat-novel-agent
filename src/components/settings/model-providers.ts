@@ -37,19 +37,55 @@ export const MODEL_PROVIDERS: Array<{
 
 // 起步精选目录：官方模型迭代快且无可靠的列模型接口，故由 App 内置维护，
 // 下拉给推荐项、同时允许手填任意 model id（见旧 ModelIdPicker，T4 迁移时随之搬家）。
+//
+// 2026-09-07 按各家官方模型列表页核对（deepseek api-docs model_list / platform.claude.com models overview /
+// docs.bigmodel.cn model-overview / platform.kimi.com models / platform.minimaxi.com text-generation）。
+// 每条目录都是「官方仍在列且本仓链路能跑」的交集，不是官方全集：
+// - anthropic 不收 claude-fable-5*：它对显式 `thinking: {type:'disabled'}` 回 400，而冷 pass / 润色 /
+//   角色聊天三条路径都发这个字段，收进来等于给用户一个必炸的选项。
+// - glm 不收 glm-5.3：官方写明思考恒开不可关、从 5.2 升级须把 thinking.type 改 enabled 否则失败，
+//   与冷 pass 关思考的策略冲突；没有真机验证前不进目录，用户可手填。
+// - ⚠️ 不要加任何 `xxx[1m]`：`kimi-k3[1m]` 真机 404（`Not found the model kimi-k3[1m]`），`glm-5.2[1m]`
+//   同构——那个后缀是 Claude Code 客户端的上下文标记约定，各家 model 字段不认；本仓 pi 链路把 id 原样发出
+//   且无剥离逻辑。deepseek-v4 / glm-5.2 / kimi-k3 本身即 1M 上下文，无需后缀。
+// - 另有第二份副本 electron/main/config.ts 的 LEGACY_DEFAULT_MODELS（只服务旧三档配置一次性迁移），改目录须同步。
 export const MODEL_CATALOG: Record<ProviderId, string[]> = {
-  deepseek: ['deepseek-v4-pro'],
-  anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
-  minimax: ['MiniMax-M3', 'MiniMax-M2.5', 'MiniMax-M2'],
-  glm: ['glm-5.2[1m]', 'glm-5.2', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5-air', 'glm-4.5-flash'],
+  // v4-flash 同上限（1M / 384K）、三分之一价格，润色链 dogfood 在用。
+  deepseek: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+  // 5 代领头；4.7 / 4.6 仍可用但已是 legacy（退役不早于 2027 年），留给已在用的作者。
+  anthropic: ['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
+  // M2.7 比 M2.5 新、同价；M2.x 官方标「历史模型仍支持」。
+  minimax: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5', 'MiniMax-M2'],
+  // glm-4.7-flash 是免费档（200K / 128K），给试用者一个零成本入口。
+  glm: ['glm-5.2', 'glm-5', 'glm-4.7', 'glm-4.7-flash', 'glm-4.6', 'glm-4.5-air', 'glm-4.5-flash'],
   // Kimi 拉不到清单（见上方 noModelListEndpoint），故这份目录 + 手填 model id 是它的全部来源，
   // 过期了要手工来改。已排除 kimi-k2.5 与 moonshot-v1 系列：官方 2026-08-31 全平台下线，
-  // 且早已停止接新注册用户。
-  // ⚠️ 不要加 `kimi-k3[1m]`：官方 Claude Code 接入页确实那样写，但真机实测该 id 直接 404
-  //（`Not found the model kimi-k3[1m] or Permission denied`）——那个后缀是 Claude Code 侧的
-  // 上下文标记约定，Moonshot 的 model 字段不认。kimi-k3 本身即 1M 上下文，无需后缀。
+  // 且早已停止接新注册用户；k2.7-code 是编程向，对小说价值低，不收。
   kimi: ['kimi-k3', 'kimi-k2.6'],
   custom: [],
+}
+
+/**
+ * 已下线 / 必 404 的 model id → 建议替代。用户手填过的旧 id 仍留在池里（归一化不对照目录），
+ * 只在真调用时才 404；这张表让设置页当场标出来，而不是等作者写章时撞一次「模型不存在」。
+ * 来源同上方核对：deepseek-chat / deepseek-reasoner 2026-07-24 退役；kimi-k2.5 与 moonshot-v1* 2026-08-31
+ * 下线，kimi-k2* 05-25、kimi-latest 01-28；`[1m]` 后缀见上。
+ */
+const RETIRED_MODEL_IDS: Readonly<Record<ProviderId, Readonly<Record<string, string>>>> = Object.freeze({
+  deepseek: Object.freeze({ 'deepseek-chat': 'deepseek-v4-flash', 'deepseek-reasoner': 'deepseek-v4-pro' }),
+  anthropic: Object.freeze({}),
+  minimax: Object.freeze({}),
+  glm: Object.freeze({ 'glm-5.2[1m]': 'glm-5.2' }),
+  kimi: Object.freeze({ 'kimi-k3[1m]': 'kimi-k3', 'kimi-k2.5': 'kimi-k2.6', 'kimi-latest': 'kimi-k3' }),
+  custom: Object.freeze({}),
+})
+
+/** 该 id 是否已下线；是则给出建议替代 id，否则 null。前缀族（moonshot-v1*、kimi-k2-*）按前缀判。 */
+export function retiredModelReplacement(provider: ProviderId, modelId: string): string | null {
+  const exact = RETIRED_MODEL_IDS[provider][modelId]
+  if (exact) return exact
+  if (provider === 'kimi' && (modelId.startsWith('moonshot-v1') || /^kimi-k2(-|$)/.test(modelId))) return 'kimi-k3'
+  return null
 }
 
 /** 该渠道能否拉模型清单（详情页据此决定渲不渲染「刷新清单」）。 */

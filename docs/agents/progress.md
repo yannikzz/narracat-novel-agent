@@ -4,6 +4,14 @@
 
 ## Current Branch
 
+**2026-09-07（模型目录按官方核对更新 + 下线 id 当场标出，分支 fix/model-catalog-2026-09）**：PR #77 调研出的第三条：`glm-5.2[1m]` 与 `kimi-k3[1m]` 同构必 404（后缀是 Claude Code 客户端约定，各家 model 字段不认，本仓 pi 链路原样发出无剥离逻辑），目录里挂着它等于给用户一个必炸的推荐项。本次：
+- **目录**（`model-providers.ts`）：删 `glm-5.2[1m]`；deepseek 加 v4-flash；anthropic 换 opus-5 / sonnet-5 领头（4.7 / 4.6 留作 legacy）；minimax 加 M2.7；glm 加免费档 4.7-flash。**刻意不收**：claude-fable-5*（对显式关思考回 400，冷 pass / 润色 / 角色聊天三条路径都发）、glm-5.3（思考恒开不可关，未真机验证）。目录注释写明每条取舍与核对来源。
+- **第二份副本** `config.ts` 的 `LEGACY_DEFAULT_MODELS` 同步（glm → glm-5.2），测试跟改。
+- **下线表** `retiredModelReplacement`：deepseek-chat / reasoner（07-24 退役）、kimi-k2.5 / moonshot-v1* / kimi-k2-*（08-31 / 05-25）、kimi-latest、两个 `[1m]`。设置页模型行当场标「已下线 · 建议 X」（`WARNING_OUTLINE_PILL_CLASS`），不等作者写章时撞「模型不存在」。归一化仍不对照目录，旧配置零影响。
+- 守卫：目录测试钉「无 `[1m]`、不收 fable/glm-5.3、目录与下线表不矛盾」。
+- **刻意不做**：上下文窗口按模型查表——把 deepseek 从 200K 自动抬到 1M 会推迟 pi 压缩、每轮上下文成本上升，是行为改动，`[1m]` 仍是作者的显式 opt-in（只对 Anthropic 真实可用）。GLM/Kimi 想用 1M 上下文目前没有合法口子，留待做「长上下文」每条目开关。
+- **未真机验**：`glm-5.2[1m]` 的 404 是结构推断（GLM 无可用 Key），kimi 那次是实测。
+
 **2026-09-07（PR #77 评审修复四条）**：①**P1 同一问题只消费一次**——渲染端提交超时后允许再点，主进程若还在给第一次落盘，两次都收下会让 Agent 拿到答案 A、界面与历史显示答案 B（评审用真实 run-manager 复现）。修：`PendingQuestion.answering` 占坑 + 有界 `answeredQuestionIds`，第二次提交回 `{accepted:false, reason:'already-answered'}`，渲染端据此提示「已收到正在保存」并保持提交中，不复位；回执类型贯通 coordinator / ipc / preload / ipc.d.ts。②**P2 openai-completions wire 不重派**——`thinking:{type:'disabled'}` 只在 anthropic-messages wire 发得出去，pi 的 openai-completions 仅 compat 命中 deepseek/zai 才带关闭字段，自定义网关两轮请求一模一样却声称「已关闭思考」；重派条件加 `api === 'anthropic-messages'`。③**P2 描述过长撑爆链接**——描述进预算（编码后 1800 字节≈200 中文字，超出截断并注明），标题限 60 字符，`buildGitHubIssueUrl` 拼完再按 7600 兜底逐行砍日志；剪贴板版 descriptionBudget=Infinity 保全文。④**规范：去 class**——`SubmitTimeoutError` 改成普通 Error 挂 `code`，`isSubmitTimeoutError` 判。全量 3646 绿。
 
 **教训**：提交超时 + 允许重试的组合，必须在服务端配幂等（首次占坑）；「关闭思考」这类协议字段要按 wire 逐条核实是否真的发出去，不能因为 anthropic wire 生效就在另一条 wire 上也声称生效。

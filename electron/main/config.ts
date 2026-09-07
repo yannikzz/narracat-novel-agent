@@ -55,8 +55,9 @@ const LEGACY_DEFAULT_MODELS: Record<ProviderId, LegacyModelMapping> = {
     haiku: 'MiniMax-M2',
   },
   glm: {
-    opus: 'glm-5.2[1m]',
-    sonnet: 'glm-5.2[1m]',
+    // 不用 `glm-5.2[1m]`：与 `kimi-k3[1m]` 同构必 404（后缀是 Claude Code 客户端约定，智谱 model 字段不认）。
+    opus: 'glm-5.2',
+    sonnet: 'glm-5.2',
     haiku: 'glm-4.5-air',
   },
   kimi: {

@@ -9,6 +9,7 @@ import {
   parseModelProviderParam,
   providerStatus,
   providerStatusLabel,
+  retiredModelReplacement,
 } from './model-providers'
 
 function baseView(overrides: Partial<ModelSlotView> = {}): ModelSlotView {
@@ -56,6 +57,53 @@ describe('MODEL_CATALOG（内置推荐目录）', () => {
     expect(Object.keys(MODEL_CATALOG).sort()).toEqual([...PROVIDER_IDS].sort())
     expect(MODEL_CATALOG.custom).toEqual([])
     expect(MODEL_CATALOG.deepseek.length).toBeGreaterThan(0)
+  })
+})
+
+describe('MODEL_CATALOG（2026-09-07 官方核对后的内容约束）', () => {
+  test('目录里没有任何 `[1m]` 后缀 id——kimi-k3[1m] 真机 404，glm-5.2[1m] 同构', () => {
+    for (const ids of Object.values(MODEL_CATALOG)) {
+      expect(ids.some((id) => id.endsWith('[1m]'))).toBe(false)
+    }
+  })
+
+  test('不收必炸的型号：Fable 对显式关思考回 400；glm-5.3 思考不可关，未真机验证前不进目录', () => {
+    expect(MODEL_CATALOG.anthropic.some((id) => id.startsWith('claude-fable'))).toBe(false)
+    expect(MODEL_CATALOG.glm).not.toContain('glm-5.3')
+  })
+
+  test('核对后的领头型号在目录首位（首项是设置页默认推荐）', () => {
+    expect(MODEL_CATALOG.deepseek[0]).toBe('deepseek-v4-pro')
+    expect(MODEL_CATALOG.deepseek).toContain('deepseek-v4-flash')
+    expect(MODEL_CATALOG.anthropic[0]).toBe('claude-opus-5')
+    expect(MODEL_CATALOG.glm[0]).toBe('glm-5.2')
+    expect(MODEL_CATALOG.minimax).toContain('MiniMax-M2.7')
+  })
+
+  test('目录里的 id 都不在下线表里（目录与下线表不能自相矛盾）', () => {
+    for (const provider of PROVIDER_IDS) {
+      for (const id of MODEL_CATALOG[provider]) expect(retiredModelReplacement(provider, id)).toBeNull()
+    }
+  })
+})
+
+describe('retiredModelReplacement（下线 id → 建议替代）', () => {
+  test('精确表：deepseek-chat / deepseek-reasoner 2026-07-24 退役；[1m] 后缀必 404', () => {
+    expect(retiredModelReplacement('deepseek', 'deepseek-chat')).toBe('deepseek-v4-flash')
+    expect(retiredModelReplacement('deepseek', 'deepseek-reasoner')).toBe('deepseek-v4-pro')
+    expect(retiredModelReplacement('glm', 'glm-5.2[1m]')).toBe('glm-5.2')
+    expect(retiredModelReplacement('kimi', 'kimi-k3[1m]')).toBe('kimi-k3')
+  })
+
+  test('前缀族：moonshot-v1* 与 kimi-k2-* 全线下线，kimi-k2.6 不在其列', () => {
+    expect(retiredModelReplacement('kimi', 'moonshot-v1-128k')).toBe('kimi-k3')
+    expect(retiredModelReplacement('kimi', 'kimi-k2-0711-preview')).toBe('kimi-k3')
+    expect(retiredModelReplacement('kimi', 'kimi-k2.6')).toBeNull()
+    expect(retiredModelReplacement('kimi', 'kimi-k3')).toBeNull()
+  })
+
+  test('键是 provider 限定的：custom 渠道挂同名 id 不判下线（后端是谁我们不知道）', () => {
+    expect(retiredModelReplacement('custom', 'deepseek-chat')).toBeNull()
   })
 })
 
