@@ -32,6 +32,12 @@ export interface ModelPoolEntry {
   provider: ProviderId
   modelId: string
   verification: ModelEntryVerification | null
+  /**
+   * 用户填的每次请求输出上限（max_tokens）。缺省 = 跟随建议值（shared/lib/model-output-limits 的
+   * 白名单，随版本更新）；填了就是权威值原样发出，可高于也可低于上游默认。合法区间见
+   * MAX_OUTPUT_TOKENS_RANGE，归一化层越界即剥掉（回到缺省语义，不留脏值）。
+   */
+  maxOutputTokens?: number
 }
 
 export interface AppConfig {

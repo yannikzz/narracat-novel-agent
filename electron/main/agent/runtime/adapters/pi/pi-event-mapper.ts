@@ -70,7 +70,7 @@ const TOOL_FAILED_FALLBACK_TEXT = '工具调用失败'
 const LENGTH_TRUNCATED_ERROR_TEXT = '模型单次回复长度达到上限，本次运行已中止，请重试或把任务拆小。'
 /** 子会话异常终止时任务卡的失败文案：区分 length / error，事后能从落盘事件查出是哪一种。 */
 const SUBAGENT_ABNORMAL_STOP_ERROR_TEXT: Record<PiSubagentAbnormalStop, string> = {
-  length: '子 agent 单次回复达到输出上限被截断，本次派发未完成，请重试或把任务拆小。',
+  length: '子 agent 回复达到输出上限被截断，本次派发未完成。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小。',
   error: '子 agent 因模型或服务端错误异常终止，本次派发未完成。',
 }
 

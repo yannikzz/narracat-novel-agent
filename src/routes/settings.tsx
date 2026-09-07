@@ -427,6 +427,21 @@ export function SettingsRoute() {
     onToggleModel(modelId, true)
   }
 
+  // 每模型输出上限（max_tokens）：undefined = 清掉用户值、回到「跟随建议值」。字段级改动即时落盘，
+  // 与切槽位同语义；合法性由输入框自己把关（越界不会调到这里），归一化层再兜一次底。
+  function onSetMaxOutputTokens(modelId: string, maxOutputTokens: number | undefined) {
+    if (!modelSub) return
+    const key = modelEntryKey({ provider: modelSub, modelId })
+    void commitConfig((current) => ({
+      ...current,
+      modelPool: current.modelPool.map((entry) => {
+        if (modelEntryKey(entry) !== key) return entry
+        const { maxOutputTokens: _dropped, ...rest } = entry
+        return maxOutputTokens === undefined ? rest : { ...rest, maxOutputTokens }
+      }),
+    }))
+  }
+
   async function onSaveApiKey() {
     if (!modelSub) return
     setSavingKey(true)
@@ -751,6 +766,7 @@ export function SettingsRoute() {
                     onRefreshModels={onRefreshModels}
                     onToggleModel={onToggleModel}
                     onAddCustomModel={onAddCustomModel}
+                    onSetMaxOutputTokens={onSetMaxOutputTokens}
                     onSetPrimary={onSetPrimary}
                     onSetLight={onSetLight}
                   />

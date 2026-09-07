@@ -20,7 +20,7 @@ describe('子会话异常终止的任务卡渲染（#29 刀 2）', () => {
   /** 与 pi-subagent 产出的 details 同型：键名若改，这里先编译不过（生产者/消费者的类型级绑定）。 */
   const ABNORMAL_STOP_DETAILS: PiSubagentAbnormalStopDetails = { narracatSubagentAbnormalStop: 'length' }
   const RESULT_TEXT = '⚠️ 子 agent 单次回复达到输出上限被截断，本次派发未完成，交付不可信：请核实产物，按需重新派发或把任务拆小。\n\n（子 agent 未产出文本）'
-  const ABNORMAL_STOP_REASON = '子 agent 单次回复达到输出上限被截断，本次派发未完成，请重试或把任务拆小。'
+  const ABNORMAL_STOP_REASON = '子 agent 回复达到输出上限被截断，本次派发未完成。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小。'
 
   /** 跑一次真实链路：run.started 建消息 → Task 派发开始 → Task 结果落地，返回助手消息。 */
   function reduceTaskDispatch(result: unknown): AgentMessage {

@@ -114,8 +114,8 @@ async function buildPiRunOptions(
   // 排在最前：它把被抹空的参数补回后，后续扩展看到的才是模型真正发出的那份。
   const model = createPiModel(args.config)
   // 输出上限兑现：pi 把实发 max_tokens 封在 32000，只有 before_provider_request 改得到请求体。
-  // 只对查得到第一手文档依据的模型抬，其余不装配这个扩展（详见 pi-max-output-tokens.ts）。
-  const maxOutputTokens = resolvePiMaxOutputTokens(model.provider, model.id)
+  // 用户在池条目上填的值 > 文档建议值 > 不装配（详见 pi-max-output-tokens.ts）。
+  const maxOutputTokens = resolvePiMaxOutputTokens(args.config, model.provider, model.id)
   const extensions = [
     createPiEagerToolArgsRestorer(),
     guard,
@@ -171,7 +171,7 @@ async function buildPiRunOptions(
     // model 别名映射（生产接线门前项②）：frontmatter 三别名走模型池槽位，其余继承 run 模型。
     // thinking 档位（issue #42）由派发方逐次给：默认听 provider 的，冷改这类低自由度任务显式关掉。
     const childModel = createPiModel(args.config, resolvePiModelAlias(args.config, definition.model), thinking)
-    const childMaxOutputTokens = resolvePiMaxOutputTokens(childModel.provider, childModel.id)
+    const childMaxOutputTokens = resolvePiMaxOutputTokens(args.config, childModel.provider, childModel.id)
     return {
       model: childModel,
       provider: childModel.provider,
