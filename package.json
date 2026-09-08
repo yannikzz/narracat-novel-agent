@@ -85,7 +85,8 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "NarraCat"
+      "shortcutName": "NarraCat",
+      "include": "build/installer.nsh"
     },
     "dmg": {
       "backgroundColor": "#ffffff"

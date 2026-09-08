@@ -241,6 +241,41 @@ describe('LibraryRoute presentation', () => {
   })
 
 
+  test('a missing project says the folder is gone, can always be removed, and never offers to reveal a folder that is not there (ADR-0046)', () => {
+    const missing = { ...baseProject, id: '', status: 'missing' as const, problem: '项目文件夹不存在，可能已被移动、删除，或所在磁盘未连接' }
+    const html = renderToStaticMarkup(
+      <Dialog open>
+        <LibraryInvalidProjectPanel
+          canRemove
+          project={missing}
+          removing={false}
+          onCancel={() => {}}
+          onRemove={() => {}}
+          onReveal={() => {}}
+        />
+      </Dialog>,
+    )
+
+    // 目录整个没了 ≠ 文件不完整：如实说，并讲清去哪找。
+    expect(html).toContain('已经不在原来的位置')
+    expect(html).toContain('备份')
+    expect(html).not.toContain('项目文件不完整')
+    expect(html).toContain('data-library-invalid-remove="true"')
+    expect(html).not.toContain('data-library-invalid-reveal="true"')
+
+    const card = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <LibraryProjectCard project={missing} />
+        </TooltipProvider>
+      </MemoryRouter>,
+    )
+    expect(card).toContain('data-library-invalid-trigger="true"')
+    expect(card).toContain('找不到了')
+    expect(card).toContain('项目文件夹不在了')
+    expect(card).not.toContain('/workbench?project=')
+  })
+
   test('an invalid project card no longer links into a workbench that must fail (#38)', () => {
     // 书架明知这本书坏了、卡上都标了红，仍旧让作者点进去，然后用一句开发黑话糊他脸上。
     // 入口必须先拦住：进到一个什么都读不出来的工作台对作者零价值。

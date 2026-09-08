@@ -118,6 +118,46 @@ describe('mapPiMessageToAgentEvents', () => {
     }
   })
 
+  test('Task 结果 details 带致命标记（length）→ tool.failed 之后紧跟 run.failed(output-limit)，整个 run 收口（ADR-0046）', () => {
+    const events = mapPiMessageToAgentEvents(ctx, {
+      type: 'tool_execution_end',
+      toolCallId: 'task-1',
+      toolName: 'Task',
+      isError: false,
+      result: {
+        content: [{ type: 'text', text: '⚠️ 子 agent …' }],
+        details: { narracatSubagentAbnormalStop: 'length', narracatSubagentFatal: true, narracatSubagentId: 'outline-architect' },
+      },
+    })
+    expect(events).toEqual([
+      {
+        type: 'tool.failed',
+        runId: 'run-1',
+        toolCallId: 'task-1',
+        error: '子 agent 回复达到输出上限被截断，本次派发未完成。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小。',
+        createdAt: ctx.createdAt,
+      },
+      {
+        type: 'run.failed',
+        runId: 'run-1',
+        error: '子 agent「outline-architect」的单次回复达到输出上限被截断，本次运行已停止。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小后重试。',
+        reason: 'output-limit',
+        createdAt: ctx.createdAt,
+      },
+    ])
+  })
+
+  test('Task 结果 details 只有 error 终态（无致命标记）→ 仅 tool.failed，主会话仍可改派', () => {
+    const events = mapPiMessageToAgentEvents(ctx, {
+      type: 'tool_execution_end',
+      toolCallId: 'task-1',
+      toolName: 'Task',
+      isError: false,
+      result: { content: [], details: { narracatSubagentAbnormalStop: 'error' } },
+    })
+    expect(events.map((event) => event.type)).toEqual(['tool.failed'])
+  })
+
   test('message_end stopReason=error → run.failed（errorMessage 透传，含 provider 原始错误串）', () => {
     const events = mapPiMessageToAgentEvents(ctx, {
       type: 'message_end',

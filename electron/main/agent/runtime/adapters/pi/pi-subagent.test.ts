@@ -291,7 +291,12 @@ describe('createTaskTool 派发', () => {
     const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
     expect(result.content[0].text).toContain('输出上限')
     expect(result.content[0].text).toContain('写到一半就被截断了')
-    expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+    // 截断致命（ADR-0046）：details 带致命标记 + 子 agent id，映射器据此紧跟 run.failed 收口整个 run。
+    expect(result.details).toEqual({
+      narracatSubagentAbnormalStop: 'length',
+      narracatSubagentFatal: true,
+      narracatSubagentId: 'chapter-writer',
+    })
   })
 
   test('子会话 stopReason=error 且零文本：结果明确区别于「正常但没说话」', async () => {
@@ -314,7 +319,12 @@ describe('createTaskTool 派发', () => {
     })
     const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
     expect(result.content[0].text).toContain('输出上限')
-    expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+    // 截断致命（ADR-0046）：details 带致命标记 + 子 agent id，映射器据此紧跟 run.failed 收口整个 run。
+    expect(result.details).toEqual({
+      narracatSubagentAbnormalStop: 'length',
+      narracatSubagentFatal: true,
+      narracatSubagentId: 'chapter-writer',
+    })
   })
 
   describe('截断自动降档重派（问题 2 根因②：同参重派只会再截一遍）', () => {
@@ -351,7 +361,12 @@ describe('createTaskTool 派发', () => {
       expect(result.content[0].text).toContain('两轮都达到输出上限')
       expect(result.content[0].text).toContain('输出上限')
       expect(result.content[0].text).toContain('还是半章')
-      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+      // 截断致命（ADR-0046）：details 带致命标记 + 子 agent id，映射器据此紧跟 run.failed 收口整个 run。
+    expect(result.details).toEqual({
+      narracatSubagentAbnormalStop: 'length',
+      narracatSubagentFatal: true,
+      narracatSubagentId: 'chapter-writer',
+    })
     })
 
     test("派发本就带 thinking:'off' 时不重派——没有思考可关，重跑只是再烧一遍", async () => {
@@ -360,7 +375,12 @@ describe('createTaskTool 派发', () => {
       const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
       const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写', thinking: 'off' })
       expect(builder.modes()).toEqual(['off'])
-      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+      // 截断致命（ADR-0046）：details 带致命标记 + 子 agent id，映射器据此紧跟 run.failed 收口整个 run。
+    expect(result.details).toEqual({
+      narracatSubagentAbnormalStop: 'length',
+      narracatSubagentFatal: true,
+      narracatSubagentId: 'chapter-writer',
+    })
     })
 
     test('anthropic 渠道不重派——默认本就不带思考，且 Fable 系对显式 disabled 回 400', async () => {
@@ -369,7 +389,12 @@ describe('createTaskTool 派发', () => {
       const { tool } = makeTaskTool({ runSession: session.runSession, buildChildRunOptions: builder.buildChildRunOptions })
       const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
       expect(builder.modes()).toEqual(['provider-default'])
-      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+      // 截断致命（ADR-0046）：details 带致命标记 + 子 agent id，映射器据此紧跟 run.failed 收口整个 run。
+    expect(result.details).toEqual({
+      narracatSubagentAbnormalStop: 'length',
+      narracatSubagentFatal: true,
+      narracatSubagentId: 'chapter-writer',
+    })
     })
 
     test('openai-completions wire 不重派——关闭思考的字段在这条 wire 上根本发不出去，重跑等于撒谎', async () => {
@@ -379,7 +404,12 @@ describe('createTaskTool 派发', () => {
       const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
       expect(builder.modes()).toEqual(['provider-default'])
       expect(result.content[0].text).not.toContain('已关闭思考')
-      expect(result.details).toEqual({ narracatSubagentAbnormalStop: 'length' })
+      // 截断致命（ADR-0046）：details 带致命标记 + 子 agent id，映射器据此紧跟 run.failed 收口整个 run。
+    expect(result.details).toEqual({
+      narracatSubagentAbnormalStop: 'length',
+      narracatSubagentFatal: true,
+      narracatSubagentId: 'chapter-writer',
+    })
     })
 
     test('stopReason=error 不重派——那不是思考烧预算，是服务端问题', async () => {

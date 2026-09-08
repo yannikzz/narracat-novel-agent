@@ -1,6 +1,7 @@
 import type { AgentComposerAdjustSpec, AgentQuickAction, AgentRunTarget } from '@/types/agent'
 import type { NovelProjectDetail, NovelWorkbenchArtifacts, NovelWorkbenchTreeItem } from '@shared/types/novel'
 import type { WorkbenchChapterView } from '@shared/types/workbench'
+import { isOpenableNovelProject } from '@shared/lib/library-project'
 import { workbenchObjectIdForChapter } from './workbench-selection'
 import type { WorkbenchPrimarySectionId, WorkbenchTabItem } from './workbench-navigation'
 
@@ -487,7 +488,7 @@ export function isOptionalNextStep(action: WorkbenchAction): boolean {
 }
 
 export function resolveStatusLifecycleIndex(project: NovelProjectDetail | null, nextStep: StatusNextStep): number | null {
-  if (!project || project.status === 'invalid') return null
+  if (!project || !isOpenableNovelProject(project.status)) return null
   if (project.status === 'needs-setup') return 0
   // 「设定」（世界观与角色）独立成格。跳过它的作者不会卡住——直接做大纲会让 status 进 ready，
   // stepper 顺势推到「连载」，之前的格子一律显示为已走过（stepper 表达的是「当前在哪一阶段」，
@@ -498,7 +499,7 @@ export function resolveStatusLifecycleIndex(project: NovelProjectDetail | null, 
 }
 
 export function resolveStatusNextStep(project: NovelProjectDetail | null): StatusNextStep {
-  if (!project || project.status === 'invalid') return null
+  if (!project || !isOpenableNovelProject(project.status)) return null
 
   if (project.status === 'needs-setup') {
     return {
