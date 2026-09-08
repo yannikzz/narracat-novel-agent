@@ -319,6 +319,8 @@ export interface DeleteNovelProjectInput {
   projectPath: string
   title: string
   confirmationTitle: string
+  /** `trash`（缺省）= 目录进废纸篓 + 摘书架条目；`forget` = 只摘书架条目、不碰磁盘（Missing / Invalid 的「从书架移除」）。 */
+  mode?: 'trash' | 'forget'
 }
 
 export interface DeleteNovelProjectResult {

@@ -289,15 +289,18 @@ export function WorkbenchRoute() {
       currentProject.status === 'missing'
         ? `“${currentProject.title}”的项目文件夹不在了，已返回图书馆。`
         : `“${currentProject.title}”的项目文件不完整，已返回图书馆。`,
+      // 稳定 id：StrictMode 双挂载与同帧重跑都只弹一条
+      { id: `unopenable:${currentProject.path}` },
     )
     navigate('/', { replace: true })
   }, [currentProject, openableProject, navigate])
 
   useEffect(() => {
-    if (!currentProject || !workbenchLoad.hasData) return
+    // 只为有身份的项目记工作位置：无身份项目 id 为空串，落盘会让整条记录被判废、下次启动静默回书架。
+    if (!openableProject || !workbenchLoad.hasData) return
     void writeWorkLocation(
       createWorkbenchLocation({
-        project: currentProject,
+        project: openableProject,
         searchParams,
         sectionId: selectedSectionId,
         chapterView: resolvedChapterView,
@@ -306,7 +309,7 @@ export function WorkbenchRoute() {
       createLoadIssue('startup', error)
     })
   }, [
-    currentProject,
+    openableProject,
     searchParams,
     selectedChapterView,
     selectedObjectId,

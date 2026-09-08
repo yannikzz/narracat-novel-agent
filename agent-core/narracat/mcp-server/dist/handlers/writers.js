@@ -1511,6 +1511,35 @@ export async function novelSubmitOutline(args, ctx) {
             rawPayload = { ...existing, volumes: submittedVolumes };
         }
     }
+    // 缩卷守卫：full / volumes 是整组替换语义，未列出的卷会连 arc_meta 与 vol-outline.md 一起清掉，而
+    // 「volume」与「volumes」只差一个字母、payload 字段又同名，误写即静默删卷。凡本次提交会让库内既有卷
+    // 消失，必须显式带 confirm_volume_removal=true；追加/修改单卷请改用 scope="volume"。
+    if (scope === "volumes" || scope === "full") {
+        const existingStructurePath = join(ctx.projectRoot, "outline", "outline-structure.json");
+        if (existsSync(existingStructurePath) && args["confirm_volume_removal"] !== true) {
+            let existingVolumeNos = [];
+            try {
+                const existingVolumes = JSON.parse(await readFile(existingStructurePath, "utf-8"))
+                    .volumes;
+                existingVolumeNos = Array.isArray(existingVolumes)
+                    ? existingVolumes
+                        .map((volume) => volume.volume_no)
+                        .filter((no) => typeof no === "number")
+                    : [];
+            }
+            catch {
+                existingVolumeNos = []; // 坏 JSON 无从比对：放行，由后面的校验/重写修复
+            }
+            const submittedVolumes = (rawPayload ?? {}).volumes;
+            const submittedNos = new Set(Array.isArray(submittedVolumes)
+                ? submittedVolumes.map((volume) => volume.volume_no)
+                : []);
+            const removed = existingVolumeNos.filter((no) => !submittedNos.has(no));
+            if (removed.length > 0) {
+                return singleError("scope", `本次提交覆盖库内全部既有卷，或带 confirm_volume_removal=true`, `库内第 ${removed.join("、")} 卷不在本次提交中`, `scope="${scope}" 是整组替换，未列出的卷会被删除。只想新增或修改某一卷，改用 scope="volume"、payload 只含该卷；确实要删掉这些卷（整体重排），再带 confirm_volume_removal=true 重新提交`);
+            }
+        }
+    }
     const validation = scope === "book" ? validateOutlineBookPayload(rawPayload) : validateOutlinePayload(rawPayload);
     if (!validation.valid)
         return errorResponse(validation.errors);

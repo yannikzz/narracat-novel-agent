@@ -1,4 +1,5 @@
 import { reconcileRecentNovelPaths } from './novel-index.ts'
+import { isOpenableNovelProject } from '@shared/lib/library-project'
 import type { AppConfig } from '@shared/types/config'
 import type {
   NovelProjectSummary,
@@ -30,7 +31,7 @@ export async function rememberNovelProjectPath(
   if (input.previousPath === input.currentPath) return { updated: false }
 
   const project = await dependencies.loadProjectSummary(input.currentPath)
-  if (project.status === 'invalid' || project.id !== input.novelId) {
+  if (!isOpenableNovelProject(project.status) || project.id !== input.novelId) {
     throw new Error('项目身份与新位置不匹配。')
   }
 

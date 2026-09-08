@@ -76,8 +76,8 @@
 
 - **S / M / L 档：** 阶段一一次提交书级 + 全部卷级 + 全部 arc
 - **XL 档：** 阶段一只提交书级 + 第一卷（含完整 arc_list）；远期伏笔的 `target_reveal` 可用「vol-08」形态的卷级粗锚点
-- **补卷：** §2 判定为补卷时，派发阶段一·补卷 Envelope——书级字段与已有卷原样透传，只新增下一个未规划卷的卷级 + arc_list；提交仍走 `novel_submit_outline`，由工具渲染新增 vol-outline.md 并扩展 structure 同步
-- **collaborative 新建（两段制）：** 阶段一拆两段。书级段（scope="book"）只提交引擎字段 + storylines + 伏笔注册表，工具渲染 master-outline.md 且卷结构标待展开；作者确认后卷级段（scope="volumes"）payload 只含 volumes + arc_list，书级以库内为准不覆盖（作者确认窗口内的直接修改自然保留）。卷级段范围仍按本节 tier 规则（非 XL 全部卷 / XL 第一卷）。auto 新建 / 修改 / 补卷不走两段制，仍全量提交。
+- **补卷：** §2 判定为补卷时，派发阶段一·补卷 Envelope——只产下一个未规划卷的卷级 + arc_list，用 `novel_submit_outline`（scope="volume"，payload 只含该卷）提交；书级与已有卷不透传、不改动，由工具按卷号合并、渲染新增 vol-outline.md 并扩展 structure 同步
+- **collaborative 新建（两段制）：** 阶段一拆两段。书级段（scope="book"）只提交引擎字段 + storylines + 伏笔注册表，工具渲染 master-outline.md 且卷结构标待展开；作者确认后卷级段逐卷提交（scope="volume"，每次 payload 只含一卷的 volumes + arc_list，每规划好一卷立刻交一卷），书级以库内为准不覆盖（作者确认窗口内的直接修改自然保留）。卷级段范围仍按本节 tier 规则（非 XL 全部卷 / XL 第一卷）。整组替换形态（scope="volumes" / 缺省 full）只用于整体重排；会让既有卷消失时必须显式带 `confirm_volume_removal=true`，否则工具拒绝。auto 新建 / 修改不走两段制，仍全量提交；补卷见上一条。
 - **书级待展开判定：** `outline/outline-structure.json` 存在且 `volumes` 为空数组。该判定必须先于修改与补卷判定——先于修改是防带指令重跑绕过书级确认门（指令应作为骨架调整意见），先于补卷是防「已规划 0 章 < 预算总章数」误命中 §2 补卷条件。
 
 ---

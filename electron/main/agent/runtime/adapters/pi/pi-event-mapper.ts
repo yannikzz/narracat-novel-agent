@@ -189,7 +189,9 @@ function readSubagentFatal(result: unknown): { agentId: string | undefined } | u
 
 function subagentOutputLimitRunErrorText(agentId: string | undefined): string {
   const who = agentId ? `子 agent「${agentId}」` : '子 agent'
-  return `${who}的单次回复达到输出上限被截断，本次运行已停止。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小后重试。`
+  // 并行派发（write 一次派多个 memory-keeper）时整个 run 一起停：同批其它子任务的产物可能只写了一半，
+  // 作者必须知道这一点，重试才不会以为「只差这一个」。
+  return `${who}的单次回复达到输出上限被截断，本次运行已停止；同批并行的其它子任务也一并停止，它们的产物可能不完整。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小后重试。`
 }
 
 function mapToolExecutionEnd(context: RuntimeMapContext, message: UnknownRecord): AgentEvent[] {

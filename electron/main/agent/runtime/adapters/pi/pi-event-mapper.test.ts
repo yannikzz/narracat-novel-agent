@@ -129,22 +129,17 @@ describe('mapPiMessageToAgentEvents', () => {
         details: { narracatSubagentAbnormalStop: 'length', narracatSubagentFatal: true, narracatSubagentId: 'outline-architect' },
       },
     })
-    expect(events).toEqual([
-      {
-        type: 'tool.failed',
-        runId: 'run-1',
-        toolCallId: 'task-1',
-        error: '子 agent 回复达到输出上限被截断，本次派发未完成。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小。',
-        createdAt: ctx.createdAt,
-      },
-      {
-        type: 'run.failed',
-        runId: 'run-1',
-        error: '子 agent「outline-architect」的单次回复达到输出上限被截断，本次运行已停止。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小后重试。',
-        reason: 'output-limit',
-        createdAt: ctx.createdAt,
-      },
-    ])
+    // 语义断言：顺序（先任务卡失败、后 run 终态）、reason、文案要点；不钉整句文案。
+    expect(events.map((event) => event.type)).toEqual(['tool.failed', 'run.failed'])
+    expect(events[0]).toMatchObject({ runId: 'run-1', toolCallId: 'task-1', createdAt: ctx.createdAt })
+    expect(events[1]).toMatchObject({ runId: 'run-1', reason: 'output-limit', createdAt: ctx.createdAt })
+    const runError = (events[1] as { error: string }).error
+    expect(runError).toContain('「outline-architect」')
+    expect(runError).toContain('输出上限')
+    expect(runError).toContain('本次运行已停止')
+    // 并行派发时同批子任务被连坐，作者必须被告知
+    expect(runError).toContain('同批并行的其它子任务也一并停止')
+    expect(runError).toContain('设置 → 模型服务')
   })
 
   test('Task 结果 details 只有 error 终态（无致命标记）→ 仅 tool.failed，主会话仍可改派', () => {

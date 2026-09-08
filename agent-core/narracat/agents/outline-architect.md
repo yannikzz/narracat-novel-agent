@@ -52,7 +52,7 @@ skills:
 
 完成后调 `novel_submit_outline` 提交整体结构。补卷范围时：只产指定的新卷，提交带 scope="volume"、payload 只含该卷；书级与已有卷不动、不透传。
 
-范围为「仅书级」时：只产引擎字段 + 故事线 + 伏笔注册表，payload 不含 volumes，提交带 scope="book"。范围为「卷级展开」时：读 Envelope 指定的全书骨架文件，只产 volumes 与 arc_list，**逐卷提交**——每规划好一卷就立刻调一次 `novel_submit_outline`（scope="volume"，payload 只含本卷），入库后再规划下一卷，不要攒到最后一次交完；书级内容以骨架文件为准，不重产、不改写。单次回复只承载一卷的体量，卷数再多也不会撞到输出上限。
+范围为「仅书级」时：只产引擎字段 + 故事线 + 伏笔注册表，payload 不含 volumes，提交带 scope="book"。范围为「卷级展开」时：读 Envelope 指定的全书骨架文件，只产 volumes 与 arc_list，**逐卷提交**——每规划好一卷就立刻调一次 `novel_submit_outline`（scope="volume"，payload 只含本卷），入库后再规划下一卷，不要攒到最后一次交完；书级内容以骨架文件为准，不重产、不改写。单次回复只承载一卷的体量，卷数再多也不会撞到输出上限。逐卷提交时有些判据要等卷数够了才会触发（如全书 arc 长短过于均匀、某卷末尾短 arc 在后续卷交上来后不再算收尾）：后面某卷被拒、而错因指向已入库的早期卷时，就用 scope="volume" 重交那一卷修正，不要整组重交。
 
 ## arc 三件套质量
 

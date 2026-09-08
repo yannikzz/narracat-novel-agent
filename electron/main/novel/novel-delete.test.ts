@@ -39,6 +39,30 @@ describe('deleteNovelProject', () => {
     })
   })
 
+  test('forget mode never trashes, even when the directory is a complete NarraCat project at click time (ADR-0046)', async () => {
+    // 书架对 Missing / Invalid 的「从书架移除」承诺「不会动任何文件」。点击那一刻目录可能刚好又回来了
+    //（外置盘重新连上、yaml 只是坏了但两个文件都在），按缺省 trash 判会把整本书扔进废纸篓。
+    const root = await makeRoot('forget')
+    const projectPath = await makeNarraCatProject(root, 'came-back')
+    const trashedPaths: string[] = []
+
+    const result = await deleteNovelProject({
+      projectPath,
+      recentNovelPaths: [projectPath, join(root, 'other')],
+      trashItem: async (path) => {
+        trashedPaths.push(path)
+      },
+      mode: 'forget',
+    })
+
+    expect(trashedPaths).toEqual([])
+    expect(result).toEqual({
+      projectPath,
+      recentNovelPaths: [join(root, 'other')],
+      trashed: false,
+    })
+  })
+
   test('only removes a dead or non-NarraCat recent path without trashing arbitrary folders', async () => {
     const root = await makeRoot('invalid')
     const plainFolder = join(root, 'plain-folder')

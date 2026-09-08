@@ -1082,8 +1082,11 @@ export function LibraryInvalidProjectPanel({
               “{project.title}”的项目文件夹已经不在原来的位置，NarraCat 找不到它的任何文件。常见原因是文件夹被移动、重命名或删除，也可能是它所在的磁盘没有连接。
             </p>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              先去原位置、系统废纸篓或你的备份里找一找；找回来放到原处，重新打开 NarraCat 就能恢复。
-              确认真的没有了，可以把它从书架上移除——这只是摘掉书架条目，不会再动任何文件。
+              先别急着移除：如果它在移动硬盘或网络盘上，先把盘接上再刷新书架。然后去原位置、系统废纸篓、你的备份里找一找；
+              Windows 上如果最近升级过 NarraCat，也看一眼安装目录旁边那个以「-user-files」结尾的文件夹。找回来放到原处，重新打开 NarraCat 就能恢复。
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              确认真的没有了，再把它从书架上移除——这只是摘掉书架条目，不会再动任何文件。注意移除是不可撤销的：除非它就放在你的小说文件夹里，否则日后找回文件也回不到书架。
             </p>
           </>
         ) : (
@@ -1162,11 +1165,14 @@ export function LibraryInvalidProjectDialog({
   async function remove() {
     setRemoving(true)
     try {
-      // 对 invalid 项目，删除流程本就只摘书架条目、不动任何文件（novel-delete.ts）。
+      // 必须显式走 forget：主进程的 trash 判据是「点击那一刻目录里有没有两个 yaml」，与书架算出的
+      // 状态无关——外置盘刚好重新连上、或 yaml 只是坏了但文件都在，缺省的 trash 会把整本书扔进废纸篓，
+      // 而这个弹窗承诺的是「不会动任何文件」（ADR-0046）。
       await deleteLibraryProject({
         projectPath: project.path,
         title: project.title,
         confirmationTitle: project.title,
+        mode: 'forget',
       })
       onOpenChange(false)
     } catch (error) {

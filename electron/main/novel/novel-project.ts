@@ -700,17 +700,24 @@ export function createIdentitylessProjectSummary(
   }
 }
 
-async function isDirectory(path: string): Promise<boolean> {
+/**
+ * 「目录确实不存在」只认 ENOENT / ENOTDIR。EPERM / EACCES / EIO（macOS 未授权访问 ~/Documents、
+ * 网络盘抖动）时文件多半好好的，判成 missing 会诱导作者把还在的书从书架摘掉——这类一律按 invalid
+ * （结构读不出）处理，保留「打开所在文件夹」出路、移除仍受根目录规则限制。
+ */
+async function isDefinitelyAbsent(path: string): Promise<boolean> {
   try {
-    return (await stat(path)).isDirectory()
-  } catch {
+    await stat(path)
     return false
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    return code === 'ENOENT' || code === 'ENOTDIR'
   }
 }
 
 export async function loadNovelProjectSummary(projectPath: string): Promise<NovelProjectSummary> {
   if (!(await isNarraCatProject(projectPath))) {
-    return createIdentitylessProjectSummary(projectPath, (await isDirectory(projectPath)) ? 'invalid' : 'missing')
+    return createIdentitylessProjectSummary(projectPath, (await isDefinitelyAbsent(projectPath)) ? 'missing' : 'invalid')
   }
 
   const config = await readYamlFile(join(projectPath, narracatConfigPath()))

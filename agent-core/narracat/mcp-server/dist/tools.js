@@ -568,6 +568,10 @@ export const TOOL_DEFINITIONS = [
                     enum: ["full", "book", "volumes", "volume"],
                     description: "提交形态（缺省 full）：full=书级+卷级一次提交；book=只提交书级骨架（payload 不含 volumes）；volume=逐卷提交（payload 只需 { volumes: [本卷] }，同号卷覆盖、新卷追加、其余卷保留，从不删卷）；volumes=整组提交卷级（payload { volumes: [全部卷] }，未列出的卷会被清理，仅用于整体重排）。卷级提交书级一律以库内为准",
                 },
+                confirm_volume_removal: {
+                    type: "boolean",
+                    description: "仅 scope=full / volumes：本次提交若会让库内既有卷消失（整体重排缩卷），必须显式传 true，否则工具拒绝并提示改用 scope=volume。只想新增或修改某一卷不要传它",
+                },
                 payload: {
                     type: "object",
                     description: "OutlineStructure 顶层对象（字段定义见 schemas/outline-structure.json）：central_dramatic_question / protagonist_core_desire / protagonist_core_lack / antagonistic_force / stakes_progression / storylines / foreshadowing_registry / volumes（scope=book 时省略；scope=volume / volumes 时只需 volumes）",

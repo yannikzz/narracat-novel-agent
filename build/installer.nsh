@@ -9,10 +9,17 @@
 ;   2. 过渡救援 —— 新安装器会先调用「旧版本」的卸载器清场，修好的卸载器保护不了 0.4.0 → 新版
 ;      这一跳。故在旧卸载器执行之前（本文件里的隐藏 Section 先于 "install" Section 运行），把
 ;      旧安装目录下所有非白名单条目 Rename 到同盘的 `<安装目录>-user-files`，装完在 customInstall
-;      里 Rename 回来。同盘 Rename 是原子操作、不复制数据。放回失败时留在原地，App 侧的
-;      「找不到了」状态会提示作者去哪找。
+;      里 Rename 回来。同盘 Rename 是原子操作、不复制数据。任何一项搬不动就中止安装并告知作者
+;      （fail loud）：宁可升级失败，也不能让升级悄悄吃掉一本书。
 ;
-; 白名单（两处共用同一份判定，改一处必须同步另一处）：
+; 编译顺序（改动前必读）：本文件被 electron-builder 拼在 installer.nsi **之前**（NsisTarget.js
+; computeCommonInstallerScriptHeader），因此 common.nsh / multiUser.nsh 里定义的
+; APP_EXECUTABLE_FILENAME、INSTALL_REGISTRY_KEY 等在 Section / Function 里**尚不可用**（`${}` 在
+; 文件作用域当场展开，makensis -WX 下未定义即报错；宏体里的引用则在 !insertmacro 时才展开，不受
+; 影响）。文件作用域只能用 -D 传入的 define（APP_GUID / PRODUCT_FILENAME / APP_FILENAME / VERSION…）
+; 或本文件自己定义的名字。scripts/check-windows-installer.test.mjs 机械守这条。
+;
+; 白名单（两处共用同一份判定，改一处必须同步另一处，守卫测试会比对）：
 ;   目录  resources / locales / swiftshader
 ;   文件  *.exe / *.dll / *.pak / *.bin / *.dat / vk_swiftshader_icd.json / LICENSE*
 ;
@@ -48,12 +55,17 @@
 ; ---------------------------------------------------------------------------
 !ifndef BUILD_UNINSTALLER
 
+; 与 multiUser.nsh 逐字一致（那边是 /ifndef，先定义不冲突）；APP_EXECUTABLE_FILENAME 在 common.nsh
+; 是无 /ifndef 的 !define，不能抢先同名定义，故自起一个名字。
+!define /ifndef INSTALL_REGISTRY_KEY "Software\${APP_GUID}"
+!define NARRACAT_APP_EXE "${PRODUCT_FILENAME}.exe"
+
 Var narracatOldInstallDir
 Var narracatKeepDir
 Var narracatRescued
 
 ; 判定 $R1（条目名）是否 App 自有；结果写 $R2（"1" 自有 / "0" 非自有）。
-; 与 narracatDeleteAppOwnedEntries 的白名单逐条对应。
+; 与 narracatDeleteAppOwnedEntries 的白名单逐条对应（NSIS StrCmp 不区分大小写，与文件系统一致）。
 Function narracatIsAppOwnedEntry
   StrCpy $R2 "0"
   StrCmp $R1 "resources" owned
@@ -74,7 +86,9 @@ Function narracatIsAppOwnedEntry
 FunctionEnd
 
 ; 把 $narracatOldInstallDir 下的非自有条目搬到 $narracatKeepDir。
-; 每成功搬走一项就重新枚举（枚举中改目录会漏项）；搬失败的项跳过继续，故必然终止。
+; 每成功搬走一项就重新枚举（枚举中改目录会漏项）。任何一项搬不动（被占用 / 云同步锁定 / 同名冲突）
+; 立即 Abort：留在原地的条目几秒后就会被旧卸载器删掉，静默跳过等于静默丢数据。Abort 会触发
+; .onInstFailed 把已搬走的放回。
 Function narracatRescueForeignEntries
   ClearErrors
   restart:
@@ -88,13 +102,17 @@ Function narracatRescueForeignEntries
     ClearErrors
     CreateDirectory "$narracatKeepDir"
     Rename "$narracatOldInstallDir\$R1" "$narracatKeepDir\$R1"
-    IfErrors next
+    IfErrors rescueFailed
     StrCpy $narracatRescued "1"
     FindClose $R0
     Goto restart
   next:
     FindNext $R0 $R1
     Goto scan
+  rescueFailed:
+    FindClose $R0
+    MessageBox MB_OK|MB_ICONEXCLAMATION "NarraCat 安装目录里有它自己以外的文件（$R1），升级前需要先把它们挪到安全位置，但现在挪不动。$\r$\n$\r$\n请先关闭 NarraCat 以及正在使用该文件夹的程序（编辑器、云同步、资源管理器窗口），然后重新运行安装。这次安装已中止，你的文件原样未动。" /SD IDOK
+    Abort "NarraCat 无法保护安装目录里的用户文件：$R1"
   finished:
     FindClose $R0
 FunctionEnd
@@ -139,7 +157,10 @@ Section "-narracatRescueUserFiles"
   ; 盘符根目录（如 "D:"）不做救援：那是把整块盘搬家
   StrLen $R3 $narracatOldInstallDir
   IntCmp $R3 2 skip skip
-  IfFileExists "$narracatOldInstallDir\${APP_EXECUTABLE_FILENAME}" 0 skip
+  ; UNC 路径（\\server\share）加 "-user-files" 不是合法同级目录，不做救援
+  StrCpy $R3 $narracatOldInstallDir 2
+  StrCmp $R3 "\\" skip
+  IfFileExists "$narracatOldInstallDir\${NARRACAT_APP_EXE}" 0 skip
   StrCpy $narracatKeepDir "$narracatOldInstallDir-user-files"
   Call narracatRescueForeignEntries
   skip:
@@ -147,6 +168,29 @@ SectionEnd
 
 !macro customInstall
   Call narracatRestoreForeignEntries
+!macroend
+
+; 旧卸载器执行失败时 electron-builder 默认直接 Quit（不是 Abort，.onInstFailed 不会触发）：
+; 接管这个检查点，先把救出的文件放回原位再退出，不让作者的小说卡在养护目录里。
+!macro narracatUninstallResultCheck
+  IfErrors 0 +3
+  DetailPrint `Uninstall was not successful. Not able to launch uninstaller!`
+  Return
+  ${if} $R0 != 0
+    Call narracatRestoreForeignEntries
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(uninstallFailed): $R0"
+    DetailPrint `Uninstall was not successful. Uninstaller error code: $R0.`
+    SetErrorLevel 2
+    Quit
+  ${endif}
+!macroend
+
+!macro customUnInstallCheck
+  !insertmacro narracatUninstallResultCheck
+!macroend
+
+!macro customUnInstallCheckCurrentUser
+  !insertmacro narracatUninstallResultCheck
 !macroend
 
 ; 安装中途失败也把东西放回去，不让作者的文件卡在养护目录里
