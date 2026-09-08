@@ -118,6 +118,41 @@ describe('mapPiMessageToAgentEvents', () => {
     }
   })
 
+  test('Task 结果 details 带致命标记（length）→ tool.failed 之后紧跟 run.failed(output-limit)，整个 run 收口（ADR-0046）', () => {
+    const events = mapPiMessageToAgentEvents(ctx, {
+      type: 'tool_execution_end',
+      toolCallId: 'task-1',
+      toolName: 'Task',
+      isError: false,
+      result: {
+        content: [{ type: 'text', text: '⚠️ 子 agent …' }],
+        details: { narracatSubagentAbnormalStop: 'length', narracatSubagentFatal: true, narracatSubagentId: 'outline-architect' },
+      },
+    })
+    // 语义断言：顺序（先任务卡失败、后 run 终态）、reason、文案要点；不钉整句文案。
+    expect(events.map((event) => event.type)).toEqual(['tool.failed', 'run.failed'])
+    expect(events[0]).toMatchObject({ runId: 'run-1', toolCallId: 'task-1', createdAt: ctx.createdAt })
+    expect(events[1]).toMatchObject({ runId: 'run-1', reason: 'output-limit', createdAt: ctx.createdAt })
+    const runError = (events[1] as { error: string }).error
+    expect(runError).toContain('「outline-architect」')
+    expect(runError).toContain('输出上限')
+    expect(runError).toContain('本次运行已停止')
+    // 并行派发时同批子任务被连坐，作者必须被告知
+    expect(runError).toContain('同批并行的其它子任务也一并停止')
+    expect(runError).toContain('设置 → 模型服务')
+  })
+
+  test('Task 结果 details 只有 error 终态（无致命标记）→ 仅 tool.failed，主会话仍可改派', () => {
+    const events = mapPiMessageToAgentEvents(ctx, {
+      type: 'tool_execution_end',
+      toolCallId: 'task-1',
+      toolName: 'Task',
+      isError: false,
+      result: { content: [], details: { narracatSubagentAbnormalStop: 'error' } },
+    })
+    expect(events.map((event) => event.type)).toEqual(['tool.failed'])
+  })
+
   test('message_end stopReason=error → run.failed（errorMessage 透传，含 provider 原始错误串）', () => {
     const events = mapPiMessageToAgentEvents(ctx, {
       type: 'message_end',

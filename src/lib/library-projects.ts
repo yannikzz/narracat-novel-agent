@@ -18,6 +18,7 @@ const statusPriority: Record<NovelProjectStatus, number> = {
   'needs-outline': 3,
   'needs-setup': 4,
   invalid: 5,
+  missing: 6,
 }
 
 function projectActionPriority(project: NovelProjectSummary): number {

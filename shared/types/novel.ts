@@ -1,6 +1,10 @@
 import type { NarraCatArtifactKind } from './narracat'
 
-export type NovelProjectStatus = 'ready' | 'needs-setup' | 'needs-outline' | 'in-progress' | 'invalid'
+/**
+ * `invalid` = 目录在但缺契约文件（结构不完整）；`missing` = 目录已不存在（找不到了，ADR-0046）。
+ * 两者都没有项目身份：不进 Workbench、没有 Agent 线程，`id` 为空串。
+ */
+export type NovelProjectStatus = 'ready' | 'needs-setup' | 'needs-outline' | 'in-progress' | 'invalid' | 'missing'
 /** 落盘为 `.narracat/config.yaml` 顶层 `automation_level`；控制状态，不外露到对话流（ADR-0016）。 */
 export type NovelAutomationLevel = 'collaborative' | 'auto'
 export type NovelTocItemKind = 'volume' | 'chapter'
@@ -315,6 +319,8 @@ export interface DeleteNovelProjectInput {
   projectPath: string
   title: string
   confirmationTitle: string
+  /** `trash`（缺省）= 目录进废纸篓 + 摘书架条目；`forget` = 只摘书架条目、不碰磁盘（Missing / Invalid 的「从书架移除」）。 */
+  mode?: 'trash' | 'forget'
 }
 
 export interface DeleteNovelProjectResult {

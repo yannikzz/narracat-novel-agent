@@ -44,6 +44,14 @@ export function getWritePrerequisiteGuidance(
     }
   }
 
+  if (project.status === 'missing') {
+    return {
+      blocked: true,
+      title: '项目文件夹不在了',
+      detail: '这本书的文件夹已不在原位置。请返回图书馆，从原位置或备份里找回后再继续。',
+    }
+  }
+
   if (project.status === 'invalid') {
     return {
       blocked: true,

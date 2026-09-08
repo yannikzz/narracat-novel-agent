@@ -87,8 +87,8 @@ Task(outline-architect): "【阶段一】规划全书结构并提交。
 主角获得线锚点（金手指尚未兑现的下一阶——这是立项时许给读者的糖，覆盖当前细纲窗口的 arc 里要排上它的实质推进与获得型爽点，别只登记成远期伏笔）: {从金手指卡成长性/反馈回路摘出的原文，无则省略本行}
 预算表:
 {novel_get_structure_budget 返回原文}
-范围: {按预算表 tier——非 XL: 全书全部卷；XL: 书级 + 第一卷 | 补卷: 仅新增第 {V} 卷，书级与已有卷透传不改 | 修改: 按创意方向调整后整体重新提交}
-完成后调 novel_submit_outline 提交，返回提交回执摘要。"
+范围: {按预算表 tier——非 XL: 全书全部卷；XL: 书级 + 第一卷 | 补卷: 只产新增第 {V} 卷，用 scope="volume" 单独提交，书级与已有卷不动 | 修改: 按创意方向调整后整体重新提交}
+完成后调 novel_submit_outline 提交（补卷范围只提交本卷；其余范围书级随卷一并提交），返回提交回执摘要。"
 ```
 
 回执处理：
@@ -135,13 +135,14 @@ Task(outline-architect): "【阶段一·卷级展开】读已确认的全书骨�
 预算表:
 {novel_get_structure_budget 返回原文}
 范围: {按预算表 tier——非 XL: 全书全部卷；XL: 第一卷}
-完成后调 novel_submit_outline（scope="volumes"，payload 只含 volumes）提交，返回提交回执摘要。"
+提交方式: 逐卷提交——每规划好一卷就立刻调一次 novel_submit_outline（scope="volume"，payload 只含本卷 { volumes: [该卷] }），入库后再规划下一卷；不要攒到最后一次交完全部卷。全部卷交完后返回提交回执摘要（卷数 / 总章数）。"
 ```
 
 回执处理：
 
+- 先机械对账：回执卷数必须达到预算表的推荐卷数（XL 档为 1 卷）。不足即为架构师中途停下的半截大纲——不进确认门，把缺的卷号列出重派 3B 只补那些卷（逐卷提交，scope="volume"）。
 - 向作者展示摘要：卷数 / 总章数 / 故事线条数 / 伏笔条数。
-- AskUserQuestion：「确认结构，继续细化章纲」/「需要调整」（默认：继续）。调整 → 收集意见，重派 3B（Envelope 附调整意见；卷级整体重排，书级不动）。
+- AskUserQuestion：「确认结构，继续细化章纲」/「需要调整」（默认：继续）。调整 → 收集意见，重派 3B（Envelope 附调整意见；卷级整体重排，书级不动；整组重排会让既有卷消失时提交须带 confirm_volume_removal=true）。
 - novel_checkpoint(step=3)，进入步骤 4。
 
 ## 步骤 4：阶段二窗口（earliest-missing + 叙事断点）

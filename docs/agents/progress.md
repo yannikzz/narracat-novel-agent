@@ -4,6 +4,15 @@
 
 ## Current Branch
 
+**2026-09-08（用户日志倒推的数据丢失事故 → ADR-0046「App 永不删除非自有文件」，分支 work/from-main-20260908）**：一位 Windows 用户 0.4.0 首启 8 分钟后小说项目 `D:\NarraCat\novel-…` 双缺 config/state。取证：App 装在 `D:\NarraCat`（辅助安装器对不含产品名的路径自动追加 `\NarraCat`，选 `D:\` 即落此），小说根目录也设在这里；electron-builder 更新流程先以 `--updated` 调**旧版**卸载器，旧卸载器 `RMDir /r $INSTDIR` 整删安装目录（不进回收站）；autoInstallOnAppQuit 全开、v0.4.0 09-07 发布，时间线吻合（主进程日志是 0.4.0 才有的，首行即 0.4.0 首启）。同一日志另两条：outline-architect 1.5 小时 6 次 `length`（卷级提交整组替换、大部头一次交完所有卷、主会话同参重派）；残缺项目 id=路径致 threadId 含反斜杠被判非法，且目录没了仍说「文件不完整」、在根目录内不可移除。
+- **原则**（用户拍板）：App 永不删自己没创建的文件，根目录放哪都安全；否决「禁止重叠」。ADR-0046 + CONTEXT.md 新术语（Novel root / App-owned file / Missing vs Invalid / Agent thread identity）。
+- **NSIS**（`build/installer.nsh` + `nsis.include`）：`customRemoveFiles` 固定白名单只删 Electron 自有文件、非递归删空目录；隐藏 Section 在旧卸载器之前把旧安装目录下非白名单条目 Rename 到同盘 `<安装目录>-user-files`，`customInstall` / `.onInstFailed` 放回。守卫 `scripts/check-windows-installer.test.mjs`。**⚠️ mac 无法执行 NSIS，必须 Windows CI 产物 + 真机跑「0.4.0 装好 → 根目录设在安装目录 → 升级」再发版；0.4.0 → 新版这一跳全靠救援段。**
+- **书架**：新增 `missing` 状态（目录不存在）与 `invalid`（目录在缺契约文件）分立；Missing 无条件可移除、不给「打开所在文件夹」、文案讲清去哪找；两者 `id` 恒空串、沉底排序；`isOpenableNovelProject` 统一判定。
+- **身份**：`getAgentThreadIdForProjectIdentity` 拒绝含路径分隔符的 id（走哈希回退）；工作台路由对无身份项目直接回书架 + toast，不水合线程、不挂侧栏/舞台。
+- **引擎 4.0.183**：`novel_submit_outline` 新增 `scope="volume"` 逐卷 upsert（同号覆盖、新卷追加、从不删卷）；`plan.md` 3B 与补卷、outline-architect 提交指令改为一卷一交。dist 已重建。
+- **截断即停**：子 agent `length`（anthropic 协议就地关思考重跑之后仍截断，或其它协议首次截断）在 details 打致命标记，映射器在 tool.failed 后紧跟 `run.failed(reason=output-limit)` 收口 run，文案给三选一。`error` 终态不致命。
+- 验证：typecheck / 全量 3672 绿 / check:architecture / check:design / verify:narracat-agent-core / mcp-server vitest 932 绿。**未做**：Windows 真机、发版、回复该用户（先问 `D:\NarraCat` 是否同时是安装目录与根目录、文件夹是否还在、有无备份、渠道与模型）。
+
 **2026-09-07（弹窗债务表四条归档，分支 chore/dialog-debt-cleanup）**：按 §9.7 分界线逐个归档——书架元数据 640→长文档 680（封面预设网格要宽）；删除 520 半套 bg-workspace→表单档三段式（有确认输入框故属内容型，后果说明进正文）；备份 520→**表单档三段式**（说明 + 警示块 + 报错块属多段内容，评审指正后从轻确认框改判）；无效项目 440→**表单档三段式**（两段说明 + 最多三个按钮），页脚两端式改 `sm:mr-auto`、「知道了」改 secondary；Agent 新对话确认 400→448，取消 outline→secondary；角色聊天离开拦截 384→448；版本历史 Sheet 新增 `SHEET_CONTENT_DOCUMENT_CLASS`（960，复用三段式底座），header/footer 改用 DIALOG_HEADER/FOOTER_SECTIONED（px-5→px-6），手写的 role="alertdialog" 恢复确认层**两次试换 `useConfirmDialog` 都退回**：根因已定位——同进程里任何先跑的 SSR 测试一旦 import 过 Radix Dialog（无 document 时模块级把 useLayoutEffect 捕获成 no-op），后面 happy-dom 里嵌套的 Portal 永远挂不出来，本机按 `bun test dialog.test.tsx <交互测试>` 顺序可复现。保留就地浮层：样式收到 `FLOATING_PANEL_CLASS` + text-lg 标题 + 取消 secondary，**补键盘圈禁**（Tab/Shift+Tab 层内循环、Esc 关闭，评审浏览器实测 Tab 会跑到背后 Sheet 关闭钮的既有缺陷）。治理测试 `ACCEPTED_DEBT` 清空、接受 `SHEET_CONTENT_*`；design.md 债务段同步。全量 3656 绿。**全是可见改动，dev 里过一遍书架三个弹窗与版本历史**。
 
 **2026-09-07（通知铃铛在 dev 里永远转圈、列表永远空，分支 fix/notification-bell-remount）**：根因 = `GlobalNotificationBell` 用 `initialLoadStartedRef` 保证「只首载一次」，但卸载时把 `requestSequence` +1；React StrictMode（dev）把 effect 挂载→卸载→再挂载，第二次挂载不再发请求，第一次的请求回来被当成过期丢掉、且不复位 loading。打包版无 StrictMode 故用户看不到，但任何重挂载都会撞。修 = 去掉守卫，每次挂载都首载，陈旧请求由序号兜底。新增 StrictMode 真实 DOM 回归（改前红改后绿）。

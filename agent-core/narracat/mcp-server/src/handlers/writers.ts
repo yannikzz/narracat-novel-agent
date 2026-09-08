@@ -1783,7 +1783,12 @@ export function renderMasterOutlineMarkdown(
   return masterLines.join("\n");
 }
 
-const OUTLINE_SCOPES = ["full", "book", "volumes"] as const;
+/**
+ * full / volumes = 整组替换（本次提交的卷集合即最终集合，用于整体重排）；
+ * volume = 逐卷 upsert（按 volume_no 覆盖同号卷、追加新卷，其余卷原样保留，从不删卷）。
+ * 后者让架构师一卷一交：单次工具调用的体量与书的卷数解耦，大部头不再因单轮输出上限被截断。
+ */
+const OUTLINE_SCOPES = ["full", "book", "volumes", "volume"] as const;
 
 /**
  * 已写结构身份门（issue #450）：大纲重提交不许把已写结构身份（arc / 卷 / 故事线 id）
@@ -1916,15 +1921,15 @@ export async function novelSubmitOutline(
   if (!OUTLINE_SCOPES.includes(rawScope as (typeof OUTLINE_SCOPES)[number])) {
     return singleError(
       "scope",
-      `"full" | "book" | "volumes"（缺省 full）`,
+      `"full" | "book" | "volumes" | "volume"（缺省 full）`,
       `${typeof rawScope}: ${JSON.stringify(rawScope)}`,
-      `full=书级+卷级一次提交；book=只提交书级骨架；volumes=书级确认后只提交卷级`,
+      `full=书级+卷级一次提交；book=只提交书级骨架；volumes=书级确认后整组提交卷级（重排）；volume=逐卷提交，只带本卷、其余卷保留`,
     );
   }
   const scope = rawScope as (typeof OUTLINE_SCOPES)[number];
 
   let rawPayload = args["payload"];
-  if (scope === "volumes") {
+  if (scope === "volumes" || scope === "volume") {
     const structurePath = join(ctx.projectRoot, "outline", "outline-structure.json");
     if (!existsSync(structurePath)) {
       return singleError(
@@ -1955,7 +1960,59 @@ export async function novelSubmitOutline(
       );
     }
     // 书级以库内为准（含作者在确认窗口的直接修改），payload 里 volumes 以外的字段一律忽略
-    rawPayload = { ...existing, volumes: submittedVolumes };
+    if (scope === "volume") {
+      // 逐卷 upsert：同号卷被本次覆盖、新卷追加、其余卷原样保留，按卷号排序后走与整组提交完全相同的
+      // 校验 / 入库 / 渲染管线（合并集即完整卷集合，后面的「重排清理」自然一卷不删）。
+      const existingVolumes = Array.isArray(existing.volumes) ? existing.volumes : [];
+      const volumeNo = (volume: unknown): number =>
+        typeof volume === "object" && volume !== null && typeof (volume as { volume_no?: unknown }).volume_no === "number"
+          ? (volume as { volume_no: number }).volume_no
+          : Number.NaN;
+      const submittedNos = new Set(submittedVolumes.map(volumeNo));
+      const merged = [
+        ...existingVolumes.filter((volume) => !submittedNos.has(volumeNo(volume))),
+        ...submittedVolumes,
+      ].sort((a, b) => volumeNo(a) - volumeNo(b));
+      rawPayload = { ...existing, volumes: merged };
+    } else {
+      rawPayload = { ...existing, volumes: submittedVolumes };
+    }
+  }
+
+  // 缩卷守卫：full / volumes 是整组替换语义，未列出的卷会连 arc_meta 与 vol-outline.md 一起清掉，而
+  // 「volume」与「volumes」只差一个字母、payload 字段又同名，误写即静默删卷。凡本次提交会让库内既有卷
+  // 消失，必须显式带 confirm_volume_removal=true；追加/修改单卷请改用 scope="volume"。
+  if (scope === "volumes" || scope === "full") {
+    const existingStructurePath = join(ctx.projectRoot, "outline", "outline-structure.json");
+    if (existsSync(existingStructurePath) && args["confirm_volume_removal"] !== true) {
+      let existingVolumeNos: number[] = [];
+      try {
+        const existingVolumes = (JSON.parse(await readFile(existingStructurePath, "utf-8")) as { volumes?: unknown })
+          .volumes;
+        existingVolumeNos = Array.isArray(existingVolumes)
+          ? existingVolumes
+              .map((volume) => (volume as { volume_no?: unknown }).volume_no)
+              .filter((no): no is number => typeof no === "number")
+          : [];
+      } catch {
+        existingVolumeNos = []; // 坏 JSON 无从比对：放行，由后面的校验/重写修复
+      }
+      const submittedVolumes = ((rawPayload ?? {}) as { volumes?: unknown }).volumes;
+      const submittedNos = new Set(
+        Array.isArray(submittedVolumes)
+          ? submittedVolumes.map((volume) => (volume as { volume_no?: unknown }).volume_no)
+          : [],
+      );
+      const removed = existingVolumeNos.filter((no) => !submittedNos.has(no));
+      if (removed.length > 0) {
+        return singleError(
+          "scope",
+          `本次提交覆盖库内全部既有卷，或带 confirm_volume_removal=true`,
+          `库内第 ${removed.join("、")} 卷不在本次提交中`,
+          `scope="${scope}" 是整组替换，未列出的卷会被删除。只想新增或修改某一卷，改用 scope="volume"、payload 只含该卷；确实要删掉这些卷（整体重排），再带 confirm_volume_removal=true 重新提交`,
+        );
+      }
+    }
   }
 
   const validation =
@@ -2330,7 +2387,9 @@ export async function novelSubmitOutline(
       ? `书级骨架已入库：${payload.storylines.length} 条故事线 / ${payload.foreshadowing_registry.length} 条伏笔，卷级待展开`
       : scope === "volumes"
         ? `卷级大纲已展开：${payload.volumes.length} 卷 / ${arcCount} 个 arc`
-        : `书级大纲已入库：${payload.volumes.length} 卷 / ${arcCount} 个 arc / ${payload.storylines.length} 条故事线`;
+        : scope === "volume"
+          ? `本卷已入库，当前共 ${payload.volumes.length} 卷 / ${arcCount} 个 arc；其余卷继续逐卷提交`
+          : `书级大纲已入库：${payload.volumes.length} 卷 / ${arcCount} 个 arc / ${payload.storylines.length} 条故事线`;
 
   return {
     ok: true,

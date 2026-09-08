@@ -250,7 +250,8 @@ export type AgentDurableEventV1 =
       runId: string
       assistantText: string
       error: string
-      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns'
+      /** `output-limit`：子 agent 单次回复被输出上限截断，run 立即结束、选择权交给作者（ADR-0046）。 */
+      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns' | 'output-limit'
       provider?: string
       createdAt: string
     }
@@ -284,7 +285,9 @@ export function getAgentThreadIdForProjectIdentity(project: {
   path: string
 }): string {
   const projectId = project.id.trim()
-  if (projectId) return `novel:${projectId}`
+  // 线程身份只能来自小说 id，从不来自路径（ADR-0046）：曾有书架把路径当 id 的路径，Windows 上
+  // `novel:D:\…` 直接被 threadKey 判非法。含路径分隔符的 id 一律视同「没有 id」走下面的哈希回退。
+  if (projectId && !/[\\/]/.test(projectId)) return `novel:${projectId}`
 
   // Legacy projects may not have a novel id. Keep absolute paths out of durable thread identity.
   let hash = 0xcbf29ce484222325n
@@ -455,7 +458,8 @@ export type AgentEvent =
       type: 'run.failed'
       runId: string
       error: string
-      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns'
+      /** `output-limit`：子 agent 单次回复被输出上限截断，run 立即结束、选择权交给作者（ADR-0046）。 */
+      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns' | 'output-limit'
       provider?: string
       createdAt: string
     }

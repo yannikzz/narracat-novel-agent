@@ -1,3 +1,4 @@
+import { isOpenableNovelProject } from '@shared/lib/library-project'
 import type { NovelProjectDetail, NovelProjectSummary } from '@shared/types/novel'
 import type { WorkbenchChapterView } from '@shared/types/workbench'
 import type { WorkbenchPrimarySectionId } from './workbench-navigation'
@@ -64,7 +65,9 @@ export function resolveStoredWorkProject(
   projects: NovelProjectSummary[],
   location: Extract<StoredWorkLocation, { landing: 'workbench' }>,
 ): NovelProjectSummary | null {
-  const matches = projects.filter((project) => project.id === location.novelId && project.status !== 'invalid')
+  const matches = projects.filter(
+    (project) => project.id === location.novelId && isOpenableNovelProject(project.status),
+  )
 
   return matches.find((project) => project.path === location.projectPath) ?? matches[0] ?? null
 }

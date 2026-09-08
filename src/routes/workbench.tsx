@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { AlertCircle, FolderOpen, Loader2, type LucideIcon } from 'lucide-react'
+import { toast } from 'sonner'
+import { isOpenableNovelProject } from '@shared/lib/library-project'
 import { LoadRecoveryNotice } from '@/components/LoadRecoveryNotice'
 import { TitlebarDragGutter } from '@/components/TitlebarDragGutter'
 import { WorkbenchPrimarySidebar } from '@/components/workbench/WorkbenchPrimarySidebar'
@@ -220,6 +222,7 @@ function useWorkbenchPanelLayout() {
 
 export function WorkbenchRoute() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const projectPath = searchParams.get('project')
   const routeSectionId = useMemo(() => readWorkbenchSectionId(searchParams), [searchParams])
   const hasSectionParam = Boolean(searchParams.get('section')?.trim())
@@ -250,7 +253,9 @@ export function WorkbenchRoute() {
     loadedTreeItem?.kind === 'chapter'
       ? (selectedChapterView ?? resolveDefaultChapterView(loadedTreeItem))
       : undefined
-  const agentThreadId = currentProject ? getAgentThreadIdForProject(currentProject) : fallbackThreadId
+  // 没有身份的项目（missing / invalid）不存在属于它的 Agent 线程（ADR-0046）：不派生、不水合。
+  const openableProject = currentProject && isOpenableNovelProject(currentProject.status) ? currentProject : null
+  const agentThreadId = openableProject ? getAgentThreadIdForProject(openableProject) : fallbackThreadId
   // 首次进入工作台（无 section / tab / object 参数）默认落在「状态」总览页，不再自动跳到当前写作章节。
   const isDefaultEntry = !hasSectionParam && !hasTabParam && !selectedObjectId
   const selectedSectionId = useMemo(
@@ -271,16 +276,31 @@ export function WorkbenchRoute() {
   useWorkbenchProject(projectPath, selectedChapter, selectedObjectId ?? undefined, sectionIdForLoading, selectedTabId)
 
   useEffect(() => {
-    if (!currentProject) return
-    selectProjectThread(currentProject)
-    void hydrateAgentThread(getAgentThreadIdForProject(currentProject)).catch((error) => console.error(error))
-  }, [currentProject?.id, currentProject?.path, selectProjectThread])
+    if (!openableProject) return
+    selectProjectThread(openableProject)
+    void hydrateAgentThread(getAgentThreadIdForProject(openableProject)).catch((error) => console.error(error))
+  }, [openableProject?.id, openableProject?.path, selectProjectThread])
+
+  // 工作台只为有身份的项目而开：目录不在了 / 结构不完整的项目直接回书架，由书架的说明浮层
+  // 讲清楚出路，不在这里发任何内容、状态或 Agent 请求（ADR-0046）。
+  useEffect(() => {
+    if (!currentProject || openableProject) return
+    toast.error(
+      currentProject.status === 'missing'
+        ? `“${currentProject.title}”的项目文件夹不在了，已返回图书馆。`
+        : `“${currentProject.title}”的项目文件不完整，已返回图书馆。`,
+      // 稳定 id：StrictMode 双挂载与同帧重跑都只弹一条
+      { id: `unopenable:${currentProject.path}` },
+    )
+    navigate('/', { replace: true })
+  }, [currentProject, openableProject, navigate])
 
   useEffect(() => {
-    if (!currentProject || !workbenchLoad.hasData) return
+    // 只为有身份的项目记工作位置：无身份项目 id 为空串，落盘会让整条记录被判废、下次启动静默回书架。
+    if (!openableProject || !workbenchLoad.hasData) return
     void writeWorkLocation(
       createWorkbenchLocation({
-        project: currentProject,
+        project: openableProject,
         searchParams,
         sectionId: selectedSectionId,
         chapterView: resolvedChapterView,
@@ -289,7 +309,7 @@ export function WorkbenchRoute() {
       createLoadIssue('startup', error)
     })
   }, [
-    currentProject,
+    openableProject,
     searchParams,
     selectedChapterView,
     selectedObjectId,
@@ -337,7 +357,7 @@ export function WorkbenchRoute() {
       <WorkbenchRouteState icon={Loader2} title="正在读取小说">
         正在加载项目目录和章节产物。
       </WorkbenchRouteState>
-    ) : currentProject ? (
+    ) : openableProject ? (
       <WorkbenchStage
         selectedChapterView={resolvedChapterView}
         selectedSectionId={selectedSectionId}
@@ -372,7 +392,7 @@ export function WorkbenchRoute() {
           error={error}
           hasProjectPath={Boolean(projectPath)}
           loading={loading}
-          project={currentProject}
+          project={openableProject}
           selectedSectionId={selectedSectionId}
           selectedObjectId={selectedObjectIdForView}
         />

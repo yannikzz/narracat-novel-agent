@@ -11,6 +11,11 @@
 - **NarraCat Agent Core**：Final upstream import 后由 NarraCat-app 产品内维护的创作 Agent 能力与小说文件契约。它不是 GitHub 上游 plugin 的持续镜像。
 - **Agent Core cutover**：NarraCat-app 从持续依赖上游 NarraCat plugin，转为内部维护 NarraCat Agent Core 的产品边界变化。
 - **Novel project**：一个具体小说项目目录，包含 NarraCat 生成的 `.narracat/`、`bible/`、大纲、卷、章节正文等文件。
+- **Novel root / 小说根目录**：作者在设置里指定的、App 默认扫描与新建 Novel project 的父目录。它由作者完全支配，可以在磁盘上任何位置，包括与 App 安装目录重叠；App 只在其中创建 Novel project，从不删除或改写其中任何不是自己创建的内容。它不是 Library 的唯一来源（Library 还包含作者从别处打开过的 Novel project）。
+- **App-owned file / App 自有文件**：安装程序放进安装目录的应用运行文件（可执行文件、运行时库、内置资源）。更新与卸载只能移除 App 自有文件；安装目录里任何不是安装程序放进去的东西都不属于此类，无论它叫什么、放在哪一层。
+- **Missing Novel project / 找不到的小说项目**：Library 记得、但其目录在磁盘上已不存在的 Novel project。它必须以「找不到了」明确呈现并允许作者移除条目，不能静默消失，也不能被当作 Invalid Novel project 描述成「文件不完整」。
+- **Invalid Novel project / 结构不完整的小说项目**：目录存在但缺少 Accepted engine contract 所要求文件（如 `.narracat/config.yaml`、`state.yaml`）的 Novel project。它与 Missing Novel project 是两种不同状态。Missing 与 Invalid 的 Novel project 都没有项目身份：不能进入 Workbench，也不存在属于它的 Agent thread。
+- **Agent thread identity / Agent 线程身份**：一条 Workbench Agent 对话在 App 内的持久身份，只能由 Novel project 的小说 id 派生。它从不由磁盘路径派生，因此项目移动、改名或损坏都不会造出一条新线程或一条非法线程。
 - **Novel title / 小说标题**：作者为 Novel project 明确提供的作品名称，用于识别小说项目；它不是 App 生成或推荐的默认书名。
 - **Novel genre / 小说题材**：作者在新建 Novel project 时明确填写的故事类型或复合类型，用于表达创作方向并影响后续 Agent 引导；它可以是单一题材或复合题材，不是 App 默认推荐的分类，也不应由客户端替作者预填。
 - **Project Agent guide / 项目级 Agent 指南**：新建 Novel project 时生成在项目根目录的轻量 `CLAUDE.md`，用于向 Claude Code SDK 说明 NarraCat Agent 的能力边界和小说创作范围；它允许处理与当前小说创作直接相关的通用帮助，友好拒绝无关需求。它不是 NarraCat plugin 的维护者层 `CLAUDE.md`，也不在打开旧项目时静默补写。

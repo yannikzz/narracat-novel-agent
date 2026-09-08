@@ -114,9 +114,35 @@ describe('novel index scanning', () => {
     expect(summaries.map((summary) => summary.path)).toEqual([alpha, zeta])
   })
 
-  test('includes invalid recent paths with invalid status summary', async () => {
+  test('a recent path whose directory is gone is reported as missing, with no identity (ADR-0046)', async () => {
+    const root = await makeNovelRoot('missing-recent')
+    const missing = join(root, 'missing')
+
+    const summaries = await scanNovelProjects({
+      novelRootDir: root,
+      recentNovelPaths: [missing],
+    })
+
+    // 目录整个没了 ≠ 文件不完整：状态是 missing，文案说「文件夹不存在」；id 恒空串——路径永远不当身份。
+    expect(summaries).toEqual([
+      {
+        id: '',
+        title: 'missing',
+        genre: '未分类',
+        coverPreset: expect.stringMatching(/^cover-\d{2}$/),
+        path: missing,
+        status: 'missing',
+        chapterProgress: '0 / 0 章',
+        wordCountLabel: '0 字',
+        problem: '项目文件夹不存在，可能已被移动、删除，或所在磁盘未连接',
+      },
+    ])
+  })
+
+  test('a recent path whose directory exists but lacks the contract files is invalid, not missing', async () => {
     const root = await makeNovelRoot('invalid-recent')
-    const invalid = join(root, 'missing')
+    const invalid = join(root, 'half-created')
+    await mkdir(invalid, { recursive: true })
 
     const summaries = await scanNovelProjects({
       novelRootDir: root,
@@ -124,17 +150,12 @@ describe('novel index scanning', () => {
     })
 
     expect(summaries).toEqual([
-      {
-        id: invalid,
-        title: 'missing',
-        genre: '未分类',
-        coverPreset: expect.stringMatching(/^cover-\d{2}$/),
+      expect.objectContaining({
+        id: '',
         path: invalid,
         status: 'invalid',
-        chapterProgress: '0 / 0 章',
-        wordCountLabel: '0 字',
         problem: '缺少 .narracat/config.yaml 或 .narracat/state.yaml',
-      },
+      }),
     ])
   })
 
@@ -151,7 +172,7 @@ describe('novel index scanning', () => {
       status: 'ready',
     })
     expect(summaries[1]).toMatchObject({
-      id: malformed,
+      id: '',
       title: 'broken-project',
       path: malformed,
       status: 'invalid',

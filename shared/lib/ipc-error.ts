@@ -17,6 +17,8 @@ export function stripIpcErrorPrefix(message: string): string {
  * 各写各的字符串会在改动一侧时静默失配——损坏项目退回「红条 + 重试」的老样子，且无测试会红。
  */
 export const NOVEL_PROJECT_INCOMPLETE_MESSAGE = '缺少 .narracat/config.yaml 或 .narracat/state.yaml'
+/** 「项目文件夹不存在」：与上面是两种状态（ADR-0046），目录整个没了不能被描述成「文件不完整」。 */
+export const NOVEL_PROJECT_MISSING_MESSAGE = '项目文件夹不存在，可能已被移动、删除，或所在磁盘未连接'
 
 export function isProjectIncompleteError(message: string): boolean {
   return stripIpcErrorPrefix(message).startsWith(NOVEL_PROJECT_INCOMPLETE_MESSAGE)

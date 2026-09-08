@@ -290,8 +290,14 @@ export function createTaskTool({
         // details 是给 UI 的侧信道（见 PiSubagentAbnormalStopDetails，那里记着 UI 上的确切口径）：
         // 模型收到的是带 ⚠️ 前缀的成功结果（保住已产出部分与质量门反馈），任务卡则据此收口成
         // tool.failed——逐项呈现从「完成」变「失败」+ 失败原因，不再一声不吭地放行。
+        // 截断即停（ADR-0046）：length 是致命终态——就地关思考重跑（上面那一次）之后仍截断，或本
+        // 就不具备重跑条件的渠道首次截断，都不再交回主会话让它「按需重派」（它只会同参重派），而是
+        // 打致命标记让映射器紧跟 run.failed 收口整个 run，把三选一（抬上限 / 换模型 / 拆小）交给作者。
+        // error 不致命：那是服务端问题，主会话改派或补救仍有意义。
         const details: PiSubagentAbnormalStopDetails | undefined = abnormalStop
-          ? { narracatSubagentAbnormalStop: abnormalStop }
+          ? abnormalStop === 'length'
+            ? { narracatSubagentAbnormalStop: abnormalStop, narracatSubagentFatal: true, narracatSubagentId: agentId }
+            : { narracatSubagentAbnormalStop: abnormalStop }
           : undefined
         return { content: [{ type: 'text', text: parts.join('\n\n') }], details }
       } catch (error) {

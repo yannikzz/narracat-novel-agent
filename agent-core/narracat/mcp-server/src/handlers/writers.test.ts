@@ -386,6 +386,115 @@ describe("novel_submit_outline · scope=book（书级段）", () => {
   });
 });
 
+describe("novel_submit_outline · scope=volume（逐卷 upsert，交付物有上界）", () => {
+  function twoVolumesFixture() {
+    const base = loadFixture<Record<string, unknown>>("outline-v5-valid-book.json");
+    const [vol1] = base.volumes as Array<Record<string, unknown>>;
+    const [arc1, arc2] = vol1.arc_list as Array<Record<string, unknown>>;
+    return {
+      vol1: { volume_no: 1, title: vol1.title, dilemma_milestone: "choice", arc_list: [arc1] },
+      vol2: { volume_no: 2, title: "剑冢", arc_list: [{ ...arc2, arc_id: "V02-A01" }] },
+    };
+  }
+
+  it("一卷一交：第二卷单独提交时第一卷原样保留，不触发重排清理", async () => {
+    const { ctx, root } = createProject();
+    await submitBookScopeOutline(ctx);
+    const { vol1, vol2 } = twoVolumesFixture();
+
+    const first = (await novelSubmitOutline(
+      { phase: 1, scope: "volume", payload: { volumes: [vol1] } },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(first.ok).toBe(true);
+    expect(first.scope).toBe("volume");
+    expect(first.volumes).toBe(1);
+    expect(String(first.message)).toContain("逐卷提交");
+
+    const second = (await novelSubmitOutline(
+      { phase: 1, scope: "volume", payload: { volumes: [vol2] } },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(second.ok).toBe(true);
+    expect(second.volumes).toBe(2);
+    expect(second.files_removed).toEqual([]);
+
+    const structure = JSON.parse(
+      readFileSync(join(root, "outline", "outline-structure.json"), "utf-8"),
+    ) as { volumes: Array<{ volume_no: number; title: string }> };
+    expect(structure.volumes.map((volume) => volume.volume_no)).toEqual([1, 2]);
+    expect(existsSync(join(root, "outline", "vol-01", "vol-outline.md"))).toBe(true);
+    expect(existsSync(join(root, "outline", "vol-02", "vol-outline.md"))).toBe(true);
+    const master = readFileSync(join(root, "outline", "master-outline.md"), "utf-8");
+    expect(master).toContain("剑冢");
+  });
+
+  it("同号卷重交即覆盖，其余卷不动；乱序提交按卷号归位", async () => {
+    const { ctx, root } = createProject();
+    await submitBookScopeOutline(ctx);
+    const { vol1, vol2 } = twoVolumesFixture();
+
+    await novelSubmitOutline({ phase: 1, scope: "volume", payload: { volumes: [vol2] } }, ctx);
+    await novelSubmitOutline({ phase: 1, scope: "volume", payload: { volumes: [vol1] } }, ctx);
+    const result = (await novelSubmitOutline(
+      { phase: 1, scope: "volume", payload: { volumes: [{ ...vol2, title: "剑冢·改" }] } },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(result.ok).toBe(true);
+
+    const structure = JSON.parse(
+      readFileSync(join(root, "outline", "outline-structure.json"), "utf-8"),
+    ) as { volumes: Array<{ volume_no: number; title: string }> };
+    expect(structure.volumes.map((volume) => [volume.volume_no, volume.title])).toEqual([
+      [1, vol1.title],
+      [2, "剑冢·改"],
+    ]);
+  });
+
+  it("误把单卷用 scope=volumes 提交：既有卷会消失时拒绝，一卷不删、一行不清", async () => {
+    const { ctx, root } = createProject();
+    await submitBookScopeOutline(ctx);
+    const { vol1, vol2 } = twoVolumesFixture();
+    await novelSubmitOutline({ phase: 1, scope: "volume", payload: { volumes: [vol1] } }, ctx);
+    await novelSubmitOutline({ phase: 1, scope: "volume", payload: { volumes: [vol2] } }, ctx);
+
+    const rejected = (await novelSubmitOutline(
+      { phase: 1, scope: "volumes", payload: { volumes: [vol2] } },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(rejected.ok).toBe(false);
+    const error = (rejected.errors as Array<{ field: string; hint?: string; actual?: string }>)[0];
+    expect(error.field).toBe("scope");
+    expect(error.actual).toContain("第 1 卷");
+    expect(error.hint).toContain('scope="volume"');
+    expect(error.hint).toContain("confirm_volume_removal");
+    // 什么都没动
+    expect(existsSync(join(root, "outline", "vol-01", "vol-outline.md"))).toBe(true);
+    const structure = JSON.parse(
+      readFileSync(join(root, "outline", "outline-structure.json"), "utf-8"),
+    ) as { volumes: Array<{ volume_no: number }> };
+    expect(structure.volumes.map((volume) => volume.volume_no)).toEqual([1, 2]);
+
+    // 全集重交（不缩卷）不需要确认旗标
+    const full = (await novelSubmitOutline(
+      { phase: 1, scope: "volumes", payload: { volumes: [vol1, vol2] } },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(full.ok).toBe(true);
+  });
+
+  it("书级骨架尚未提交时逐卷提交返回结构化错误（与 volumes 段同门）", async () => {
+    const { ctx } = createProject();
+    const { vol1 } = twoVolumesFixture();
+    const result = (await novelSubmitOutline(
+      { phase: 1, scope: "volume", payload: { volumes: [vol1] } },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(result.ok).toBe(false);
+    expect((result.errors as Array<{ field: string }>)[0].field).toBe("scope");
+  });
+});
+
 describe("novel_submit_outline · scope=volumes（卷级展开）", () => {
   it("合成库内书级（含作者手改）+ 提交卷级走全量管线；书级不被覆盖", async () => {
     const { ctx, root } = createProject();
@@ -463,7 +572,7 @@ describe("novel_submit_outline · scope=volumes（卷级展开）", () => {
     expect(existsSync(join(root, "outline", "vol-02", "vol-outline.md"))).toBe(true);
 
     const shrunk = (await novelSubmitOutline(
-      { phase: 1, scope: "volumes", payload: { volumes: [twoVolumes[0]] } },
+      { phase: 1, scope: "volumes", confirm_volume_removal: true, payload: { volumes: [twoVolumes[0]] } },
       ctx,
     )) as Record<string, unknown>;
 
@@ -495,7 +604,7 @@ describe("novel_submit_outline · scope=volumes（卷级展开）", () => {
     writeFileSync(join(root, "outline", "vol-02", "ch-013.md"), "# 第13章细纲\n");
 
     const shrunk = (await novelSubmitOutline(
-      { phase: 1, scope: "volumes", payload: { volumes: [twoVolumes[0]] } },
+      { phase: 1, scope: "volumes", confirm_volume_removal: true, payload: { volumes: [twoVolumes[0]] } },
       ctx,
     )) as Record<string, unknown>;
 
@@ -559,7 +668,7 @@ describe("novel_submit_outline · 重提交清理陈旧行（issue #448）", () 
 
     // 重提交：只剩第一卷（第二卷 arc V02-A01 应从 DB 清理，不再是幽灵行）
     const shrunk = (await novelSubmitOutline(
-      { phase: 1, scope: "volumes", payload: { volumes: [twoVolumes[0]] } },
+      { phase: 1, scope: "volumes", confirm_volume_removal: true, payload: { volumes: [twoVolumes[0]] } },
       ctx,
     )) as Record<string, unknown>;
     expect(shrunk.ok).toBe(true);
@@ -592,7 +701,7 @@ describe("novel_submit_outline · 重提交清理陈旧行（issue #448）", () 
     };
 
     const result = (await novelSubmitOutline(
-      { phase: 1, payload: shrunkPayload },
+      { phase: 1, confirm_volume_removal: true, payload: shrunkPayload },
       ctx,
     )) as Record<string, unknown>;
     expect(result.ok).toBe(true);
@@ -700,7 +809,7 @@ describe("novel_submit_outline · 已写结构身份门（issue #450）", () => 
     const shrunkPayload = { ...base, volumes: [{ ...vol1, arc_list: [arc2] }] };
 
     const result = (await novelSubmitOutline(
-      { phase: 1, payload: shrunkPayload },
+      { phase: 1, confirm_volume_removal: true, payload: shrunkPayload },
       ctx,
     )) as Record<string, unknown>;
 
@@ -757,7 +866,7 @@ describe("novel_submit_outline · 已写结构身份门（issue #450）", () => 
     const shrunkPayload = { ...base, volumes: [{ ...vol1, arc_list: [arc1] }] };
 
     const result = (await novelSubmitOutline(
-      { phase: 1, payload: shrunkPayload },
+      { phase: 1, confirm_volume_removal: true, payload: shrunkPayload },
       ctx,
     )) as Record<string, unknown>;
     expect(result.ok).toBe(true);
@@ -834,7 +943,7 @@ describe("novel_submit_outline · 已写结构身份门（issue #450）", () => 
     const shrunkPayload = { ...base, volumes: [{ ...vol1, arc_list: [arc2] }] };
 
     const result = (await novelSubmitOutline(
-      { phase: 1, payload: shrunkPayload },
+      { phase: 1, confirm_volume_removal: true, payload: shrunkPayload },
       ctx,
     )) as Record<string, unknown>;
 
@@ -863,7 +972,7 @@ describe("novel_submit_outline · 已写结构身份门（issue #450）", () => 
     const shrunkPayload = { ...base, volumes: [{ ...vol1, arc_list: [arc1] }] };
 
     const result = (await novelSubmitOutline(
-      { phase: 1, payload: shrunkPayload },
+      { phase: 1, confirm_volume_removal: true, payload: shrunkPayload },
       ctx,
     )) as Record<string, unknown>;
 

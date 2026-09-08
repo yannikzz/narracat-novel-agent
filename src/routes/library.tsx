@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type FormEventHandler, type ImgHTMLAttributes } from 'react'
 import { Link } from 'react-router'
-import { canRemoveFromLibrary } from '@shared/lib/library-project'
+import { canRemoveFromLibrary, isOpenableNovelProject } from '@shared/lib/library-project'
 import { toast } from 'sonner'
 import {
   Archive,
@@ -108,6 +108,7 @@ const STATUS_FILTER_OPTIONS: Array<{ value: LibraryStatusFilter; label: string }
   { value: 'needs-outline', label: '待大纲' },
   { value: 'needs-setup', label: '待设定' },
   { value: 'invalid', label: '需检查' },
+  { value: 'missing', label: '找不到了' },
 ]
 
 // 四个弹窗按 §9.7 分界线归档（弹窗债务表清零）：元数据 = 内容型长文档（封面预设网格要宽）；
@@ -141,7 +142,13 @@ export function statusLabel(status: NovelProjectSummary['status']): string {
   if (status === 'needs-setup') return '待设定'
   if (status === 'needs-outline') return '待大纲'
   if (status === 'in-progress') return '写作中'
+  if (status === 'missing') return '找不到了'
   return '需检查'
+}
+
+/** 没有身份的项目在卡片与说明浮层里的一句话定性：目录没了 ≠ 文件不完整（ADR-0046）。 */
+export function unopenableProjectSummary(status: NovelProjectSummary['status']): string {
+  return status === 'missing' ? '项目文件夹不在了' : '项目文件不完整'
 }
 
 function projectStatusBadgeClass(project: NovelProjectSummary): string {
@@ -149,7 +156,7 @@ function projectStatusBadgeClass(project: NovelProjectSummary): string {
   if (isCompletedProject(project)) return 'bg-[#1b8f43] text-white'
   if (project.checkpoint) return 'bg-warning/14 text-warning'
   if (project.status === 'ready') return 'bg-[#d6eedc] text-[#1b8f43]'
-  if (project.status === 'invalid') return 'bg-destructive/10 text-destructive'
+  if (!isOpenableNovelProject(project.status)) return 'bg-destructive/10 text-destructive'
   if (project.status === 'needs-setup' || project.status === 'needs-outline') return 'bg-warning/14 text-warning'
   return 'bg-active text-muted-foreground'
 }
@@ -1060,19 +1067,41 @@ export function LibraryInvalidProjectPanel({
     <div data-library-invalid-project-panel="true" className="grid">
       <DialogHeader className={DIALOG_HEADER_SECTIONED_CLASS}>
         <DialogTitle className="text-lg leading-tight">这本书暂时打不开</DialogTitle>
-        <DialogDescription className="sr-only">项目文件不完整，先打开所在文件夹检查，或把它从书架移除。</DialogDescription>
+        <DialogDescription className="sr-only">
+          {project.status === 'missing'
+            ? '项目文件夹不在了，先去原位置或备份里找，或把它从书架移除。'
+            : '项目文件不完整，先打开所在文件夹检查，或把它从书架移除。'}
+        </DialogDescription>
       </DialogHeader>
 
       <div className={`${DIALOG_BODY_CLASS} grid gap-3`}>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          “{project.title}”的项目文件不完整，NarraCat 读不出它的进度和正文。常见原因是文件夹被移动或重命名，也可能是它所在的磁盘没有连接。
-        </p>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          建议先打开文件夹看一眼：文件还在的话，放回原处就能恢复。
-          {canRemove
-            ? '确认不需要了，可以只把它从书架上移除——不会删掉任何文件。'
-            : '这本书就放在你的小说文件夹里，确认不要了请用卡片右上角「更多」里的删除。'}
-        </p>
+        {project.status === 'missing' ? (
+          <>
+            {/* 目录整个没了 ≠ 文件不完整（ADR-0046）：如实说，并把「去哪找」讲清楚——数据丢失必须可见。 */}
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              “{project.title}”的项目文件夹已经不在原来的位置，NarraCat 找不到它的任何文件。常见原因是文件夹被移动、重命名或删除，也可能是它所在的磁盘没有连接。
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              先别急着移除：如果它在移动硬盘或网络盘上，先把盘接上再刷新书架。然后去原位置、系统废纸篓、你的备份里找一找；
+              Windows 上如果最近升级过 NarraCat，也看一眼安装目录旁边那个以「-user-files」结尾的文件夹。找回来放到原处，重新打开 NarraCat 就能恢复。
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              确认真的没有了，再把它从书架上移除——这只是摘掉书架条目，不会再动任何文件。注意移除是不可撤销的：除非它就放在你的小说文件夹里，否则日后找回文件也回不到书架。
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              “{project.title}”的项目文件不完整，NarraCat 读不出它的进度和正文。常见原因是文件夹被移动或重命名，也可能是它所在的磁盘没有连接。
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              建议先打开文件夹看一眼：文件还在的话，放回原处就能恢复。
+              {canRemove
+                ? '确认不需要了，可以只把它从书架上移除——不会删掉任何文件。'
+                : '这本书就放在你的小说文件夹里，确认不要了请用卡片右上角「更多」里的删除。'}
+            </p>
+          </>
+        )}
       </div>
 
       {/* 「知道了」靠左用 sm:mr-auto 而非两端式：DialogFooter 窄屏 flex-col-reverse，两端式会乱序（§9.7） */}
@@ -1091,9 +1120,12 @@ export function LibraryInvalidProjectPanel({
             {removing ? '移除中…' : '从书架移除'}
           </Button>
         ) : null}
-        <Button type="button" data-library-invalid-reveal="true" onClick={onReveal}>
-          打开所在文件夹
-        </Button>
+        {project.status === 'missing' ? null : (
+          // 目录都不在了，「打开所在文件夹」只会弹系统错误——Missing 不给这个按钮。
+          <Button type="button" data-library-invalid-reveal="true" onClick={onReveal}>
+            打开所在文件夹
+          </Button>
+        )}
       </DialogFooter>
     </div>
   )
@@ -1128,16 +1160,19 @@ export function LibraryInvalidProjectDialog({
   }, [open])
 
   // 读不到 novelRootDir 时按「不能移除」处理：宁可少给一个按钮，也不给点了不生效的。
-  const canRemove = novelRootDir ? canRemoveFromLibrary(project.path, novelRootDir) : false
+  const canRemove = novelRootDir ? canRemoveFromLibrary(project, novelRootDir) : false
 
   async function remove() {
     setRemoving(true)
     try {
-      // 对 invalid 项目，删除流程本就只摘书架条目、不动任何文件（novel-delete.ts）。
+      // 必须显式走 forget：主进程的 trash 判据是「点击那一刻目录里有没有两个 yaml」，与书架算出的
+      // 状态无关——外置盘刚好重新连上、或 yaml 只是坏了但文件都在，缺省的 trash 会把整本书扔进废纸篓，
+      // 而这个弹窗承诺的是「不会动任何文件」（ADR-0046）。
       await deleteLibraryProject({
         projectPath: project.path,
         title: project.title,
         confirmationTitle: project.title,
+        mode: 'forget',
       })
       onOpenChange(false)
     } catch (error) {
@@ -1171,11 +1206,12 @@ export function LibraryProjectCard({
   project: NovelProjectSummary
 }) {
   const cover = getLibraryCoverPreset(project.coverPreset)
-  const isInvalid = project.status === 'invalid'
+  // Missing / Invalid 都没有身份，进不了工作台（ADR-0046）；卡片入口换成说明浮层。
+  const isUnopenable = !isOpenableNovelProject(project.status)
   const [noticeOpen, setNoticeOpen] = useState(false)
   // 损坏项目不把 `.narracat/config.yaml` 这类文件名糊到作者脸上，卡上只留一句人话，
-  // 详情与出路放进点击后的说明浮层（#38）。
-  const problem = isInvalid ? '项目文件不完整，点开看看能怎么办' : (project.problem ?? null)
+  // 详情与出路放进点击后的说明浮层（#38）。目录整个没了要如实说「不在了」，不能说成「不完整」。
+  const problem = isUnopenable ? `${unopenableProjectSummary(project.status)}，点开看看能怎么办` : (project.problem ?? null)
   const displayGenre = normalizeLibraryGenre(project.genre)
   const chapterProgress = formatCardProgress(project.chapterProgress)
   const wordCount = formatCardWordCount(project.wordCountLabel)
@@ -1188,15 +1224,15 @@ export function LibraryProjectCard({
           group relative grid min-h-[196px] grid-cols-[108px_minmax(0,1fr)] gap-6 rounded-[16px] p-5
           transition-all duration-200 hover:bg-[#fafafa] active:scale-[0.99]
         `,
-        project.status === 'invalid' && 'bg-destructive/5 hover:bg-destructive/10'
+        isUnopenable && 'bg-destructive/5 hover:bg-destructive/10'
       )}
     >
-      {isInvalid ? (
+      {isUnopenable ? (
         // 进到一个什么都读不出来的工作台对作者零价值，入口先拦住。
         <button
           type="button"
           data-library-invalid-trigger="true"
-          aria-label={`${project.title} 项目文件不完整，查看怎么办`}
+          aria-label={`${project.title} ${unopenableProjectSummary(project.status)}，查看怎么办`}
           onClick={() => setNoticeOpen(true)}
           className="absolute inset-0 z-0 rounded-[16px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
@@ -1208,7 +1244,7 @@ export function LibraryProjectCard({
         />
       )}
 
-      {isInvalid ? (
+      {isUnopenable ? (
         <LibraryInvalidProjectDialog open={noticeOpen} onOpenChange={setNoticeOpen} project={project} />
       ) : null}
 

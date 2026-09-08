@@ -1,7 +1,8 @@
 import { lstat, readdir } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
-import { defaultNovelGenre, deterministicCoverPreset, isNarraCatProject, loadNovelProjectSummary } from './novel-project'
+import { createIdentitylessProjectSummary, isNarraCatProject, loadNovelProjectSummary } from './novel-project'
+import { isOpenableNovelProject } from '@shared/lib/library-project'
 import type { NovelProjectSummary } from '@shared/types/novel'
 
 export interface ScanNovelProjectsInput {
@@ -72,11 +73,14 @@ async function scanRootChildren(root: string): Promise<string[]> {
 }
 
 function compareProjectSummaries(left: NovelProjectSummary, right: NovelProjectSummary): number {
-  if (left.status === 'invalid' && right.status !== 'invalid') {
+  // 没有身份的项目（invalid / missing）一律沉底。
+  const leftOpenable = isOpenableNovelProject(left.status)
+  const rightOpenable = isOpenableNovelProject(right.status)
+  if (!leftOpenable && rightOpenable) {
     return 1
   }
 
-  if (left.status !== 'invalid' && right.status === 'invalid') {
+  if (leftOpenable && !rightOpenable) {
     return -1
   }
 
@@ -99,18 +103,8 @@ async function loadSummarySafely(path: string): Promise<NovelProjectSummary> {
   try {
     return await loadNovelProjectSummary(path)
   } catch (error) {
-    return {
-      id: path,
-      title: basename(path) || path,
-      genre: defaultNovelGenre,
-      coverPreset: deterministicCoverPreset(path),
-      path,
-      status: 'invalid',
-      chapterProgress: '0 / 0 章',
-      wordCountLabel: '0 字',
-      wordCountTotal: 0,
-      problem: (error as Error).message,
-    }
+    // 读得到目录但 yaml 坏掉等：结构不完整（invalid），与目录不存在（missing）分开表达。
+    return { ...createIdentitylessProjectSummary(path, 'invalid', (error as Error).message), wordCountTotal: 0 }
   }
 }
 

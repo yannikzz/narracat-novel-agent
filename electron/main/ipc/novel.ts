@@ -260,10 +260,15 @@ function readDeleteNovelProjectInput(input: unknown): DeleteNovelProjectInput {
 
   if (title.trim() !== confirmationTitle.trim()) throw new Error('请输入小说标题以确认删除。')
 
+  // mode 只认 'forget' 这一个值，其余（省略、拼错）一律回落 trash——失败方向朝着「与现状一致」；
+  // 但 forget 本身是更安全的一侧，渲染端对 Missing / Invalid 必须显式传它（ADR-0046）。
+  const mode = value.mode === 'forget' ? 'forget' : 'trash'
+
   return {
     projectPath: readRequiredString(value, 'projectPath', '缺少项目路径。'),
     title,
     confirmationTitle,
+    mode,
   }
 }
 
@@ -492,6 +497,7 @@ export function registerNovelIpcHandlers(): void {
         projectPath: deleteInput.projectPath,
         recentNovelPaths: config.recentNovelPaths,
         trashItem: (projectPath) => shell.trashItem(projectPath),
+        mode: deleteInput.mode,
       })
 
       await writeAppConfig(configPath(), {

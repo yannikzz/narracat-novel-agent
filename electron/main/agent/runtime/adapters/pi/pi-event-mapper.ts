@@ -42,6 +42,14 @@ export const PI_SESSION_MESSAGE_TYPE = 'narracat_pi_session'
 export type PiSubagentAbnormalStop = 'length' | 'error'
 export interface PiSubagentAbnormalStopDetails {
   narracatSubagentAbnormalStop: PiSubagentAbnormalStop
+  /**
+   * 致命标记（ADR-0046）：子 agent 被输出上限截断时，run 立即结束、选择权交给作者。真机日志证明主会话
+   * 拿到 ⚠️ 只会同参重派（1.5 小时 6 次截断），多给一次机会只是多烧 10 分钟。映射器据此在 tool.failed
+   * 之后追加 run.failed（reason=output-limit），run-manager 见终态即收口并中止父会话。
+   */
+  narracatSubagentFatal?: true
+  /** 被截断的子 agent id，进 run 级失败文案（作者要知道是哪一步停的）。 */
+  narracatSubagentId?: string
 }
 
 /** 会话桥在持久化会话建立后首发的合成消息（切片⑦）：只供 adapter readSessionId 消费——
@@ -172,6 +180,20 @@ function readSubagentAbnormalStop(result: unknown): PiSubagentAbnormalStop | und
   return value === 'length' || value === 'error' ? value : undefined
 }
 
+/** Task 工具结果 details 上的致命标记（ADR-0046）；带回被截断的子 agent id 供 run 级文案使用。 */
+function readSubagentFatal(result: unknown): { agentId: string | undefined } | undefined {
+  if (!isRecord(result) || !isRecord(result.details)) return undefined
+  if (result.details.narracatSubagentFatal !== true) return undefined
+  return { agentId: readString(result.details, 'narracatSubagentId') }
+}
+
+function subagentOutputLimitRunErrorText(agentId: string | undefined): string {
+  const who = agentId ? `子 agent「${agentId}」` : '子 agent'
+  // 并行派发（write 一次派多个 memory-keeper）时整个 run 一起停：同批其它子任务的产物可能只写了一半，
+  // 作者必须知道这一点，重试才不会以为「只差这一个」。
+  return `${who}的单次回复达到输出上限被截断，本次运行已停止；同批并行的其它子任务也一并停止，它们的产物可能不完整。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小后重试。`
+}
+
 function mapToolExecutionEnd(context: RuntimeMapContext, message: UnknownRecord): AgentEvent[] {
   const toolCallId = readString(message, 'toolCallId')
   if (!toolCallId) return []
@@ -181,15 +203,29 @@ function mapToolExecutionEnd(context: RuntimeMapContext, message: UnknownRecord)
   // 什么都没干成的派发就会挂着「完成」徽章、失败原因一个字都不显示（#29）。
   const abnormalStop = readSubagentAbnormalStop(message.result)
   if (message.isError === true || abnormalStop) {
-    return [
-      {
-        type: 'tool.failed',
-        runId: context.runId,
-        toolCallId,
-        error: abnormalStop ? SUBAGENT_ABNORMAL_STOP_ERROR_TEXT[abnormalStop] : (text ?? TOOL_FAILED_FALLBACK_TEXT),
-        createdAt: context.createdAt,
-      },
-    ]
+    const failed: AgentEvent = {
+      type: 'tool.failed',
+      runId: context.runId,
+      toolCallId,
+      error: abnormalStop ? SUBAGENT_ABNORMAL_STOP_ERROR_TEXT[abnormalStop] : (text ?? TOOL_FAILED_FALLBACK_TEXT),
+      createdAt: context.createdAt,
+    }
+    // 致命截断（ADR-0046）：任务卡先如实标失败，紧跟 run.failed 收口整个 run——run-manager 见终态即
+    // 停止消费并中止父会话，主会话没有机会再同参重派。
+    const fatal = readSubagentFatal(message.result)
+    if (fatal) {
+      return [
+        failed,
+        {
+          type: 'run.failed',
+          runId: context.runId,
+          error: subagentOutputLimitRunErrorText(fatal.agentId),
+          reason: 'output-limit',
+          createdAt: context.createdAt,
+        },
+      ]
+    }
+    return [failed]
   }
 
   const event: AgentEvent = {

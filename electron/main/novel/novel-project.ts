@@ -1,4 +1,5 @@
-import { NOVEL_PROJECT_INCOMPLETE_MESSAGE } from '@shared/lib/ipc-error'
+import { NOVEL_PROJECT_INCOMPLETE_MESSAGE, NOVEL_PROJECT_MISSING_MESSAGE } from '@shared/lib/ipc-error'
+import { isOpenableNovelProject } from '@shared/lib/library-project'
 import type { Dirent } from 'node:fs'
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
@@ -676,19 +677,47 @@ async function buildWorkbenchTreeItems(
   return items
 }
 
+/**
+ * 没有身份的项目摘要（ADR-0046）：目录不存在 = missing，目录在但缺契约文件 = invalid。
+ * `id` 恒为空串——身份只能来自 config.yaml 的 novel_id，绝不用路径顶替（路径当 id 会让
+ * Agent 线程身份变成路径，Windows 上 `novel:D:\…` 直接被判非法）。
+ */
+export function createIdentitylessProjectSummary(
+  projectPath: string,
+  status: 'invalid' | 'missing',
+  problem = status === 'missing' ? NOVEL_PROJECT_MISSING_MESSAGE : missingProjectProblem,
+): NovelProjectSummary {
+  return {
+    id: '',
+    title: basename(projectPath) || projectPath,
+    genre: defaultNovelGenre,
+    coverPreset: deterministicCoverPreset(projectPath),
+    path: projectPath,
+    status,
+    chapterProgress: '0 / 0 章',
+    wordCountLabel: '0 字',
+    problem,
+  }
+}
+
+/**
+ * 「目录确实不存在」只认 ENOENT / ENOTDIR。EPERM / EACCES / EIO（macOS 未授权访问 ~/Documents、
+ * 网络盘抖动）时文件多半好好的，判成 missing 会诱导作者把还在的书从书架摘掉——这类一律按 invalid
+ * （结构读不出）处理，保留「打开所在文件夹」出路、移除仍受根目录规则限制。
+ */
+async function isDefinitelyAbsent(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return false
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    return code === 'ENOENT' || code === 'ENOTDIR'
+  }
+}
+
 export async function loadNovelProjectSummary(projectPath: string): Promise<NovelProjectSummary> {
   if (!(await isNarraCatProject(projectPath))) {
-    return {
-      id: projectPath,
-      title: basename(projectPath) || projectPath,
-      genre: defaultNovelGenre,
-      coverPreset: deterministicCoverPreset(projectPath),
-      path: projectPath,
-      status: 'invalid',
-      chapterProgress: '0 / 0 章',
-      wordCountLabel: '0 字',
-      problem: missingProjectProblem,
-    }
+    return createIdentitylessProjectSummary(projectPath, (await isDefinitelyAbsent(projectPath)) ? 'missing' : 'invalid')
   }
 
   const config = await readYamlFile(join(projectPath, narracatConfigPath()))
@@ -740,7 +769,7 @@ export async function loadNovelProjectDetail(
 ): Promise<NovelProjectDetail> {
   const summary = await loadNovelProjectSummary(projectPath)
 
-  if (summary.status === 'invalid') {
+  if (!isOpenableNovelProject(summary.status)) {
     return { ...summary, tocItems: [], treeItems: [], selectedChapter, checkpoint: null, hasCharacters: false }
   }
 

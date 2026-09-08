@@ -558,19 +558,23 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "novel_submit_outline",
-        description: "书级 + 卷级大纲提交（outline-architect）：引擎 5 字段 + storylines + 伏笔注册表 + 卷与 arc。入口 ajv + 结构预算核验，通过后入库并机械渲染 master-outline.md 与 vol-outline.md。支持两段制：scope=book 只提交书级骨架（卷结构渲染为待展开）；scope=volumes 在书级确认后只提交卷级（书级以库内为准，不覆盖）",
+        description: "书级 + 卷级大纲提交（outline-architect）：引擎 5 字段 + storylines + 伏笔注册表 + 卷与 arc。入口 ajv + 结构预算核验，通过后入库并机械渲染 master-outline.md 与 vol-outline.md。支持两段制：scope=book 只提交书级骨架（卷结构渲染为待展开）；scope=volume 在书级确认后逐卷提交（每次只带本卷，其余卷保留，推荐——单次调用体量与卷数无关）；scope=volumes 整组提交卷级（本次集合即最终集合，用于整体重排）",
         inputSchema: {
             type: "object",
             properties: {
                 phase: { type: "integer", enum: [1], description: "可省略；本工具只受理书级+卷级，章级细纲改用 novel_submit_chapter_outline" },
                 scope: {
                     type: "string",
-                    enum: ["full", "book", "volumes"],
-                    description: "提交形态（缺省 full）：full=书级+卷级一次提交；book=只提交书级骨架（payload 不含 volumes）；volumes=书级确认后只提交卷级（payload 只需 { volumes }，书级以库内为准）",
+                    enum: ["full", "book", "volumes", "volume"],
+                    description: "提交形态（缺省 full）：full=书级+卷级一次提交；book=只提交书级骨架（payload 不含 volumes）；volume=逐卷提交（payload 只需 { volumes: [本卷] }，同号卷覆盖、新卷追加、其余卷保留，从不删卷）；volumes=整组提交卷级（payload { volumes: [全部卷] }，未列出的卷会被清理，仅用于整体重排）。卷级提交书级一律以库内为准",
+                },
+                confirm_volume_removal: {
+                    type: "boolean",
+                    description: "仅 scope=full / volumes：本次提交若会让库内既有卷消失（整体重排缩卷），必须显式传 true，否则工具拒绝并提示改用 scope=volume。只想新增或修改某一卷不要传它",
                 },
                 payload: {
                     type: "object",
-                    description: "OutlineStructure 顶层对象（字段定义见 schemas/outline-structure.json）：central_dramatic_question / protagonist_core_desire / protagonist_core_lack / antagonistic_force / stakes_progression / storylines / foreshadowing_registry / volumes（scope=book 时省略；scope=volumes 时只需 volumes）",
+                    description: "OutlineStructure 顶层对象（字段定义见 schemas/outline-structure.json）：central_dramatic_question / protagonist_core_desire / protagonist_core_lack / antagonistic_force / stakes_progression / storylines / foreshadowing_registry / volumes（scope=book 时省略；scope=volume / volumes 时只需 volumes）",
                 },
             },
             required: ["payload"],
