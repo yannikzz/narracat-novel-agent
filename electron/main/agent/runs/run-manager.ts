@@ -25,6 +25,8 @@ import { buildNarraCatCommandRunPlan } from './paths/narracat-command-path.ts'
 import { buildRecoverWriteRunPlan } from './paths/recover-write-path.ts'
 import { buildWriteNextRunPlan } from './paths/write-next-path.ts'
 import { resolveRunPreconditions } from './run-preconditions.ts'
+import { formatAgentRunEndLog, formatAgentRunNoTerminalLog, formatAgentRunStartLog } from './run-log.ts'
+import type { AgentRunPathName } from './run-log.ts'
 import type {
   AgentManuscriptRevisionSource,
   CreateSessionFingerprintFn,
@@ -430,6 +432,7 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
     threadSessionContext?: SdkThreadSessionContext,
   ): Promise<void> {
     const sessionGenerationAtStart = sessionEnvironmentGeneration
+    const startedAtMs = Date.now()
     let hasStreamedAssistantContent = false
     let runningPublished = false
     let transientRefreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -653,6 +656,14 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
       if (!terminalEvent && activeRuns.get(runId)?.status === 'cancelling') {
         terminalEvent = cancellationTerminalEvent(runId)
       }
+      // 生命周期日志（#94）：终态一确定就记，与「终态能否发布到 UI」分开——耐久化失败、事件发不
+      // 出去这些正是最需要留痕的情形，放在下面的 return 之后就全丢了。没有终态本身是异常，记 warn：
+      // 「开始了但没有结束」在日志里必须看得见，否则又是一次点了没反应却查无此事。
+      if (terminalEvent) {
+        console.info(formatAgentRunEndLog({ runId, terminal: terminalEvent, elapsedMs: Date.now() - startedAtMs }))
+      } else {
+        console.warn(formatAgentRunNoTerminalLog(runId, Date.now() - startedAtMs))
+      }
       if (!terminalEvent || activeRuns.get(runId)?.status === 'durability-failed') return
       if (shouldSendProjectUpdate && !(await sendProjectUpdate())) return
       await publishTerminalAfterSettle(runId, abortController, terminalEvent)
@@ -736,8 +747,23 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
           agentSkillOverrides,
           canUseTool: createCanUseToolForRun(runId, abortController),
         }
-        function dispatchPlan(plan: RunPlan): AgentRunStarted {
+        // 生命周期日志（#94）：路径名只有这里知道，六个调用点各自申报，落在 streamRun 之前——
+        // 哪怕 run 立刻挂掉，「走了哪条路、预算多少」也已经进了日志。
+        function dispatchPlan(plan: RunPlan, path: AgentRunPathName): AgentRunStarted {
           if (canContinueRun(runId, abortController)) {
+            console.info(
+              formatAgentRunStartLog({
+                runId,
+                threadId: request.threadId,
+                command: request.command,
+                path,
+                maxTurns: plan.sessionContext.maxTurns,
+                runtimeId: runtime.id,
+                loadNarraCatRuntime: plan.sessionContext.loadNarraCatRuntime,
+                resumed: path === 'resumed-command',
+                selectedChapter: plan.sessionContext.selectedChapter,
+              }),
+            )
             trackSettledRun(
               runId,
               abortController,
@@ -754,12 +780,12 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
           }
           return { runId }
         }
-        function dispatchPlanResult(result: RunPlanResult): AgentRunStarted {
+        function dispatchPlanResult(result: RunPlanResult, path: AgentRunPathName): AgentRunStarted {
           if (!result.ok) {
             preparationFailure = result.preparationFailure
             return { runId }
           }
-          return dispatchPlan(result.plan)
+          return dispatchPlan(result.plan, path)
         }
 
         try {
@@ -790,6 +816,7 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
               readNarraCatCommandFile: deps.readNarraCatCommandFile,
               createSessionFingerprint: deps.createSessionFingerprint,
             }),
+            'write-next',
           )
         }
 
@@ -802,6 +829,7 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
               readNarraCatCommandFile: deps.readNarraCatCommandFile,
               createSessionFingerprint: deps.createSessionFingerprint,
             }),
+            'recover-write',
           )
         }
 
@@ -814,12 +842,16 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
               readNarraCatCommandFile: deps.readNarraCatCommandFile,
               createSessionFingerprint: deps.createSessionFingerprint,
             }),
+            'narracat-command',
           )
         }
 
         const sdkSession = resumeSessionForSkills
         if (isResumableProjectCommandSession(request, sdkSession)) {
-          return dispatchPlan(await buildResumedCommandRunPlan({ ...pathBase, request, sdkSession }))
+          return dispatchPlan(
+            await buildResumedCommandRunPlan({ ...pathBase, request, sdkSession }),
+            'resumed-command',
+          )
         }
 
         if (isEngineContextFreeformRequest(request)) {
@@ -831,6 +863,7 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
               agentCoreManifestExists,
               createSessionFingerprint: deps.createSessionFingerprint,
             }),
+            'engine-context',
           )
         }
 
@@ -842,6 +875,7 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
             sdkSession,
             createSessionFingerprint: deps.createSessionFingerprint,
           }),
+          'direct-chat',
         )
         } finally {
           if (preparationFailure) {
