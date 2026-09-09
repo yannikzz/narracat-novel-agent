@@ -119,8 +119,16 @@ describe('createAgentRunManager 生命周期日志（#94）', () => {
     const lines: string[] = []
     const originalInfo = console.info
     const originalWarn = console.warn
-    console.info = (...args: unknown[]) => lines.push(args.join(' '))
-    console.warn = (...args: unknown[]) => lines.push(args.join(' '))
+    // 照常转发给原始 console：捕获期间别的模块也可能在打日志，吞掉它们会让排查别的失败测试时
+    // 凭空少一段输出。
+    console.info = (...args: unknown[]) => {
+      lines.push(args.join(' '))
+      originalInfo(...args)
+    }
+    console.warn = (...args: unknown[]) => {
+      lines.push(args.join(' '))
+      originalWarn(...args)
+    }
     try {
       await run()
     } finally {
