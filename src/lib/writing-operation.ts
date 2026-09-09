@@ -45,11 +45,8 @@ const SIDE_EFFECT_COMMAND_LABELS: Record<AgentQuickAction, string> = {
   plan: '大纲',
   'write-next': '写作',
   'recover-write': '恢复',
-  continue: '续写',
   rewrite: '重写',
   review: '审修',
-  'adjust-style': '调风格',
-  'revise-character': '改人设',
   'revise-premise': '改立项卡',
   'sync-chapter-memory': '同步记忆',
 }

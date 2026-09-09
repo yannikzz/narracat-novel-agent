@@ -9,7 +9,6 @@ import type {
   AgentRunActiveStatus,
   AgentRunTarget,
 } from '@shared/types/agent'
-import { isRuntimeStatusCommand } from './runtime-status.ts'
 import { resolveAgentRuntime } from '../runtime/resolve-runtime.ts'
 import type { AgentRuntimeAdapter, RuntimeStartRunArgs } from '../runtime/types.ts'
 import { hasNarraCatAgentCoreManifest, resolveNarraCatAgentCorePath } from '../../engine/engine.ts'
@@ -716,8 +715,9 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
         const needsWriteNext = isWriteNextRequest(request)
         const needsRecoverWrite = isRecoverWriteRequest(request)
         const needsNarraCatCommand = isNarraCatCommandRequest(request)
-        const needsNarraCatRuntime =
-          needsWriteNext || needsRecoverWrite || needsNarraCatCommand || isRuntimeStatusCommand(request)
+        // 这三条各自 return 自己的路径，走不到 direct-chat；所以 direct-chat 恒是「不挂引擎」的纯
+        // 唠嗑。（曾有第四项 isRuntimeStatusCommand，随三个死代码命令一并删除。）
+        const needsNarraCatRuntime = needsWriteNext || needsRecoverWrite || needsNarraCatCommand
 
         // 作者调整覆盖（散文块覆盖 + 作者写的要求）；失败降级为 undefined。两者都是作者对 Agent
         // 本身的全局调整（存量落在 userData 根），与「本次 run 是否带项目/是否 resume」无关，
@@ -871,7 +871,6 @@ export function createAgentRunManager(deps: AgentRunManagerDeps): AgentRunManage
           await buildDirectChatRunPlan({
             ...pathBase,
             request,
-            needsNarraCatRuntime,
             sdkSession,
             createSessionFingerprint: deps.createSessionFingerprint,
           }),
