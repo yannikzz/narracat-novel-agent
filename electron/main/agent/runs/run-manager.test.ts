@@ -113,6 +113,95 @@ async function withTimeout<T>(promise: Promise<T>, label: string, timeoutMs = 10
   return result
 }
 
+describe('createAgentRunManager 生命周期日志（#94）', () => {
+  /** 捕获 console.info/warn 而不动全局 mock：进程级 mock.module 会跨测试文件泄漏（Linux CI 才红）。 */
+  async function captureRunLogLines(run: () => Promise<void>): Promise<string[]> {
+    const lines: string[] = []
+    const originalInfo = console.info
+    const originalWarn = console.warn
+    // 照常转发给原始 console：捕获期间别的模块也可能在打日志，吞掉它们会让排查别的失败测试时
+    // 凭空少一段输出。
+    console.info = (...args: unknown[]) => {
+      lines.push(args.join(' '))
+      originalInfo(...args)
+    }
+    console.warn = (...args: unknown[]) => {
+      lines.push(args.join(' '))
+      originalWarn(...args)
+    }
+    try {
+      await run()
+    } finally {
+      console.info = originalInfo
+      console.warn = originalWarn
+    }
+    return lines.filter((line) => line.startsWith('[agent-run]'))
+  }
+
+  function completingRuntime(): AgentRuntimeAdapter {
+    return fakeRuntime(() =>
+      (async function* (): AsyncIterable<unknown> {
+        yield { type: 'result', subtype: 'success', usage: { input_tokens: 1, output_tokens: 1 } }
+      })(),
+    )
+  }
+
+  test('freeform 唠嗑落 direct-chat，回合预算记成 default——#94 查不动就是缺这一行', async () => {
+    const completed = createDeferred<void>()
+    const manager = createAgentRunManager({
+      readConfig: async () => deepseekConfig,
+      getApiKey: async () => 'sk-test-key',
+      runtime: completingRuntime(),
+      sendEvent: (event) => {
+        if (event.type === 'run.completed') completed.resolve()
+      },
+      appRoot: '/workspace/narracat-decktop',
+      now: fixedNow,
+      createRunId: () => 'run-log-1',
+    })
+
+    const lines = await captureRunLogLines(async () => {
+      await manager.startRun({ threadId: 'thread-1', command: 'freeform', prompt: '随便聊聊' })
+      await withTimeout(completed.promise, 'run-log direct-chat completion', 2000)
+    })
+
+    expect(lines[0]).toContain('开始 runId=run-log-1 path=direct-chat command=freeform maxTurns=default')
+    expect(lines[0]).toContain('engine=off')
+    expect(lines[0]).toContain('thread=thread-1')
+    // 作者写的字一个都不进日志。
+    expect(lines[0]).not.toContain('随便聊聊')
+    expect(lines[1]).toContain('结束 runId=run-log-1 终态=completed')
+  })
+
+  test('引擎命令落 narracat-command 并记下真实回合预算', async () => {
+    const projectPath = await makeReadyProjectForRunManagerTest()
+    const completed = createDeferred<void>()
+    const manager = createAgentRunManager({
+      readConfig: async () => deepseekConfig,
+      getApiKey: async () => 'sk-test-key',
+      runtime: completingRuntime(),
+      agentCoreManifestExists: () => true,
+      readNarraCatCommandFile: () => '# setup\n',
+      sendEvent: (event) => {
+        if (event.type === 'run.completed') completed.resolve()
+      },
+      appRoot: '/workspace/narracat-decktop',
+      now: fixedNow,
+      createRunId: () => 'run-log-2',
+    })
+
+    const lines = await captureRunLogLines(async () => {
+      await manager.startRun({ threadId: 'thread-1', command: 'setup', prompt: '开始设定引导', projectPath })
+      await withTimeout(completed.promise, 'run-log narracat-command completion', 2000)
+    })
+
+    // setup 的预算是 48（narracat-command.ts COMMAND_DEFAULTS）：路径名与预算一起，才能判断
+    // 「回合上限」到底是预算太紧还是任务真的跑飞了。
+    expect(lines[0]).toContain('path=narracat-command command=setup maxTurns=48')
+    expect(lines[0]).toContain('engine=on')
+  })
+})
+
 describe('createAgentRunManager', () => {
   test('blocks Agent runs before SDK startup when the model service is not verified', async () => {
     const events: AgentEvent[] = []

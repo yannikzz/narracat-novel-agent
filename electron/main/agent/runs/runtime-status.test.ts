@@ -1,28 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  createDirectChatPrompt,
-  createRuntimeStatusPrompt,
-  DIRECT_CHAT_SYSTEM_PROMPT,
-  isRuntimeStatusCommand,
-} from './runtime-status'
+import { createDirectChatPrompt, DIRECT_CHAT_SYSTEM_PROMPT } from './runtime-status'
 
 describe('runtime status prompt', () => {
-  test('routes command chips to runtime status but keeps freeform as direct chat', () => {
-    expect(isRuntimeStatusCommand({ threadId: 'thread-1', command: 'write-next', prompt: '继续写15章' })).toBe(false)
-    expect(isRuntimeStatusCommand({ threadId: 'thread-1', command: 'review', prompt: '审修当前章' })).toBe(false)
-    expect(isRuntimeStatusCommand({ threadId: 'thread-1', command: 'rewrite', prompt: '重写当前章' })).toBe(false)
-    expect(isRuntimeStatusCommand({ threadId: 'thread-1', command: 'adjust-style', prompt: '调整风格' })).toBe(true)
-    expect(isRuntimeStatusCommand({ threadId: 'thread-1', command: 'freeform', prompt: '你好' })).toBe(false)
-  })
-
-  test('builds a safe prompt that forbids file writes', () => {
-    const prompt = createRuntimeStatusPrompt({ threadId: 'thread-1', command: 'adjust-style', prompt: '调整风格' })
-
-    expect(prompt).toContain('NarraCat runtime status')
-    expect(prompt).toContain('Do not write, edit, delete, or persist files')
-    expect(prompt).toContain('调整风格')
-  })
-
   test('builds a direct chat prompt that does not inspect runtime by default', () => {
     const prompt = createDirectChatPrompt({ threadId: 'thread-1', command: 'freeform', prompt: '你好' })
 

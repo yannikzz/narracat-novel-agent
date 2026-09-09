@@ -275,7 +275,12 @@ export function createTaskTool({
           // 重派成功：主会话需要知道这份交付是关着思考写出来的（不是它要求的档位），但不必当失败处理。
           parts.push(LENGTH_RETRY_NOTE)
         }
-        if (maxTurnsTripped) parts.push(MAX_TURNS_RESULT_PREFIX)
+        if (maxTurnsTripped) {
+          // 同上：子 agent 触顶不让主 run 失败，主 run 的结束行看不见它——不落这一条，一次「交付
+          // 只写了一半」的运行在日志里与正常完成毫无区别。
+          console.warn(`[narracat] pi 子 agent 达到回合上限：${agentId}`)
+          parts.push(MAX_TURNS_RESULT_PREFIX)
+        }
         parts.push(finalText || EMPTY_RESULT_TEXT)
         if (gate) {
           let feedback: string[] = []

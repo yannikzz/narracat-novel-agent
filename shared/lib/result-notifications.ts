@@ -66,12 +66,9 @@ function resultBaseTitle(run: AgentRun): string {
   if (run.command === 'reference') return '参考作品分析'
   if (run.command === 'world') return '世界观设定'
   if (run.command === 'review') return '审修报告'
-  if (run.command === 'adjust-style') return '风格设定'
-  if (run.command === 'revise-character') return '角色设定'
   if (run.command === 'revise-premise') return '创作根基'
   if (run.command === 'sync-chapter-memory') return '记忆同步'
   if (run.command === 'rewrite') return '内容调整'
-  if (run.command === 'continue') return 'Agent 任务'
 
   return 'Agent 任务'
 }

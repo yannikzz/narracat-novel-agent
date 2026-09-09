@@ -50,7 +50,6 @@ describe('agent command helpers', () => {
     expect(getAgentQuickActionChipLabel('plan')).toBe('大纲')
     expect(getAgentQuickActionChipLabel('write-next')).toBe('写作')
     expect(getAgentQuickActionChipLabel('recover-write')).toBe('恢复')
-    expect(getAgentQuickActionChipLabel('continue')).toBe('续写')
     expect(getAgentQuickActionChipLabel('review')).toBe('审修')
   })
 
@@ -61,8 +60,6 @@ describe('agent command helpers', () => {
     expect(getAgentQuickActionDraft('plan')).toBe('规划全书大纲和章节大纲')
     expect(getAgentQuickActionDraft('write-next')).toBe('写下一章')
     expect(getAgentQuickActionDraft('recover-write')).toBe('继续完成本章')
-    expect(getAgentQuickActionDraft('adjust-style')).toBe('调整当前章节风格')
-    expect(getAgentQuickActionDraft('revise-character')).toBe('修改角色设定')
   })
 
   test('maps quick actions to command menu labels and raw command hints', () => {
@@ -150,8 +147,9 @@ describe('agent command helpers', () => {
     expect(filterAgentSlashCommands('/审')).toEqual(['review'])
   })
 
-  test('offers five main commands by default while keeping hidden command compatibility by query', () => {
+  test('offers five main commands by default; 已删除的命令查不出来也不报错', () => {
     expect(filterAgentSlashCommands('/')).toEqual(['reference', 'world', 'plan', 'write-next', 'review'])
+    // continue / adjust-style / revise-character 三个死代码命令已删（2026-09-09），按名字查应为空。
     expect(filterAgentSlashCommands('/continue')).toEqual([])
     expect(filterAgentSlashCommands('/adjust-style')).toEqual([])
     expect(filterAgentSlashCommands('/revise-character')).toEqual([])

@@ -1,10 +1,12 @@
+/**
+ * direct-chat（「唠个嗑」）的提示词。
+ *
+ * 这里曾还有一个「运行时状态查询」形态：`continue` / `adjust-style` / `revise-character` 三个命令
+ * 走 direct-chat 但换成一句「检查 Agent Core 是否加载」的提示词。那三个命令在渲染端没有任何产生点
+ * （是死代码），想做的事分别由「继续完成本章」、「润色正文」（ADR-0041）、「世界观与角色」的修改
+ * 分支覆盖，已于 2026-09-09 连同这个形态一并删除。
+ */
 import type { AgentRunRequest } from '../../agent-runner.ts'
-
-const RUNTIME_STATUS_COMMANDS = new Set<AgentRunRequest['command']>([
-  'continue',
-  'adjust-style',
-  'revise-character',
-])
 
 /**
  * 指令引导段（内部提示文字，无任何用户可见清单）：让 direct-chat 模型知道产品指令词的存在，
@@ -30,21 +32,6 @@ export const DIRECT_CHAT_SYSTEM_PROMPT = [
   'Do not write, edit, delete, or persist files.',
   DIRECT_CHAT_COMMAND_GUIDANCE,
 ].join('\n')
-
-export function isRuntimeStatusCommand(request: AgentRunRequest): boolean {
-  return RUNTIME_STATUS_COMMANDS.has(request.command)
-}
-
-export function createRuntimeStatusPrompt(request: AgentRunRequest): string {
-  return [
-    'NarraCat runtime status check.',
-    'Do not write, edit, delete, or persist files.',
-    'Do not start a chapter drafting loop.',
-    'Check whether NarraCat Agent Core is loaded and briefly explain what runtime capabilities appear available.',
-    `User command: ${request.command}`,
-    `User prompt: ${request.prompt}`,
-  ].join('\n')
-}
 
 export function createDirectChatPrompt(request: AgentRunRequest): string {
   const projectContext = request.projectPath

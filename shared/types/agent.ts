@@ -1,6 +1,13 @@
 // 'action'：由工作台按钮（空页 CTA/状态页/评估 dock 等）发起的运行来源标记。
 export type AgentRunOrigin = 'action'
 
+/**
+ * 每一项都必须有真实入口（快捷菜单 / 斜杠命令 / 工作台动作）**且**有对应的引擎命令或专用 run 路径。
+ * 曾有 `continue` / `adjust-style` / `revise-character` 三项只存在于类型与标签表里：渲染端没有任何
+ * 地方产生它们，引擎也没有对应命令，真发出去只会落到 direct-chat 拿一句「检查 Agent Core 是否加载、
+ * 不要写任何文件」。它们想做的事分别由「继续完成本章」、「润色正文」（ADR-0041）、「世界观与角色」
+ * 的修改分支覆盖，已于 2026-09-09 删除——新增一项前先确认这两个条件都成立。
+ */
 export type AgentQuickAction =
   | 'setup'
   | 'reference'
@@ -8,11 +15,8 @@ export type AgentQuickAction =
   | 'plan'
   | 'write-next'
   | 'recover-write'
-  | 'continue'
   | 'rewrite'
   | 'review'
-  | 'adjust-style'
-  | 'revise-character'
   | 'revise-premise'
   | 'sync-chapter-memory'
 

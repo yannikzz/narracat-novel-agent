@@ -5,7 +5,6 @@ import {
   ArrowUp,
   BookMarked,
   BookOpen,
-  Brush,
   CircleAlert,
   Command,
   DatabaseZap,
@@ -19,8 +18,6 @@ import {
   RefreshCcw,
   Square,
   Sparkles,
-  UserRoundCog,
-  WandSparkles,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -74,11 +71,8 @@ const QUICK_ACTION_ICON_BY_VALUE: Record<AgentQuickAction, LucideIcon> = {
   plan: ListTree,
   'write-next': PenLine,
   'recover-write': RefreshCcw,
-  continue: WandSparkles,
   rewrite: RefreshCcw,
   review: FileSearch,
-  'adjust-style': Brush,
-  'revise-character': UserRoundCog,
   'revise-premise': FileCog,
   'sync-chapter-memory': DatabaseZap,
 }
