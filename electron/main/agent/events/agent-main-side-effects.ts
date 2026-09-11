@@ -22,7 +22,18 @@ import type {
  */
 export type ChapterWriteTelemetryEvent =
   | { phase: 'started'; chapter?: number }
-  | { phase: 'finished'; outcome: 'success' | 'failed' | 'cancelled' | 'interrupted'; durationMs: number }
+  | {
+      phase: 'finished'
+      outcome: 'success' | 'failed' | 'cancelled' | 'interrupted'
+      durationMs: number
+      /**
+       * 失败时的原始信号，**只在主进程内部传递、绝不原样上报**：接收方
+       * （telemetry-runtime 的 recordChapterWrite）拿它调 classifyRunFailure 归成枚举码，
+       * 发出去的只有那个枚举。分类放在埋点层而不是这里，是为了不让 agent/ 反向依赖
+       * telemetry/——现在的依赖方向是 telemetry → agent，单向。
+       */
+      failure?: { reason?: string; error?: string }
+    }
 
 export interface AgentMainSideEffectsDeps {
   upsertNotification: (notification: ResultNotification) => Promise<ResultNotificationList>
@@ -231,6 +242,9 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
       phase: 'finished',
       outcome: payload.type === 'run.completed' ? 'success' : payload.type === 'run.interrupted' ? 'interrupted' : 'failed',
       durationMs: elapsedMs(run, payload.createdAt),
+      ...(payload.type === 'run.failed'
+        ? { failure: { ...(payload.reason ? { reason: payload.reason } : {}), error: payload.error } }
+        : {}),
     })
     const notification = createResultNotificationDraft({
       run: terminalRun,

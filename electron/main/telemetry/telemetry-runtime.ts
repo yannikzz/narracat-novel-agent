@@ -23,6 +23,7 @@ import {
 import { resolvePrimaryModel } from '@shared/lib/model-slots'
 import { getConfigPath, readAppConfig, writeAppConfig, type AppConfig } from '../config.ts'
 import type { ChapterWriteTelemetryEvent } from '../agent/events/agent-main-side-effects.ts'
+import { classifyRunFailure } from './failure-reason.ts'
 import {
   buildWirePayload,
   createFeatureUsedDeduper,
@@ -225,7 +226,15 @@ export async function recordChapterWrite(event: ChapterWriteTelemetryEvent): Pro
       props: { ...model, outcome: event.outcome, duration_bucket: durationBucket(event.durationMs) },
     })
     if (event.outcome === 'failed') {
-      await recordTelemetry({ event: 'error_occurred', props: { code: 'run-failed', module: 'write-chapter' } })
+      // 原始错误到此为止：classifyRunFailure 只吐枚举码，发出去的 props 里没有一个字来自它。
+      await recordTelemetry({
+        event: 'error_occurred',
+        props: {
+          code: 'run-failed',
+          module: 'write-chapter',
+          reason: classifyRunFailure(event.failure ?? {}),
+        },
+      })
     }
   } catch {
     // 埋点不许影响写作链路。

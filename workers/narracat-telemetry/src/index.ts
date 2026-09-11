@@ -32,7 +32,7 @@ const ALLOWED: Record<string, readonly string[]> = {
   feature_used: ['module'],
   chapter_write_started: ['provider', 'model_id', 'chapter_bucket'],
   chapter_write_finished: ['provider', 'model_id', 'outcome', 'duration_bucket'],
-  error_occurred: ['code', 'module'],
+  error_occurred: ['code', 'module', 'reason'],
   telemetry_opt_out: ['app_version'],
 }
 
