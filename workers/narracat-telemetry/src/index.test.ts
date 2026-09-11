@@ -36,6 +36,25 @@ describe('服务端红线（第二道闸）', () => {
     expect(sanitizeIncomingEvent(event({ properties: { module: 'x'.repeat(65) } }))).toBeNull()
   })
 
+  // 失败原因是新加的白名单字段（2026-09-11）。服务端独立于客户端再放行一次：
+  // Worker 与 App 分开部署，不能假设线上跑的客户端就是当前这份源码。
+  test('失败原因字段放行，同一条里夹带的正文仍被裁掉', () => {
+    const withReason = event({
+      event: 'error_occurred',
+      properties: {
+        code: 'run-failed',
+        module: 'write-chapter',
+        reason: 'provider-bad-request',
+        chapter_text: '他推开门，风雪扑面而来。',
+      },
+    })
+    expect(sanitizeIncomingEvent(withReason)?.properties).toEqual({
+      code: 'run-failed',
+      module: 'write-chapter',
+      reason: 'provider-bad-request',
+    })
+  })
+
   test('未登记的事件名丢弃', () => {
     expect(sanitizeIncomingEvent(event({ event: 'chapter_text' }))).toBeNull()
   })

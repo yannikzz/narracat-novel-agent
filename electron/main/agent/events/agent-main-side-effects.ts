@@ -16,13 +16,38 @@ import type {
 } from '@shared/types/notifications'
 
 /**
- * 写章节的埋点回调（ADR-0039）。这一层已经掌握了 run 的起止与终态（结果通知就靠它），
+ * run 的埋点回调（ADR-0039）。这一层已经掌握了 run 的起止与终态（结果通知就靠它），
  * 埋点复用同一处判定，避免在 run-manager 里再钉一套平行的生命周期钩子。
- * 只在 command 为 write-next 时触发；不传即不埋（测试与非埋点场景）。
+ * 不传即不埋（测试与非埋点场景）。
+ *
+ * **这里对所有 command 一视同仁地发**，「哪个 command 该发哪些事件」由埋点层按 command 决定
+ * （telemetry-runtime 的 recordRunTelemetry）：写章节的那两个事件仍然只有 write-next 会发，
+ * 别的 command 只在失败时记一条 error_occurred。门禁放在埋点层而不是这里，是因为它属于
+ * 埋点口径，改口径时不该来动 Agent 的副作用层。
  */
-export type ChapterWriteTelemetryEvent =
-  | { phase: 'started'; chapter?: number }
-  | { phase: 'finished'; outcome: 'success' | 'failed' | 'cancelled' | 'interrupted'; durationMs: number }
+export type RunTelemetryEvent =
+  | { phase: 'started'; command: AgentRun['command']; chapter?: number }
+  | {
+      phase: 'finished'
+      command: AgentRun['command']
+      outcome: 'success' | 'failed' | 'cancelled' | 'interrupted'
+      durationMs: number
+      /**
+       * 失败时的原始信号，**只在主进程内部传递、绝不原样上报**：接收方
+       * （telemetry-runtime 的 recordRunTelemetry）拿它调 classifyRunFailure 归成枚举码，
+       * 发出去的只有那个枚举。分类放在埋点层而不是这里，是为了不让 agent/ 反向依赖
+       * telemetry/——现在的依赖方向是 telemetry → agent，单向。
+       */
+      failure?: { reason?: string; error?: string }
+    }
+
+/**
+ * 去掉 command 之后的事件形状（调用点不必自己填 command，由 emitRunTelemetry 统一补）。
+ *
+ * **必须分布式地 Omit**：裸 `Omit<联合类型, 'command'>` 会先把联合压成一个对象类型，
+ * 各分支独有的字段（outcome / durationMs / chapter）全部丢失，当场报 TS2353。
+ */
+type WithoutCommand<T> = T extends unknown ? Omit<T, 'command'> : never
 
 export interface AgentMainSideEffectsDeps {
   upsertNotification: (notification: ResultNotification) => Promise<ResultNotificationList>
@@ -31,7 +56,7 @@ export interface AgentMainSideEffectsDeps {
   showNativeNotification: (notification: ResultNotification) => void | Promise<void>
   resolveProjectName: (projectPath: string) => Promise<string>
   clearPendingMemorySync: (projectPath: string, chapter: number) => Promise<void>
-  onChapterWriteEvent?: (event: ChapterWriteTelemetryEvent) => void
+  onRunTelemetryEvent?: (event: RunTelemetryEvent) => void
   /**
    * 写章节成功收场后的钩子（ADR-0041 常驻润色的挂载点）。
    * 复用这一层已有的 run 终态判定，不在 run-manager 里另钉一套生命周期。
@@ -70,11 +95,16 @@ function activityNotification(
 export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
   const runs = new Map<string, AgentRun>()
 
-  /** 埋点是旁路观察者：抛异常也不许影响通知与后续副作用。 */
-  function emitChapterWrite(run: AgentRun, event: ChapterWriteTelemetryEvent): void {
-    if (run.command !== 'write-next' || !deps.onChapterWriteEvent) return
+  /**
+   * 埋点是旁路观察者：抛异常也不许影响通知与后续副作用。
+   *
+   * 对所有 command 一视同仁地发出去，command 一并带上——「谁该发哪些事件」是埋点口径，
+   * 由 telemetry-runtime 决定（写章节的两个事件仍只有 write-next 发）。
+   */
+  function emitRunTelemetry(run: AgentRun, event: WithoutCommand<RunTelemetryEvent>): void {
+    if (!deps.onRunTelemetryEvent) return
     try {
-      deps.onChapterWriteEvent(event)
+      deps.onRunTelemetryEvent({ ...event, command: run.command } as RunTelemetryEvent)
     } catch {}
   }
 
@@ -202,7 +232,7 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
       cancelled.readAt = payload.createdAt
       await upsertAndBroadcast(cancelled)
       runs.set(payload.runId, { ...run, status: 'cancelled', finishedAt: payload.createdAt })
-      emitChapterWrite(run, {
+      emitRunTelemetry(run, {
         phase: 'finished',
         outcome: 'cancelled',
         durationMs: elapsedMs(run, payload.createdAt),
@@ -227,10 +257,13 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
       finishedAt: payload.createdAt,
     }
     runs.set(payload.runId, terminalRun)
-    emitChapterWrite(run, {
+    emitRunTelemetry(run, {
       phase: 'finished',
       outcome: payload.type === 'run.completed' ? 'success' : payload.type === 'run.interrupted' ? 'interrupted' : 'failed',
       durationMs: elapsedMs(run, payload.createdAt),
+      ...(payload.type === 'run.failed'
+        ? { failure: { ...(payload.reason ? { reason: payload.reason } : {}), error: payload.error } }
+        : {}),
     })
     const notification = createResultNotificationDraft({
       run: terminalRun,
@@ -292,7 +325,7 @@ export function createAgentMainSideEffects(deps: AgentMainSideEffectsDeps) {
         target: event.target,
       }
       runs.set(event.runId, run)
-      emitChapterWrite(run, { phase: 'started', chapter: run.selectedChapter })
+      emitRunTelemetry(run, { phase: 'started', chapter: run.selectedChapter })
       await upsertAndBroadcast(
         {
           ...activityNotification(run, 'running', event.createdAt, await projectNameFor(run)),

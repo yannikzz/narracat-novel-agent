@@ -71,6 +71,35 @@ export const TELEMETRY_ERROR_CODES = [
 ] as const
 export type TelemetryErrorCode = (typeof TELEMETRY_ERROR_CODES)[number]
 
+/**
+ * run 失败的原因分类。`run-failed` 这个码只说「失败了」，占写章节的 20%（2026-09-11 实测）
+ * 却完全不知道败在哪——修什么、修了有没有效，都无从判断。本枚举把它拆开。
+ *
+ * **仍是枚举码，不是错误文本**（ADR-0039 已采纳的灰区三项之一）。分类在主进程做，
+ * 见 `electron/main/telemetry/failure-reason.ts`：原始错误只用来判分类，一个字都不出境。
+ *
+ * 前四项直接来自 run.failed 事件已有的结构化 `reason`；其余由错误文本归类。
+ * `provider-bad-request` 单独成项是有目的的：OpenAI 兼容渠道的协议字段错配（自建网关 / 中转 /
+ * 本地 Ollama 落进 pi-ai 的默认 compat 档）正是以 400 呈现，它的占比直接决定要不要做
+ * 「后端类型」选择器。
+ */
+export const TELEMETRY_FAILURE_REASONS = [
+  'max-turns', // 回合上限
+  'output-limit', // 单次回复被输出上限截断
+  'idle-timeout', // 空转超时
+  'model-service-required', // 尚未配置可用模型
+  'network-interrupted', // 连上了但流中途断（terminated / socket hang up / ECONNRESET）
+  'provider-unreachable', // 压根连不上（DNS / 拒绝连接 / 连接超时）
+  'provider-auth', // 鉴权失败（401 / 403 / Key 无效）
+  'provider-rate-limit', // 限流（429）
+  'provider-bad-request', // 请求被拒（400）——协议字段错配的主要呈现形式
+  'provider-server-error', // 上游故障（5xx）
+  'model-not-found', // 模型或端点不存在（404）
+  'context-overflow', // 上下文超出模型窗口
+  'unknown', // 兜底：归不了类。占比过高说明本表该补了
+] as const
+export type TelemetryFailureReason = (typeof TELEMETRY_FAILURE_REASONS)[number]
+
 /** 写章节的收场方式。与 AgentRunTerminalStatus 对齐，但刻意不复用——埋点契约要能独立演化。 */
 export const TELEMETRY_WRITE_OUTCOMES = ['success', 'failed', 'cancelled', 'interrupted'] as const
 export type TelemetryWriteOutcome = (typeof TELEMETRY_WRITE_OUTCOMES)[number]
@@ -125,6 +154,8 @@ export interface TelemetryChapterWriteFinishedProps {
 export interface TelemetryErrorOccurredProps {
   code: TelemetryErrorCode
   module: TelemetryModule | 'unknown'
+  /** 仅 code='run-failed' 时带：失败原因分类，见 TELEMETRY_FAILURE_REASONS。 */
+  reason?: TelemetryFailureReason
 }
 
 /** 用户关掉埋点时发的最后一条，用来量"关闭率"——不知道关闭率就不知道样本偏成什么样。 */
@@ -157,7 +188,7 @@ export const TELEMETRY_ALLOWED_PROP_KEYS: Readonly<Record<TelemetryEventName, re
     feature_used: Object.freeze(['module']),
     chapter_write_started: Object.freeze(['provider', 'model_id', 'chapter_bucket']),
     chapter_write_finished: Object.freeze(['provider', 'model_id', 'outcome', 'duration_bucket']),
-    error_occurred: Object.freeze(['code', 'module']),
+    error_occurred: Object.freeze(['code', 'module', 'reason']),
     telemetry_opt_out: Object.freeze(['app_version']),
   })
 

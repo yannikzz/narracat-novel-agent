@@ -49,7 +49,7 @@ Key 通过操作系统自带的凭据库存储（macOS 走钥匙串，Windows �
 | `feature_used` | 某个功能模块当天首次被用 | 模块名（18 个之一，如 `outline`、`character-chat`） |
 | `chapter_write_started` | 开始写一章 | 模型渠道、模型 ID、写到第几章的**区间**（如 `6-20`） |
 | `chapter_write_finished` | 一章写完 / 失败 / 取消 | 模型渠道、模型 ID、收场方式、耗时**区间**（如 `5-15m`） |
-| `error_occurred` | 出错 | 错误码（我自己定义的 8 个枚举之一，**不含原始报错文本与堆栈**） |
+| `error_occurred` | Agent 任务失败时（写章节、立项卡、大纲等都算） | 错误码（我自己定义的 8 个枚举之一）+ 出错的功能模块 + 失败原因分类（13 个枚举之一，例如 `network-interrupted` 网络中途断开、`provider-auth` 鉴权失败、`context-overflow` 上下文超长）。**三者都是我预先定义好的枚举码，不含原始报错文本与堆栈** |
 | `telemetry_opt_out` | 你关掉统计时 | App 版本（这样我才知道有多少人关掉了） |
 
 注意数字全部落**区间**而非真实值：真实章数配合时间线有可能反推到具体作品，区间不会。
