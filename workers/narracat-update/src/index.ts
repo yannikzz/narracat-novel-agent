@@ -9,6 +9,23 @@
 // （网页上把旧 release 设为 latest 即可，见 README）。
 //
 // 本 Worker 无密钥：发布仓是 public，资产匿名可下载。
+//
+// 另外补了一层上游缺失的能力：多区间 Range（Windows 差量更新靠它，Azure Blob 不支持）。
+// 见 multi-range.ts。
+
+import {
+  buildClosingBoundary,
+  buildPartHeader,
+  createBoundary,
+  isWorthDownloading,
+  parseByteRanges,
+  parseTotalSize,
+  planFetchGroups,
+  resolveGroupBudget,
+  totalFetchBytes,
+  type ByteRange,
+  type FetchGroup,
+} from './multi-range.ts'
 
 /** 安装包所在的公开仓。与开发主仓不是同一个。 */
 const RELEASE_REPO = 'yannikzz/narracat-novel-agent'
@@ -156,12 +173,180 @@ const MUTABLE_CACHE_CONTROL = 'no-cache, max-age=0'
 /** 按版本号寻址的包内容不可变，可以长缓存。 */
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 
+/**
+ * 探路请求：拿文件总大小，顺便拿到跳转后的签名地址。
+ *
+ * 取 `bytes=0-0` 一个字节，图的是响应头里的 `Content-Range: bytes 0-0/<总大小>`。
+ * `redirect: 'follow'` 之后 `response.url` 是最终地址（github.com → Azure 的签名 URL，
+ * 实测约 45 分钟有效，单次更新内复用绰绰有余）；复用它能让后续每组只花 1 个子请求额度
+ * 而不是 2 个。拿不到就退回原地址，预算减半但仍然可用。
+ */
+async function probeUpstream(
+  upstream: string,
+): Promise<{ totalSize: number; assetUrl: string; canReuseSignedUrl: boolean } | null> {
+  const response = await fetch(upstream, {
+    headers: { Range: 'bytes=0-0', 'user-agent': 'narracat-update-proxy' },
+    redirect: 'follow',
+  })
+  // 只要头，body 必须显式丢掉，否则连接悬着不放。
+  await response.body?.cancel()
+
+  if (response.status !== 206) return null
+
+  const totalSize = parseTotalSize(response.headers.get('content-range'))
+  if (totalSize === null) return null
+
+  const finalUrl = response.url
+  const canReuseSignedUrl = finalUrl.startsWith('https://') && finalUrl !== upstream
+  return { totalSize, assetUrl: canReuseSignedUrl ? finalUrl : upstream, canReuseSignedUrl }
+}
+
+/**
+ * 取一组数据，从中切出该组的各个区间写进 multipart 流，间隙丢弃。
+ *
+ * 边收边切边写：整个响应最大也就十几 MB，但一次性收进内存既没必要、也会把 CPU 集中在
+ * 一个点上（免费版按两次 I/O 之间的 CPU 计量，流式处理天然分摊得开——实测切 40 MB 无碍）。
+ */
+async function pumpGroup(
+  group: FetchGroup,
+  assetUrl: string,
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+  boundary: string,
+  totalSize: number,
+  isFirstPart: () => boolean,
+  onPartStarted: () => void,
+): Promise<void> {
+  const response = await fetch(assetUrl, {
+    headers: { Range: `bytes=${group.start}-${group.end}`, 'user-agent': 'narracat-update-proxy' },
+    redirect: 'follow',
+  })
+  if (response.status !== 206 || !response.body) {
+    await response.body?.cancel()
+    throw new Error(`上游拒绝区间请求：${response.status}`)
+  }
+
+  const reader = response.body.getReader()
+  let position = group.start // 当前 chunk 起点在整个文件里的绝对偏移
+  let index = 0 // 本组处理到第几个区间
+  let headerWritten = false
+
+  while (index < group.ranges.length) {
+    const { done, value } = await reader.read()
+    if (done) throw new Error('上游数据提前结束')
+
+    let offset = 0
+    while (offset < value.length && index < group.ranges.length) {
+      const range = group.ranges[index]
+
+      // 还没到这一段的起点：中间是被合并进来的间隙，直接跳过。
+      if (position < range.start) {
+        const skipped = Math.min(range.start - position, value.length - offset)
+        offset += skipped
+        position += skipped
+        continue
+      }
+
+      if (!headerWritten) {
+        await writer.write(encoder.encode(buildPartHeader(boundary, range, totalSize, isFirstPart())))
+        onPartStarted()
+        headerWritten = true
+      }
+
+      const taken = Math.min(range.end - position + 1, value.length - offset)
+      // slice 而非 subarray：写入是排队的，不能让下游拿到一块随时可能被复用的底层 buffer。
+      await writer.write(value.slice(offset, offset + taken))
+      offset += taken
+      position += taken
+
+      if (position > range.end) {
+        index++
+        headerWritten = false
+      }
+    }
+  }
+
+  await reader.cancel()
+}
+
+/**
+ * 多区间 Range 的应答：拆成上游认的单区间请求，拼回 `multipart/byteranges`。
+ *
+ * 返回 null 表示这次不接管（预算不够、碎片太散、上游不配合……），调用方照原样把请求转给
+ * 上游——客户端会拿到 501 并回落全量下载，也就是本改动之前的行为。**宁可不接管，也不能
+ * 交出拼错的字节**：这些字节会被写进安装包。
+ */
+async function serveMultiRange(
+  upstream: string,
+  ranges: ByteRange[],
+  cacheControl: string,
+): Promise<Response | null> {
+  const probe = await probeUpstream(upstream)
+  if (probe === null) return null
+
+  const { totalSize, assetUrl, canReuseSignedUrl } = probe
+  // 请求的区间超出文件末尾说明客户端与上游对不上（版本换了？），别猜，交还上游。
+  if (ranges[ranges.length - 1].end >= totalSize) return null
+
+  const groups = planFetchGroups(ranges, resolveGroupBudget(canReuseSignedUrl))
+  if (groups === null) return null
+  if (!isWorthDownloading(totalFetchBytes(groups), totalSize)) return null
+
+  const boundary = createBoundary()
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+
+  // 这里之后不再 return null：响应头已经发出去了，出错只能中断流，让客户端回落。
+  void (async () => {
+    let partCount = 0
+    try {
+      for (const group of groups) {
+        await pumpGroup(
+          group,
+          assetUrl,
+          writer,
+          encoder,
+          boundary,
+          totalSize,
+          () => partCount === 0,
+          () => {
+            partCount++
+          },
+        )
+      }
+      await writer.write(encoder.encode(buildClosingBoundary(boundary)))
+      await writer.close()
+    } catch (error) {
+      // abort 而不是 close：截断的流会让客户端判定差量失败并回落全量下载，
+      // close 则会把不完整的内容当成完整响应交出去。
+      await writer.abort(error instanceof Error ? error.message : String(error)).catch(() => {})
+    }
+  })()
+
+  return new Response(readable, {
+    status: 206,
+    headers: {
+      'content-type': `multipart/byteranges; boundary=${boundary}`,
+      'accept-ranges': 'bytes',
+      'cache-control': cacheControl,
+    },
+  })
+}
+
 async function proxy(
   request: Request,
   upstream: string,
   cacheControl: string,
   downloadFileName?: string,
 ): Promise<Response> {
+  // 多区间请求上游一律回 501，本层代劳；单区间与普通下载保持原路，不受影响。
+  const ranges = request.method === 'GET' ? parseByteRanges(request.headers.get('range')) : null
+  if (ranges !== null && ranges.length > 1) {
+    const multiRange = await serveMultiRange(upstream, ranges, cacheControl)
+    if (multiRange !== null) return multiRange
+  }
+
   const upstreamResponse = await fetch(upstream, {
     method: request.method,
     headers: forwardHeaders(request.headers),
