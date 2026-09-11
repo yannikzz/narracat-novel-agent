@@ -4,6 +4,17 @@
 
 ## Current Branch
 
+**2026-09-11（Windows 差量更新修复：Worker 补上游缺失的多区间 Range，分支 fix/multi-range-differential-update）**：从 issue #103 自带日志里**顺带**发现的（用户报的是 `运行失败：terminated`，这条是同一份日志里另一件他没提的事）：`ERROR [updater] Cannot download differentially, fallback to full download: HttpError: 501`——**Windows 每次更新都在全量下 244 MB**，按报告者那条 23 KB/s 的线路要 3 小时。
+- **根因（实测定的，不是推的）**：electron-updater 的差量下载发**一个多区间 Range**（`bytes=0-99, 200-299, …`）。我们的 Worker **Range 透传是对的**（源码里就有那条注释），501 来自上游——GitHub Releases 的资产实际存在 **Azure Blob** 上（响应 etag 形如 `0x8DF0E4D8F264F78` 是它的指纹），**Azure 只支持单区间**。实测对照：`bytes=0-99` → **206**，`bytes=0-99, 200-299` → **501**。差量计划其实早就算出来了（`.blockmap` 已发布且 200 可访问），只卡在最后取数这一步。
+- **方案**：`workers/narracat-update/src/multi-range.ts` 把多区间拆成上游认的单区间，再拼回标准 `multipart/byteranges`。**客户端零改动**——差量逻辑 electron-updater 本来就有，存量用户（含还停在 0.3.x 的）不升级即可受益。
+- **两个数字是部署临时探测 Worker 量出来的，不是查文档**：①免费版**每次调用 50 个子请求**；②**重定向单独算一个**——`github.com` 会 302 跳 Azure，`redirect: 'follow'` 的请求吃 2 个额度（发 120 个请求实测断在第 25 个 = 50÷2）。复用跳转后的签名地址（`response.url`，实测约 45 分钟有效）后能发满 46 组。③原先最担心的 **CPU 不是瓶颈**：流式切 17 MB、40 MB 都没触发限制（免费版按两次 I/O 之间计量，边收边发自然分摊）。探测 Worker 已删。
+- **合并策略不用固定阈值，按预算反推**：要压到 K 组就在**最大的 K-1 个间隙**处切开——同样组数下多下载量最小，且碎片再散也不会爆预算（跨多版本升级比单跳更碎）。合并后要下的超过文件一半就**不接管**，让客户端回落全量（连续流比几十段拼接更快更稳）。
+- **失败一律不接管**：预算不够、碎片太散、探路拿不到总大小、区间超出文件末尾、Range 格式不合升序/不重叠——全都原样把请求转给上游，客户端拿到 501 后回落全量，即上线前的行为。**宁可不接管，也不能交出拼错的字节**（会被直接写进安装包，错了只表现为 sha512 对不上）。头已发出后才出错的只能 `writer.abort()` 截断流，客户端据此判失败——绝不 `close()` 把残缺内容当完整交出去。
+- **真机验证（canary，未碰生产域名，测完已删）**：用 0.4.0/0.4.1 两版真实 blockmap 算出**真实的 238 个差量区间**（Range 头 4513 字节）打真实 GitHub 资产 → **206 multipart，11.81 MB / 2.9s**，解析出 238 段、长度与 `Content-Range` 全对，**238 段与直连 GitHub 单区间取回的内容逐字节比对全部相同（0 错）**。回归：清单 / 单区间 206 / 永久链接 `content-disposition` / mac 清单 / 非法路径 404 全部照旧。
+- **收益**：244.6 MB → **11.8 MB（4.8%）**，按 23 KB/s 约 3 小时 → 8 分钟。
+- **README 补了一条关联**：原「降级方案」写着可把 `proxy()` 换成 302 直连，**那会连带关掉差量**（直连 Azure 又回 501）——降级是「加速换合规」，不是无代价的。
+- 验证：worker 测试 **71 绿 across 3 files**（新增 42 条）、全量 **3725 绿 across 353 files**、typecheck、check:architecture 0 violation。Worker 代码不在 `tsc -b` 范围（既有状况），本次单独跑 tsc 验过。**未做**：部署生产（待拍板）、Windows 真机跑一次完整的差量更新。
+
 **2026-09-09（issue #94 分诊 + Agent run 生命周期日志，分支 work/from-main-20260908）**：#94 标题「Agent 本次运行达到回合上限」与它自带的日志**不是同一件事**，分诊结论：
 - **日志里的真错 = threadId 非法**（06:22–06:25 连点四次 `agent:start-run` 全挂在「Agent 历史无法安全保存」）。根因链已验证：项目读不出契约文件 → `loadSummarySafely` catch 里 `id: path` → threadId 成 `novel:D:\…` → `threadKey` 判非法 → 历史存不下、任何 run 都起不来。**PR #96 已双保险修掉**（书架 id 恒空 + 身份函数拒分隔符），已在 main（`b0dbc0b`），**未发版**，所以报告者手上的 0.4.0 仍是坏的。
 - **标题的「回合上限」查不动**：那行文案来自工作台失败卡片的「报告问题」按钮（`AgentPartView` 的 `initialDescription`），是历史事件，与日志窗口无关；而 run-manager 整个生命周期此前**只有一处 `console.warn`**（还是关于答题的），走了六条路径里的哪条、预算是 12 还是 72，全无记录。
