@@ -11,11 +11,12 @@
 // 复刻的是一行调用，而被守的是"原文不出境"这件事，它由 classifyRunFailure 的返回值类型保证。
 
 import { describe, expect, test } from 'bun:test'
-import type { AgentEventEnvelopeV1 } from '@shared/types/agent'
+import type { AgentEventEnvelopeV1, AgentRun } from '@shared/types/agent'
 import type { ResultNotificationList } from '@shared/types/notifications'
 import { TELEMETRY_FAILURE_REASONS } from '@shared/types/telemetry'
-import { createAgentMainSideEffects, type ChapterWriteTelemetryEvent } from '../agent/events/agent-main-side-effects.ts'
+import { createAgentMainSideEffects, type RunTelemetryEvent } from '../agent/events/agent-main-side-effects.ts'
 import { classifyRunFailure } from './failure-reason.ts'
+import { isChapterWriteCommand, resolveRunModule } from './run-module.ts'
 
 const EMPTY: ResultNotificationList = { notifications: [], totalCount: 0, unreadCount: 0 }
 
@@ -40,9 +41,12 @@ function envelope(seq: number, payload: AgentEventEnvelopeV1['payload']): AgentE
   }
 }
 
-/** 跑一次「写章节 run 起 → 以失败收场」，返回埋点回调收到的事件。 */
-async function runWriteChapterFailure(failure: { error: string; reason?: string }): Promise<ChapterWriteTelemetryEvent[]> {
-  const events: ChapterWriteTelemetryEvent[] = []
+/** 跑一次「run 起 → 以失败收场」，返回埋点回调收到的事件。默认走写章节。 */
+async function runFailure(
+  failure: { error: string; reason?: string },
+  command: AgentRun['command'] = 'write-next',
+): Promise<RunTelemetryEvent[]> {
+  const events: RunTelemetryEvent[] = []
   const handle = createAgentMainSideEffects({
     async upsertNotification() {
       return EMPTY
@@ -54,15 +58,15 @@ async function runWriteChapterFailure(failure: { error: string; reason?: string 
     showNativeNotification() {},
     resolveProjectName: async () => '长夜星河',
     async clearPendingMemorySync() {},
-    onChapterWriteEvent: (event) => events.push(event),
+    onRunTelemetryEvent: (event) => events.push(event),
   })
 
   await handle(
     envelope(1, {
       type: 'run.accepted',
       runId: 'run-1',
-      command: 'write-next',
-      visiblePrompt: '写下一章',
+      command,
+      visiblePrompt: '跑一次任务',
       createdAt: '2026-09-11T12:00:00.000Z',
     }),
   )
@@ -71,8 +75,8 @@ async function runWriteChapterFailure(failure: { error: string; reason?: string 
       type: 'run.started',
       runId: 'run-1',
       threadId: 'novel:stars',
-      command: 'write-next',
-      prompt: '写下一章',
+      command,
+      prompt: '跑一次任务',
       projectPath: '/novels/stars',
       createdAt: '2026-09-11T12:00:00.000Z',
     }),
@@ -92,14 +96,18 @@ async function runWriteChapterFailure(failure: { error: string; reason?: string 
 }
 
 /** 复刻 telemetry-runtime 对失败事件的那一步，得到真正会被发出去的 props。 */
-function reportedProps(event: ChapterWriteTelemetryEvent): Record<string, string> {
+function reportedProps(event: RunTelemetryEvent): Record<string, string> {
   if (event.phase !== 'finished' || event.outcome !== 'failed') throw new Error('不是失败事件')
-  return { code: 'run-failed', module: 'write-chapter', reason: classifyRunFailure(event.failure ?? {}) }
+  return {
+    code: 'run-failed',
+    module: resolveRunModule(event.command),
+    reason: classifyRunFailure(event.failure ?? {}),
+  }
 }
 
 describe('run 失败 → 埋点：原始错误在哪一层蒸发', () => {
   test('#103 那条 terminated 被归成网络中断', async () => {
-    const events = await runWriteChapterFailure({ error: 'Agent 运行失败：terminated' })
+    const events = await runFailure({ error: 'Agent 运行失败：terminated' })
     const finished = events.find((event) => event.phase === 'finished')!
 
     expect(finished).toMatchObject({ phase: 'finished', outcome: 'failed' })
@@ -107,7 +115,7 @@ describe('run 失败 → 埋点：原始错误在哪一层蒸发', () => {
   })
 
   test('结构化 reason 原样透传给分类（回合上限）', async () => {
-    const events = await runWriteChapterFailure({ error: '本次运行达到回合上限', reason: 'max-turns' })
+    const events = await runFailure({ error: '本次运行达到回合上限', reason: 'max-turns' })
     const finished = events.find((event) => event.phase === 'finished')!
 
     expect(reportedProps(finished).reason).toBe('max-turns')
@@ -117,7 +125,7 @@ describe('run 失败 → 埋点：原始错误在哪一层蒸发', () => {
   // 这里让错误文本整段是小说正文，断言它一个字都没进最终 props。
   test('错误里夹带正文时，发出去的 props 一个字都不沾', async () => {
     const prose = '林舟握紧了剑，风雪扑面而来。他知道这一战避无可避。'
-    const events = await runWriteChapterFailure({ error: `${prose}\n400 Bad Request` })
+    const events = await runFailure({ error: `${prose}\n400 Bad Request` })
     const finished = events.find((event) => event.phase === 'finished')!
 
     // 进程内部这一层确实拿到了原文——它是分类的依据
@@ -134,14 +142,62 @@ describe('run 失败 → 埋点：原始错误在哪一层蒸发', () => {
 
   test('无论失败长什么样，reason 恒为枚举表里的值', async () => {
     for (const error of ['terminated', '429 rate limit', '莫名其妙的错', '', '正文正文正文']) {
-      const events = await runWriteChapterFailure({ error })
+      const events = await runFailure({ error })
       const finished = events.find((event) => event.phase === 'finished')!
       expect(TELEMETRY_FAILURE_REASONS).toContain(reportedProps(finished).reason)
     }
   })
 
+  // 这半是 2026-09-11 加的：此前 error_occurred 全库只在写章节失败时上报一处，
+  // 「立项卡跑失败了」这类事一条记录都没有——而 premise 是第二大模块（128 台设备用过，
+  // 写章节只有 64 台），盲区正好压在最常走的那条路上。
+  test('立项卡失败也上报，落 premise 模块', async () => {
+    const events = await runFailure({ error: '401 Unauthorized' }, 'setup')
+    const finished = events.find((event) => event.phase === 'finished')!
+
+    expect(reportedProps(finished)).toEqual({
+      code: 'run-failed',
+      module: 'premise',
+      reason: 'provider-auth',
+    })
+  })
+
+  test('大纲 / 参考作品 / 记忆同步各归其位', async () => {
+    for (const [command, module] of [
+      ['plan', 'outline'],
+      ['reference', 'reference-works'],
+      ['sync-chapter-memory', 'memory-graph'],
+    ] as const) {
+      const events = await runFailure({ error: 'terminated' }, command)
+      const finished = events.find((event) => event.phase === 'finished')!
+      expect(reportedProps(finished).module).toBe(module)
+    }
+  })
+
+  test('世界观与自由对话落 unknown（没有对应模块，刻意不新增）', async () => {
+    for (const command of ['world', 'freeform'] as const) {
+      const events = await runFailure({ error: 'terminated' }, command)
+      const finished = events.find((event) => event.phase === 'finished')!
+      expect(reportedProps(finished).module).toBe('unknown')
+    }
+  })
+
+  // 回归保护：扩大失败上报**不能**把别的 command 混进写章节的两个事件里。
+  // 那两个数（完成率、耗时分布）是跨版本比较用的，口径一变就不可比。
+  test('非写章节的 run 不算一次写章节', async () => {
+    for (const command of ['setup', 'plan', 'rewrite', 'review', 'world'] as const) {
+      expect(isChapterWriteCommand(command)).toBe(false)
+    }
+    expect(isChapterWriteCommand('write-next')).toBe(true)
+
+    // side-effects 仍然对所有 command 发事件，门禁在埋点层——这里确认 command 被如实带出
+    const events = await runFailure({ error: 'terminated' }, 'setup')
+    expect(events.every((event) => event.command === 'setup')).toBe(true)
+    expect(events.some((event) => event.phase === 'started')).toBe(true)
+  })
+
   test('成功收场不带 failure、也不报错误事件', async () => {
-    const events: ChapterWriteTelemetryEvent[] = []
+    const events: RunTelemetryEvent[] = []
     const handle = createAgentMainSideEffects({
       async upsertNotification() {
         return EMPTY
@@ -153,7 +209,7 @@ describe('run 失败 → 埋点：原始错误在哪一层蒸发', () => {
       showNativeNotification() {},
       resolveProjectName: async () => '长夜星河',
       async clearPendingMemorySync() {},
-      onChapterWriteEvent: (event) => events.push(event),
+      onRunTelemetryEvent: (event) => events.push(event),
     })
 
     await handle(
