@@ -15,8 +15,8 @@ import type { AgentEventEnvelopeV1, AgentRun } from '@shared/types/agent'
 import type { ResultNotificationList } from '@shared/types/notifications'
 import { TELEMETRY_FAILURE_REASONS } from '@shared/types/telemetry'
 import { createAgentMainSideEffects, type RunTelemetryEvent } from '../agent/events/agent-main-side-effects.ts'
-import { classifyRunFailure } from './failure-reason.ts'
-import { isChapterWriteCommand, resolveRunModule } from './run-module.ts'
+import { isChapterWriteCommand } from './run-module.ts'
+import { planRunTelemetry } from './run-telemetry-plan.ts'
 
 const EMPTY: ResultNotificationList = { notifications: [], totalCount: 0, unreadCount: 0 }
 
@@ -95,14 +95,18 @@ async function runFailure(
   return events
 }
 
-/** 复刻 telemetry-runtime 对失败事件的那一步，得到真正会被发出去的 props。 */
+/**
+ * 真正会被发出去的 error_occurred 的 props。
+ *
+ * ⚠️ **走生产函数 planRunTelemetry，不要在这里复刻它的逻辑**。此前这里是一份手抄的复刻，
+ * 于是「红线由 classifyRunFailure 守住」这条断言只守住了复刻——变异实验证实，把生产代码
+ * 改成直接发原始错误文本，整套测试照样全绿。复刻一旦与生产代码分叉，这个文件就变成装饰。
+ */
 function reportedProps(event: RunTelemetryEvent): Record<string, string> {
-  if (event.phase !== 'finished' || event.outcome !== 'failed') throw new Error('不是失败事件')
-  return {
-    code: 'run-failed',
-    module: resolveRunModule(event.command),
-    reason: classifyRunFailure(event.failure ?? {}),
-  }
+  const plan = planRunTelemetry(event, { provider: 'deepseek', model_id: 'deepseek-v4-pro' })
+  const errorEvent = plan.events.find((item) => item.event === 'error_occurred')
+  if (!errorEvent) throw new Error('这次 run 没有产生 error_occurred')
+  return errorEvent.props as unknown as Record<string, string>
 }
 
 describe('run 失败 → 埋点：原始错误在哪一层蒸发', () => {

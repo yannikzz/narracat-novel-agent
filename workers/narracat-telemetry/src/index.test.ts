@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { sanitizeIncomingEvent } from './index.ts'
+import { TELEMETRY_ALLOWED_PROP_KEYS } from '../../../shared/types/telemetry.ts'
+import { ALLOWED, sanitizeIncomingEvent } from './index.ts'
 
 const UUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
 const AT = '2026-08-30T10:00:00.000Z'
@@ -13,6 +14,19 @@ function event(overrides: Record<string, unknown> = {}): Record<string, unknown>
     ...overrides,
   }
 }
+
+// 两份白名单刻意各写一份（Worker 与 App 分开部署，服务端要能独立对着字典拦），但**内容必须
+// 一致**。此前只靠两处注释互相提醒「改一边必须同改另一边」——而这个仓库的信条是「红线不靠
+// 记得别写，靠机械执行」。守卫跑在同一个仓库里，不影响 Worker 独立部署这个设计意图。
+describe('两份白名单不许漂移', () => {
+  test('与 shared/types/telemetry.ts 逐条一致', () => {
+    const app = Object.fromEntries(
+      Object.entries(TELEMETRY_ALLOWED_PROP_KEYS).map(([event, keys]) => [event, [...keys]]),
+    )
+    const worker = Object.fromEntries(Object.entries(ALLOWED).map(([event, keys]) => [event, [...keys]]))
+    expect(worker).toEqual(app)
+  })
+})
 
 describe('服务端红线（第二道闸）', () => {
   test('合格事件原样通过', () => {
@@ -53,6 +67,14 @@ describe('服务端红线（第二道闸）', () => {
       module: 'write-chapter',
       reason: 'provider-bad-request',
     })
+  })
+
+  // `in` 会命中原型链：event='constructor' 能过白名单检查，随后展开 ALLOWED[name] 拿到
+  // 的是 Function，当场抛 TypeError，而 fetch 外层没有兜底——公网端点一条 curl 打成 500。
+  test('原型链上的键不是事件名', () => {
+    for (const name of ['constructor', 'toString', '__proto__', 'valueOf', 'hasOwnProperty']) {
+      expect(sanitizeIncomingEvent(event({ event: name }))).toBeNull()
+    }
   })
 
   test('未登记的事件名丢弃', () => {

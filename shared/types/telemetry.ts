@@ -12,8 +12,19 @@
  * 新增字段前先问：它有没有可能承载用户写的字？只要答案不是"绝无可能"，就不要加。
  */
 
-/** 埋点契约版本。字段语义变更时 +1，服务端据此分辨新旧客户端。 */
-export const TELEMETRY_SCHEMA_VERSION = 1
+/**
+ * 埋点契约版本。字段语义变更时 +1，服务端据此分辨新旧客户端。
+ *
+ * 1 → 2（2026-09-13）：`error_occurred` 的口径变了两处——新增 `reason` 字段；且它此前**只在
+ * 写章节失败时上报**，现在覆盖全部 command。也就是说 `module='write-chapter'` 的人口从
+ * 「write-next 失败」扩到了「write-next/recover-write/rewrite/review 失败」，其它 module
+ * 则是从无到有。历史基线（run-failed 占写章节 20%）会仅因这次改动而变动，不抬这个数的话
+ * 事后只能靠 app_version 猜边界。
+ *
+ * 注意与 CURRENT_TELEMETRY_NOTICE_VERSION 是两件事：那个管「要不要重新告知用户」，
+ * 这个纯粹是机读的版本位，不涉及告知口径。
+ */
+export const TELEMETRY_SCHEMA_VERSION = 2
 
 /**
  * 首启/升级告知屏的版本号。**改告知文案必须 +1**，否则已确认过的用户永远看不到新版本文案

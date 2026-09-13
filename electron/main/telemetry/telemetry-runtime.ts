@@ -23,15 +23,12 @@ import {
 import { resolvePrimaryModel } from '@shared/lib/model-slots'
 import { getConfigPath, readAppConfig, writeAppConfig, type AppConfig } from '../config.ts'
 import type { RunTelemetryEvent } from '../agent/events/agent-main-side-effects.ts'
-import { classifyRunFailure } from './failure-reason.ts'
-import { isChapterWriteCommand, resolveRunModule } from './run-module.ts'
+import { planRunTelemetry, UNKNOWN_MODEL } from './run-telemetry-plan.ts'
 import {
   buildWirePayload,
   createFeatureUsedDeduper,
-  durationBucket,
   isTelemetryAllowed,
   sanitizeEvent,
-  sizeBucket,
   trimQueue,
   TELEMETRY_FLUSH_AT,
   TELEMETRY_FLUSH_INTERVAL_MS,
@@ -217,45 +214,26 @@ async function primaryModelLabel(): Promise<{ provider: string; model_id: string
  *
  * 失败上报从写章节扩到全部 command 是 2026-09-11 加的：此前「立项卡跑失败了」这类事一条
  * 记录都没有，而 premise 是第二大模块（128 台设备用过，写章节只有 64 台）。
- * **告知版本未 bump**——产品主人的决定：没有新的数据种类（模块名与失败原因枚举都已在采集），
- * 只是同一种类用到更多场景。docs/faq.md 的字段清单已同步。
+ *
+ * **告知版本未 bump**，这是产品主人的决定，依据是 ADR-0039 已把「报错枚举码」列为采纳的
+ * 灰区项、告知屏正文一个字没改、逐条清单（docs/faq.md）已同步。
+ * ⚠️ 别把它读成「以后新增采集项都不用 bump」：本仓另一条记录在案的判据是「这个用户动作在
+ * 改动前会不会产生任何一条事件？答否即新增采集项」，按那条读这次是够得着 bump 线的
+ * （立项卡失败此前确实一条事件都不发）。两种读法都成立，属灰区，由产品主人拍板。
  */
 export async function recordRunTelemetry(event: RunTelemetryEvent): Promise<void> {
   try {
     const state = await loadState()
     if (!allowed(state)) return
 
-    const chapterWrite = isChapterWriteCommand(event.command)
+    // 判断全在 planRunTelemetry（纯函数，可测）；这里只负责取模型标识、发事件。
+    // 先按占位值问一次要不要模型，避免非写章节的 run 白读一次配置文件。
+    const probe = planRunTelemetry(event, UNKNOWN_MODEL)
+    const plan = probe.needsModel ? planRunTelemetry(event, await primaryModelLabel()) : probe
 
-    if (event.phase === 'started') {
-      if (!chapterWrite) return
-      recordFeatureUsed('write-chapter')
-      const model = await primaryModelLabel()
-      await recordTelemetry({
-        event: 'chapter_write_started',
-        props: { ...model, chapter_bucket: sizeBucket(event.chapter ?? 0) },
-      })
-      return
-    }
-
-    if (chapterWrite) {
-      const model = await primaryModelLabel()
-      await recordTelemetry({
-        event: 'chapter_write_finished',
-        props: { ...model, outcome: event.outcome, duration_bucket: durationBucket(event.durationMs) },
-      })
-    }
-
-    if (event.outcome === 'failed') {
-      // 原始错误到此为止：classifyRunFailure 只吐枚举码，发出去的 props 里没有一个字来自它。
-      await recordTelemetry({
-        event: 'error_occurred',
-        props: {
-          code: 'run-failed',
-          module: resolveRunModule(event.command),
-          reason: classifyRunFailure(event.failure ?? {}),
-        },
-      })
+    if (plan.featureUsed) recordFeatureUsed(plan.featureUsed)
+    for (const telemetryEvent of plan.events) {
+      await recordTelemetry(telemetryEvent)
     }
   } catch {
     // 埋点不许影响写作链路。
