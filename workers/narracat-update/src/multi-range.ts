@@ -132,13 +132,24 @@ export function totalFetchBytes(groups: FetchGroup[]): number {
 }
 
 /**
+ * 单次接管的绝对上限。
+ *
+ * 免费版按「两次 I/O 之间」计 CPU，而本层每个字节都要过一次 `slice` 复制。实测验过的信封
+ * 是 17 MB 与 40 MB（都轻松通过），再往上没有实测依据。光有下面那条「不超过文件一半」的话，
+ * 244 MB 的包意味着最多可拉 122 MB 过 Worker——那是拿没验过的量级赌 CPU 不被掐。
+ * 触顶的后果是流被截断、客户端回落全量（不致命，但白下一次），所以宁可提前让路。
+ */
+const MAX_TAKEOVER_BYTES = 48 * 1024 * 1024
+
+/**
  * 合并到这个地步还值不值得走差量。
  *
  * 碎片过散时合并会把大半个文件都拖下来，那还不如让客户端直接回落全量下载——全量是一条
- * 连续流，比几十段拼接更快也更不容易出错。取一半作为分界。
+ * 连续流，比几十段拼接更快也更不容易出错。两条线取更严的那条。
  */
 export function isWorthDownloading(fetchBytes: number, totalSize: number): boolean {
-  return totalSize > 0 && fetchBytes <= totalSize / 2
+  if (totalSize <= 0) return false
+  return fetchBytes <= totalSize / 2 && fetchBytes <= MAX_TAKEOVER_BYTES
 }
 
 /** 免费版每次调用的子请求上限（实测值）。 */
@@ -197,14 +208,44 @@ export function buildClosingBoundary(boundary: string): string {
 }
 
 /**
- * 从 `Content-Range: bytes 0-0/256435237` 里取文件总大小。拿不到返回 null。
+ * 解析响应头 `Content-Range: bytes 0-0/256435237`。格式不对返回 null。
+ */
+export function parseContentRange(
+  contentRange: string | null,
+): { start: number; end: number; total: number } | null {
+  if (!contentRange) return null
+  const matched = /^\s*bytes\s+(\d+)\s*-\s*(\d+)\s*\/\s*(\d+)\s*$/i.exec(contentRange)
+  if (!matched) return null
+
+  const [start, end, total] = matched.slice(1, 4).map(Number)
+  if (![start, end, total].every(Number.isSafeInteger)) return null
+  if (total <= 0 || start > end || end >= total) return null
+  return { start, end, total }
+}
+
+/**
+ * 从探路响应里取文件总大小。拿不到返回 null。
  *
  * 总大小要写进每一段 part 的 Content-Range，取不到就不能拼——宁可回落全量。
  */
 export function parseTotalSize(contentRange: string | null): number | null {
-  if (!contentRange) return null
-  const matched = /^\s*bytes\s+\d+\s*-\s*\d+\s*\/\s*(\d+)\s*$/i.exec(contentRange)
-  if (!matched) return null
-  const total = Number(matched[1])
-  return Number.isSafeInteger(total) && total > 0 ? total : null
+  return parseContentRange(contentRange)?.total ?? null
+}
+
+/**
+ * 上游这次给的，是不是我们要的那一段。
+ *
+ * **只看 206 是不够的**：上游完全可能返回 206、却把 `Content-Range` 写成另一个偏移
+ * （CDN 对齐、重放，或透明解压让字节流与区间错位）。那种情况下每段长度依然全对、结束分隔串
+ * 依然齐全，客户端收到的是一份**格式完美而字节全错**的响应——electron-updater 的 sha512
+ * 会兜住不让它变成坏安装包，但用户白下一次、日志只留一行校验失败，属于最难查的那类故障。
+ * 所以拿到手先对账：起点必须严丝合缝，终点至少覆盖到，总大小与探路时一致。
+ */
+export function isExpectedContentRange(
+  contentRange: string | null,
+  expected: { start: number; end: number; totalSize: number },
+): boolean {
+  const parsed = parseContentRange(contentRange)
+  if (!parsed) return false
+  return parsed.start === expected.start && parsed.end >= expected.end && parsed.total === expected.totalSize
 }

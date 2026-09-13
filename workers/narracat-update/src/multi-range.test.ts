@@ -4,8 +4,10 @@ import {
   buildClosingBoundary,
   buildPartHeader,
   createBoundary,
+  isExpectedContentRange,
   isWorthDownloading,
   parseByteRanges,
+  parseContentRange,
   parseTotalSize,
   planFetchGroups,
   resolveGroupBudget,
@@ -164,6 +166,14 @@ describe('isWorthDownloading', () => {
   test('总大小不合法时不接', () => {
     expect(isWorthDownloading(10, 0)).toBe(false)
   })
+
+  // 免费版 CPU 只在 17MB / 40MB 两个量级实测过。光有「不超过一半」的话，244MB 的包
+  // 意味着可以拉 122MB 过 Worker——那是拿没验过的量级赌 CPU 不被掐。
+  test('绝对上限 48MB：占比再小也不接', () => {
+    const huge = 1024 * 1024 * 1024
+    expect(isWorthDownloading(60 * 1024 * 1024, huge)).toBe(false)
+    expect(isWorthDownloading(40 * 1024 * 1024, huge)).toBe(true)
+  })
 })
 
 describe('parseTotalSize', () => {
@@ -177,6 +187,46 @@ describe('parseTotalSize', () => {
     expect(parseTotalSize('bytes */256435237')).toBeNull()
     expect(parseTotalSize('0-0/256435237')).toBeNull()
     expect(parseTotalSize('bytes 0-0/0')).toBeNull()
+  })
+})
+
+describe('对账上游给的是不是我们要的那一段', () => {
+  const expected = { start: 1000, end: 1999, totalSize: 100_000 }
+
+  test('严丝合缝就放行', () => {
+    expect(isExpectedContentRange('bytes 1000-1999/100000', expected)).toBe(true)
+  })
+
+  // 上游给多了不影响正确性：我们按自己的长度切，多的部分读不到。
+  test('终点给多了也放行', () => {
+    expect(isExpectedContentRange('bytes 1000-2999/100000', expected)).toBe(true)
+  })
+
+  // 这条是本函数存在的理由：起点错位时每段长度依然全对、结束分隔串依然齐全，
+  // 交出去的是一份「格式完美而字节全错」的响应。
+  test('起点错位一律拒绝', () => {
+    expect(isExpectedContentRange('bytes 1064-2063/100000', expected)).toBe(false)
+    expect(isExpectedContentRange('bytes 999-1999/100000', expected)).toBe(false)
+  })
+
+  test('终点不够、总大小对不上、格式不对，全都拒绝', () => {
+    expect(isExpectedContentRange('bytes 1000-1998/100000', expected)).toBe(false)
+    expect(isExpectedContentRange('bytes 1000-1999/99999', expected)).toBe(false)
+    expect(isExpectedContentRange('bytes */100000', expected)).toBe(false)
+    expect(isExpectedContentRange(null, expected)).toBe(false)
+  })
+})
+
+describe('parseContentRange', () => {
+  test('取出三个数', () => {
+    expect(parseContentRange('bytes 0-0/256435237')).toEqual({ start: 0, end: 0, total: 256435237 })
+  })
+
+  test('自相矛盾的值拒绝', () => {
+    expect(parseContentRange('bytes 100-50/1000')).toBeNull() // 起点大于终点
+    expect(parseContentRange('bytes 0-1000/1000')).toBeNull() // 终点越过总大小
+    expect(parseContentRange('bytes 0-0/0')).toBeNull()
+    expect(parseContentRange('bytes 0-0/*')).toBeNull()
   })
 })
 

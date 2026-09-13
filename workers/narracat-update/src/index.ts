@@ -17,6 +17,7 @@ import {
   buildClosingBoundary,
   buildPartHeader,
   createBoundary,
+  isExpectedContentRange,
   isWorthDownloading,
   parseByteRanges,
   parseTotalSize,
@@ -185,7 +186,12 @@ async function probeUpstream(
   upstream: string,
 ): Promise<{ totalSize: number; assetUrl: string; canReuseSignedUrl: boolean } | null> {
   const response = await fetch(upstream, {
-    headers: { Range: 'bytes=0-0', 'user-agent': 'narracat-update-proxy' },
+    headers: {
+      Range: 'bytes=0-0',
+      'user-agent': 'narracat-update-proxy',
+      // 与取数请求同口径：拿原样字节的长度，别让透明解压把总大小算歪。
+      'accept-encoding': 'identity',
+    },
     redirect: 'follow',
   })
   // 只要头，body 必须显式丢掉，否则连接悬着不放。
@@ -218,12 +224,23 @@ async function pumpGroup(
   onPartStarted: () => void,
 ): Promise<void> {
   const response = await fetch(assetUrl, {
-    headers: { Range: `bytes=${group.start}-${group.end}`, 'user-agent': 'narracat-update-proxy' },
+    headers: {
+      Range: `bytes=${group.start}-${group.end}`,
+      'user-agent': 'narracat-update-proxy',
+      // 不接受传输编码：workerd 对 gzip 上游会透明解压，解压后的字节流与我们按偏移切片的
+      // 假设对不上。这里要的是原样字节。
+      'accept-encoding': 'identity',
+    },
     redirect: 'follow',
   })
   if (response.status !== 206 || !response.body) {
     await response.body?.cancel()
     throw new Error(`上游拒绝区间请求：${response.status}`)
+  }
+  // 206 不等于「给的就是我们要的那一段」，必须对账，见 isExpectedContentRange。
+  if (!isExpectedContentRange(response.headers.get('content-range'), { ...group, totalSize })) {
+    await response.body.cancel()
+    throw new Error(`上游返回的区间与请求不符：${response.headers.get('content-range') ?? '(缺失)'}`)
   }
 
   const reader = response.body.getReader()
@@ -231,42 +248,47 @@ async function pumpGroup(
   let index = 0 // 本组处理到第几个区间
   let headerWritten = false
 
-  while (index < group.ranges.length) {
-    const { done, value } = await reader.read()
-    if (done) throw new Error('上游数据提前结束')
+  // finally 里收口：写入端抛错（客户端断连、下游 abort）时也要把上游这条子请求放掉，
+  // 否则连接会一直悬着。
+  try {
+    while (index < group.ranges.length) {
+      const { done, value } = await reader.read()
+      // 上游提前结束 = 这一组没取全。必须抛：继续往下写会交出一份缺字节却格式完整的响应。
+      if (done) throw new Error('上游数据提前结束')
 
-    let offset = 0
-    while (offset < value.length && index < group.ranges.length) {
-      const range = group.ranges[index]
+      let offset = 0
+      while (offset < value.length && index < group.ranges.length) {
+        const range = group.ranges[index]
 
-      // 还没到这一段的起点：中间是被合并进来的间隙，直接跳过。
-      if (position < range.start) {
-        const skipped = Math.min(range.start - position, value.length - offset)
-        offset += skipped
-        position += skipped
-        continue
-      }
+        // 还没到这一段的起点：中间是被合并进来的间隙，直接跳过。
+        if (position < range.start) {
+          const skipped = Math.min(range.start - position, value.length - offset)
+          offset += skipped
+          position += skipped
+          continue
+        }
 
-      if (!headerWritten) {
-        await writer.write(encoder.encode(buildPartHeader(boundary, range, totalSize, isFirstPart())))
-        onPartStarted()
-        headerWritten = true
-      }
+        if (!headerWritten) {
+          await writer.write(encoder.encode(buildPartHeader(boundary, range, totalSize, isFirstPart())))
+          onPartStarted()
+          headerWritten = true
+        }
 
-      const taken = Math.min(range.end - position + 1, value.length - offset)
-      // slice 而非 subarray：写入是排队的，不能让下游拿到一块随时可能被复用的底层 buffer。
-      await writer.write(value.slice(offset, offset + taken))
-      offset += taken
-      position += taken
+        const taken = Math.min(range.end - position + 1, value.length - offset)
+        // slice 而非 subarray：写入是排队的，不能让下游拿到一块随时可能被复用的底层 buffer。
+        await writer.write(value.slice(offset, offset + taken))
+        offset += taken
+        position += taken
 
-      if (position > range.end) {
-        index++
-        headerWritten = false
+        if (position > range.end) {
+          index++
+          headerWritten = false
+        }
       }
     }
+  } finally {
+    await reader.cancel().catch(() => {})
   }
-
-  await reader.cancel()
 }
 
 /**
@@ -279,18 +301,33 @@ async function pumpGroup(
 async function serveMultiRange(
   upstream: string,
   ranges: ByteRange[],
-  cacheControl: string,
 ): Promise<Response | null> {
+  // 不接管的每条路径都留一行：线上只看「用户还在全量下」分不清是没接管、还是接管了拼到一半挂。
+  // 只打区间数与字节数这类形状信息，不打地址、不打内容。
+  const declineReason = (why: string): null => {
+    console.log(`[multi-range] 不接管（${why}）ranges=${ranges.length}`)
+    return null
+  }
+
   const probe = await probeUpstream(upstream)
-  if (probe === null) return null
+  if (probe === null) return declineReason('探路未拿到总大小')
 
   const { totalSize, assetUrl, canReuseSignedUrl } = probe
   // 请求的区间超出文件末尾说明客户端与上游对不上（版本换了？），别猜，交还上游。
-  if (ranges[ranges.length - 1].end >= totalSize) return null
+  if (ranges[ranges.length - 1].end >= totalSize) return declineReason('区间超出文件末尾')
 
   const groups = planFetchGroups(ranges, resolveGroupBudget(canReuseSignedUrl))
-  if (groups === null) return null
-  if (!isWorthDownloading(totalFetchBytes(groups), totalSize)) return null
+  if (groups === null) return declineReason('分组失败')
+
+  const fetchBytes = totalFetchBytes(groups)
+  if (!isWorthDownloading(fetchBytes, totalSize)) {
+    return declineReason(`合并后要取 ${fetchBytes}/${totalSize} 字节，不如回落全量`)
+  }
+
+  console.log(
+    `[multi-range] 接管 ranges=${ranges.length} groups=${groups.length} ` +
+      `fetch=${fetchBytes} total=${totalSize} signedUrl=${canReuseSignedUrl}`,
+  )
 
   const boundary = createBoundary()
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
@@ -318,9 +355,13 @@ async function serveMultiRange(
       await writer.write(encoder.encode(buildClosingBoundary(boundary)))
       await writer.close()
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      console.log(`[multi-range] 取数中断，已交给客户端回落全量：${detail}`)
       // abort 而不是 close：截断的流会让客户端判定差量失败并回落全量下载，
       // close 则会把不完整的内容当成完整响应交出去。
-      await writer.abort(error instanceof Error ? error.message : String(error)).catch(() => {})
+      // 传 Error 实例而非字符串：流以非 Error 值出错时，运行时会把它当成「未处理的错误」
+      // 另行上报一次（bun 下会直接让测试红），而这条路径是我们**预期内**的失败。
+      await writer.abort(error instanceof Error ? error : new Error(detail)).catch(() => {})
     }
   })()
 
@@ -329,7 +370,10 @@ async function serveMultiRange(
     headers: {
       'content-type': `multipart/byteranges; boundary=${boundary}`,
       'accept-ranges': 'bytes',
-      'cache-control': cacheControl,
+      // **固定 no-store，不跟随调用方的缓存策略**：这份 body 的内容取决于请求里的 Range 头，
+      // 按 URL 缓存下来就会被当成完整文件发给下一个人。资产路径本身是 immutable 的，
+      // 但那说的是「整个文件不变」，不是「这份合成响应可复用」。
+      'cache-control': 'no-store',
     },
   })
 }
@@ -339,11 +383,15 @@ async function proxy(
   upstream: string,
   cacheControl: string,
   downloadFileName?: string,
+  options: { allowMultiRange?: boolean } = {},
 ): Promise<Response> {
   // 多区间请求上游一律回 501，本层代劳；单区间与普通下载保持原路，不受影响。
-  const ranges = request.method === 'GET' ? parseByteRanges(request.headers.get('range')) : null
+  const ranges =
+    options.allowMultiRange !== false && request.method === 'GET'
+      ? parseByteRanges(request.headers.get('range'))
+      : null
   if (ranges !== null && ranges.length > 1) {
-    const multiRange = await serveMultiRange(upstream, ranges, cacheControl)
+    const multiRange = await serveMultiRange(upstream, ranges)
     if (multiRange !== null) return multiRange
   }
 
@@ -380,7 +428,12 @@ async function serveDownloadAlias(request: Request, alias: DownloadAlias): Promi
   if (!version) return new Response('Bad Gateway', { status: 502 })
 
   const fileName = `NarraCat-${version}${alias.assetSuffix}`
-  return proxy(request, buildAliasAssetUrl(alias, version), MUTABLE_CACHE_CONTROL, fileName)
+  // **永久链接不接管多区间**：这条路径已经为清单花掉了子请求额度，再叠上探路与取数就正好顶到
+  // 免费版 50 个的天花板，清单那跳多一次重定向就超——超了是流中途报错，比干净回落更糟。
+  // 而它本来就是给人用的（下载工具可能发多区间），自动更新走的是带版本号的地址，不经过这里。
+  return proxy(request, buildAliasAssetUrl(alias, version), MUTABLE_CACHE_CONTROL, fileName, {
+    allowMultiRange: false,
+  })
 }
 
 export default {
