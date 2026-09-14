@@ -62,15 +62,22 @@ function PasteField({
 }
 
 /**
- * 「粘贴参考作品」可提交判据：标题与正文都是后端必填，且后端按 trim 后判空
- * （`electron/main/ipc/inputs.ts` 的 `readRequiredString`）——前端必须用同一口径，否则纯空格的标题
- * 在界面上看着能提交，走到主进程才抛「缺少参考作品标题」，等于拿后端异常当前端校验用（issue #109）。
+ * 「粘贴参考作品」能否提交。两处消费它，且必须是**逐字同一个调用**：
  *
- * 提取成纯函数是因为有两处消费它：提交按钮的禁用态（挡点击），和提交处理的前置守卫（挡回车——
- * 单行输入框里回车照样触发表单提交，禁用按钮拦不住）。两处共用一份口径才不会各自漂移。
+ * - 提交按钮的禁用态——挡鼠标点击；
+ * - `handlePaste` 的前置守卫——挡回车。两个输入框在提交中并不 disabled，单行输入框里按回车照样
+ *   触发表单提交，禁用按钮拦不住。
+ *
+ * 判据包含 `busy`，不只是「填没填」：漏掉它，提交中重复回车会再发一次请求，而后端把同标题当新来源
+ * **追加**（参考片段.md → 参考片段-2.md），凭空多出一份重复参考作品。曾经把 busy 留在调用侧各自拼，
+ * 两处口径就差了这一个条件——判据整个收进函数里，漂移才不可能发生。
+ *
+ * 空值口径与后端对齐：`electron/main/ipc/inputs.ts` 的 `readRequiredString` 是 `!value.trim()`，
+ * 所以纯空格不放行；否则界面上看着能提交，走到主进程才抛「缺少参考作品标题」，等于拿后端异常
+ * 当前端校验用（issue #109 日志里那条 ERROR）。
  */
-export function hasPasteReferenceInput(title: string, content: string): boolean {
-  return title.trim().length > 0 && content.trim().length > 0
+export function canSubmitPasteReference(busy: boolean, title: string, content: string): boolean {
+  return !busy && title.trim().length > 0 && content.trim().length > 0
 }
 
 export function ReferenceWorksPasteDialogPanel({
@@ -90,7 +97,7 @@ export function ReferenceWorksPasteDialogPanel({
   onSubmit: FormEventHandler<HTMLFormElement>
   onTitleChange: (value: string) => void
 }) {
-  const canSubmit = !busy && hasPasteReferenceInput(title, content)
+  const canSubmit = canSubmitPasteReference(busy, title, content)
 
   return (
     <form onSubmit={onSubmit} data-reference-works-paste-panel="true" className="grid">
@@ -218,9 +225,8 @@ export function ReferenceWorksView({
   const canAnalyze = hasSources && !busy
 
   async function handlePaste() {
-    // 与提交按钮同一口径再拦一道：按钮禁用只挡住点击，单行输入框里按回车照样触发表单提交，
-    // 只靠禁用态挡不住空值走到主进程（issue #109 日志里那条 ERROR 就是这么来的）。
-    if (!hasPasteReferenceInput(title, content)) return
+    // 与提交按钮逐字同一个判据（判据详情见 canSubmitPasteReference）：按钮禁用只挡点击，回车得靠这道。
+    if (!canSubmitPasteReference(busy, title, content)) return
 
     setSubmitting(true)
     setError(null)

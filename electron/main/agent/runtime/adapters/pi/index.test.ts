@@ -6,6 +6,7 @@
  * 全文件测试相应补 await。
  */
 import { describe, expect, mock, test } from 'bun:test'
+import { createExtensionRuntime, ExtensionRunner } from '@mariozechner/pi-coding-agent'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -306,21 +307,26 @@ describe('工具名大小写归一接线（issue #100）', () => {
    * 判据是**行为**不是「挂了几个扩展」：把一条含大写工具名的 assistant 消息喂给装配好的扩展链，
    * 看它实际被归一成什么。这同时锁住了装配处传进去的工具名集合是否与 `options.tools` 同源——
    * 只断言「某个扩展存在」的话，集合传错（比如漏掉 customTools）照样全绿。
+   *
+   * 用**真** `ExtensionRunner.emitMessageEnd` 跑链，不手写 for 循环复刻：上游那段还带 role 一致性
+   * 校验与 try/catch，手写版复刻不全，会漏掉「返回的 message 字段不全被整条丢弃」这类失效。
    */
   async function normalizeThrough(options: PiRunOptions, calledName: string): Promise<string> {
     const message = {
       role: 'assistant',
-      content: [{ type: 'toolCall', id: 'toolu_0', name: calledName, arguments: {} }],
+      content: [{ type: 'toolCall', id: 'toolu_0', name: calledName, arguments: { path: 'x.md' } }],
     }
-    let current: unknown = message
-    // 照 ExtensionRunner.emitMessageEnd 的链式语义：每个 handler 收到上一个替换后的 message。
-    for (const extension of options.extensions) {
-      for (const handler of extension.handlers.get('message_end') ?? []) {
-        const result = (await handler({ message: current }, {} as never)) as { message?: unknown } | undefined
-        if (result?.message) current = result.message
-      }
-    }
-    const content = (current as { content?: unknown[] }).content ?? []
+    const runner = new ExtensionRunner(
+      options.extensions,
+      createExtensionRuntime(),
+      '/tmp/normalize-through',
+      undefined as never,
+      undefined as never,
+    )
+    const replacement = (await runner.emitMessageEnd({ type: 'message_end', message } as never)) as
+      | { content?: unknown[] }
+      | undefined
+    const content = (replacement ?? message).content ?? []
     return (content[0] as { name?: string }).name ?? ''
   }
 
@@ -367,6 +373,31 @@ describe('工具名大小写归一接线（issue #100）', () => {
     const childOptions = capturedChildSessionCalls[0]!.options as PiRunOptions
     expect(await normalizeThrough(childOptions, 'Write')).toBe('write')
     expect(await normalizeThrough(childOptions, 'Read')).toBe('read')
+  })
+
+  test('子会话的判定集合同样含 customTools（漏传 childCustomTools 时这条会红）', async () => {
+    capturedChildSessionCalls = []
+    const adapter = createPiAdapter({ memoryBridge: fakeMemoryBridge })
+    const options = (await adapter.createRunOptions(
+      makeRunConfig({
+        loadNarraCatRuntime: true,
+        allowedTools: ['Read', 'Glob', 'Agent', `${MEMORY_TOOL_PREFIX}novel_query`],
+        agents: {
+          'chapter-writer': {
+            description: '写手',
+            prompt: '写手系统词',
+            tools: ['Read', 'Glob', `${MEMORY_TOOL_PREFIX}novel_query`],
+          },
+        },
+      }),
+    )) as PiRunOptions
+    const task = options.customTools.find((tool) => tool.name === 'Task')!
+    await task.execute('tc-1', { subagent_type: 'chapter-writer', prompt: '写第一章' } as never, undefined, undefined, {} as never)
+
+    const childOptions = capturedChildSessionCalls[0]!.options as PiRunOptions
+    // find 是 portable 版（customTool），只在 childCustomTools 里；Glob→find 走别名档。
+    expect(childOptions.customTools.map((tool) => tool.name)).toContain('find')
+    expect(await normalizeThrough(childOptions, 'Glob')).toBe('find')
   })
 
   test('沙盒会话（学习/向导）同样挂载', async () => {

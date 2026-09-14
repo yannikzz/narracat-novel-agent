@@ -26,18 +26,41 @@
  *   被绕过的安全回归。归一发生在工具查找之前，下游（guard 圈禁、canUseTool、工具卡渲染、telemetry
  *   计数）看到的仍是唯一那个 pi 真名，零改动、零分叉。
  *
- * ## 落点与时序（与 pi-eager-toolcall-args.ts 同一套官方扩展点）
+ * ## 落点（与 pi-eager-toolcall-args.ts 同一套官方扩展点）
  *
  * `agent-session.js` 的 `message_end` 分支走 `emitMessageEnd`，返回 `{ message }` 由上游
- * `_replaceMessageInPlace` 原地写回（会同步到 agent 状态、后续事件与会话持久化）。时序上
- * `agent-loop.js` L96 emit message_end → L111 才提取 toolCalls → L115 才执行工具，改名落在
- * 查找之前。`emitMessageEnd` 对多个扩展是**链式**的（`currentEvent = { ...event, message:
- * currentMessage }`），所以与 eager 参数救回共存安全：那个扩展排在前，本扩展看到的是参数已补全的
- * 那份 message。
+ * `_replaceMessageInPlace` **原地** mutate 写回（delete 掉原对象全部 key 再 Object.assign），而
+ * `agent-loop.js` 执行工具时读的正是同一个 message 对象——所以这是唯一可用的替换通道：
+ * message_start 那几处上游传的是 `{...copy}`，在那里改根本不生效。
+ *
+ * 返回的 message **必须字段完整**（尤其 `role`）：`runner.js` 的 emitMessageEnd 会校验 role 与原
+ * 消息一致，不一致就丢弃整个替换、归一静默失效。故一律 spread 原 message，只换 `content`。
+ *
+ * `emitMessageEnd` 对多个扩展是**链式**的（`currentEvent = { ...event, message: currentMessage }`），
+ * 与 eager 参数救回共存安全：那个扩展排在前，本扩展看到的是参数已补全的那份 message。
  *
  * 试过且不可行的落点，与 eager 那份同因：`tool_call` 扩展事件在 `prepareToolCall` 之后才触发
  * （名字对不上时上游已经返回 not found，钩子不会被调用），且 `ToolCallEventResult` 只有
  * block/pass 两种语义，没有改写通道。
+ *
+ * ## ⚠️ 时序靠的是余量，不是上游契约
+ *
+ * **不要把「message_end 一定早于工具查找」当成结构性保证——上游并没有保证。**
+ * `agent-session.js` 的 `_handleAgentEvent` 只把处理**排进 `_agentEventQueue`** 就返回，没有把那个
+ * promise 交出去；`pi-agent-core/dist/agent.js` 里 `await listener(event, signal)` 于是 await 到
+ * `undefined`——**agent loop 不等扩展跑完就继续**。扩展链是异步追赶工具查找的。
+ *
+ * 今天能生效，靠的是 message_end 之前排队的处理**恰好全程没有宏任务**（eager 的 message_update
+ * handler 纯同步、引擎钩子用 readFileSync、上游会话持久化用 appendFileSync），队列得以在工具查找
+ * 之前排空。实测两种翻车方式：任一前置事件的 handler 里放一个 setTimeout / 异步 fs / 网络调用，
+ * 或换一种流式事件序列——`tool_execution_start` 拿到的就是未归一的 `Read`，整条修复空转。
+ *
+ * 失败方向是 fail-closed（`Tool Read not found`，与修复前同症状，无安全后果），但它**静默**。因此：
+ *
+ * - **禁止**在 message_start / message_update / message_end 的 handler 里做异步 I/O（同一条纪律对
+ *   `pi-eager-toolcall-args.ts` 同样成立：它的参数救回也靠这份余量）。
+ * - 护栏是 `pi-toolcall-name-normalizer.integration.test.ts`（走真实会话 + 假 streamFn，断言工具
+ *   真的执行了）。**pi 升级后必须重跑它**；它红了说明余量没了，要改的是落点，不是把断言改松。
  *
  * ## 判定纪律：精确优先，大小写不敏感唯一回退
  *
@@ -51,6 +74,7 @@
  */
 import { createSyntheticSourceInfo } from '@mariozechner/pi-coding-agent'
 import type { Extension } from '@mariozechner/pi-coding-agent'
+import { SDK_TO_PI_TOOL_NAME } from './pi-tool-guard.ts'
 
 type UnknownRecord = Record<string, unknown>
 
@@ -58,13 +82,34 @@ function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** SDK 名 → pi 真名的大小写不敏感查找表（`glob` / `Glob` / `GLOB` 都要能查到 `find`）。 */
+const LOWER_SDK_TO_PI_TOOL_NAME = new Map(
+  Object.entries(SDK_TO_PI_TOOL_NAME).map(([sdkName, piName]) => [sdkName.toLowerCase(), piName]),
+)
+
 /**
- * 归一单个工具名：命中真名返回 undefined（不改），否则大小写不敏感唯一命中才返回真名。
+ * 归一单个工具名，三档依次判定；返回 undefined 表示不改。
+ *
+ * 1. **精确命中本会话工具面** → 不改。
+ * 2. **别名表**（`pi-tool-guard.ts` 的 `SDK_TO_PI_TOOL_NAME`，与白名单翻译共用同一份，不留第二张
+ *    表漂移）→ 命中即用 pi 真名。这一档专治 `Glob → find` 这类**改名而非变大小写**的映射：
+ *    第 3 档的大小写规则结构上永远够不着它，而 `Glob` 在引擎 prompt 里的出现频度仅次于 `Read`
+ *    （13 份 allowed-tools 声明，另有多处正文直接写「用 Glob 扫描…」），漏掉它等于只修一半。
+ * 3. **大小写不敏感唯一回退** → 唯一候选才改。
+ *
+ * 每一档的目标都必须已在本会话工具面内，否则不改——归一只做「换个名字指向同一个已注册工具」，
+ * 绝不把调用引到本会话没有的工具上（那是工具白名单的事，不归归一管）。
+ *
  * 导出供测试直接覆盖判定表，不必每次构造整条消息。
  */
 export function resolveToolCallName(rawName: string, knownToolNames: readonly string[]): string | undefined {
   if (knownToolNames.includes(rawName)) return undefined
+
   const lowerName = rawName.toLowerCase()
+
+  const aliased = LOWER_SDK_TO_PI_TOOL_NAME.get(lowerName)
+  if (aliased !== undefined && aliased !== rawName && knownToolNames.includes(aliased)) return aliased
+
   const candidates = knownToolNames.filter((name) => name.toLowerCase() === lowerName)
   // 零命中 = 模型调了个本会话真没有的工具；多命中 = 名字本身有大小写歧义。两种都原样交给上游报错。
   if (candidates.length !== 1) return undefined

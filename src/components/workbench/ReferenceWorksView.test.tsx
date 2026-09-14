@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Dialog } from '@/components/ui/dialog'
 import { EMPTY_PRIMARY_TITLE_CLASS } from '@/design-system'
-import { hasPasteReferenceInput, ReferenceWorksPasteDialogPanel, ReferenceWorksView } from './ReferenceWorksView'
+import { canSubmitPasteReference, ReferenceWorksPasteDialogPanel, ReferenceWorksView } from './ReferenceWorksView'
 import type { ReferenceWorksSummary } from '@shared/types/novel'
 
 const emptySummary: ReferenceWorksSummary = {
@@ -250,14 +250,21 @@ describe('粘贴参考作品的必填校验（issue #109）', () => {
   })
 })
 
-describe('hasPasteReferenceInput', () => {
-  test('两个字段都非空白才成立', () => {
-    expect(hasPasteReferenceInput('片段', '正文')).toBe(true)
-    expect(hasPasteReferenceInput('', '正文')).toBe(false)
-    expect(hasPasteReferenceInput('片段', '')).toBe(false)
-    expect(hasPasteReferenceInput('  ', '正文')).toBe(false)
-    expect(hasPasteReferenceInput('片段', '\t\n')).toBe(false)
-    expect(hasPasteReferenceInput('', '')).toBe(false)
+describe('canSubmitPasteReference', () => {
+  test('两个字段都非空白、且不在提交中，才能提交', () => {
+    expect(canSubmitPasteReference(false, '片段', '正文')).toBe(true)
+    expect(canSubmitPasteReference(false, '', '正文')).toBe(false)
+    expect(canSubmitPasteReference(false, '片段', '')).toBe(false)
+    expect(canSubmitPasteReference(false, '  ', '正文')).toBe(false)
+    expect(canSubmitPasteReference(false, '片段', '\t\n')).toBe(false)
+    expect(canSubmitPasteReference(false, '', '')).toBe(false)
+  })
+
+  test('提交中一律不可再提交——这一条挡的是回车重复提交', () => {
+    // 两个输入框在 busy 时并不 disabled，回车绕过按钮禁用；漏了这条会重复发请求，
+    // 而后端把同标题当新来源追加，凭空多出一份重复参考作品。
+    expect(canSubmitPasteReference(true, '片段', '正文')).toBe(false)
+    expect(canSubmitPasteReference(true, '', '')).toBe(false)
   })
 })
 

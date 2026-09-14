@@ -111,9 +111,76 @@ describe('createPiToolCallNameNormalizer', () => {
     expect(after).toEqual(['read'])
   })
 
-  test('Write/Edit/Grep/Glob 同样归一（Glob 无同名真名，不该被改）', async () => {
+  test('Write/Edit/Grep 同样按大小写归一', async () => {
     const { after } = await runThroughExtension(['Write', 'Edit', 'Grep'])
     expect(after).toEqual(['write', 'edit', 'grep'])
+  })
+
+  test('Glob 经别名表归一成 find——改名映射，大小写规则够不着它', async () => {
+    // #100 的第二半：SDK_TO_PI_TOOL_NAME 里只有 Glob→find 是改名而非变大小写。
+    const { before, after } = await runThroughExtension(['Glob'], [...KNOWN_TOOLS, 'find'])
+    expect(before).toEqual(['Glob'])
+    expect(after).toEqual(['find'])
+  })
+
+  test('别名表查找不分大小写：glob / GLOB 一样归一成 find', async () => {
+    const { after } = await runThroughExtension(['glob', 'GLOB'], [...KNOWN_TOOLS, 'find'])
+    expect(after).toEqual(['find', 'find'])
+  })
+
+  test('别名目标不在本会话工具面时不改——归一不能把调用引到没开的工具上', async () => {
+    // 工具面没有 find：Glob 必须原样报 not found，而不是被归一成一个本会话没有的工具。
+    const { after } = await runThroughExtension(['Glob'], ['read', 'write'])
+    expect(after).toEqual(['Glob'])
+  })
+
+  test('归一只换名字：id 与 arguments 逐字保留', async () => {
+    // 改名的全部意义就是让这次调用能被执行，而执行靠的正是 id 与 arguments。
+    const extension = createPiToolCallNameNormalizer({ knownToolNames: () => KNOWN_TOOLS })
+    const onEnd = extension.handlers.get('message_end')?.[0]
+    if (!onEnd) throw new Error('扩展未注册处理器')
+    const block = { type: 'toolCall', id: 'toolu_7', name: 'Read', arguments: { path: 'bible/premise.md', limit: 20 } }
+    const result = (await onEnd({ message: { role: 'assistant', content: [block] } })) as { message?: unknown } | undefined
+    const after = ((result?.message as { content?: unknown[] })?.content ?? [])[0]
+    expect(after).toEqual({ ...block, name: 'read' })
+  })
+
+  test('归一保留 message 的其余字段——丢了 role 会被上游整条丢弃', async () => {
+    // runner.js 的 emitMessageEnd 校验 role 与原消息一致，不一致就丢弃整个替换、归一静默失效。
+    const extension = createPiToolCallNameNormalizer({ knownToolNames: () => KNOWN_TOOLS })
+    const onEnd = extension.handlers.get('message_end')?.[0]
+    if (!onEnd) throw new Error('扩展未注册处理器')
+    const message = {
+      role: 'assistant',
+      stopReason: 'toolUse',
+      usage: { input: 1, output: 2 },
+      provider: 'deepseek',
+      content: [{ type: 'toolCall', id: 'toolu_1', name: 'Read', arguments: {} }],
+    }
+    const result = (await onEnd({ message })) as { message?: Record<string, unknown> } | undefined
+    expect({ ...result?.message, content: undefined }).toEqual({ ...message, content: undefined })
+  })
+
+  test('非 assistant 消息不介入', async () => {
+    const extension = createPiToolCallNameNormalizer({ knownToolNames: () => KNOWN_TOOLS })
+    const onEnd = extension.handlers.get('message_end')?.[0]
+    if (!onEnd) throw new Error('扩展未注册处理器')
+    const content = [{ type: 'toolCall', id: 'toolu_1', name: 'Read', arguments: {} }]
+    expect(await onEnd({ message: { role: 'user', content } })).toBeUndefined()
+  })
+
+  test('content 不是数组 / 工具名为空时安全跳过，不抛异常', async () => {
+    // handler 抛异常会被 runner catch 成 emitError → 归一静默不生效，症状退回 not found。
+    const extension = createPiToolCallNameNormalizer({ knownToolNames: () => KNOWN_TOOLS })
+    const onEnd = extension.handlers.get('message_end')?.[0]
+    if (!onEnd) throw new Error('扩展未注册处理器')
+    expect(await onEnd({ message: { role: 'assistant', content: '不是数组' } })).toBeUndefined()
+    expect(
+      await onEnd({ message: { role: 'assistant', content: [{ type: 'toolCall', id: 'x', name: '', arguments: {} }] } }),
+    ).toBeUndefined()
+    expect(
+      await onEnd({ message: { role: 'assistant', content: [{ type: 'toolCall', id: 'x', arguments: {} }] } }),
+    ).toBeUndefined()
   })
 
   test('工具名本就精确命中：一个字节都不改', async () => {
@@ -174,13 +241,21 @@ describe('createPiToolCallNameNormalizer', () => {
 })
 
 describe('resolveToolCallName', () => {
-  test('大小写歧义时不改：同时存在 read 与 Read，无从判断模型要哪个', () => {
-    expect(resolveToolCallName('READ', ['read', 'Read'])).toBeUndefined()
+  test('大小写歧义时不改：两个只差大小写的自定义工具，无从判断模型要哪个', () => {
+    // 用别名表外的名字才测得到第 3 档——表内的名字有权威映射可依，不算猜。
+    expect(resolveToolCallName('MYTOOL', ['mytool', 'MyTool'])).toBeUndefined()
   })
 
-  test('精确命中优先于大小写回退', () => {
-    // 精确存在时直接不改，哪怕另有一个只差大小写的同名工具。
+  test('精确命中优先于一切：别名表与大小写回退都不参与', () => {
     expect(resolveToolCallName('Read', ['read', 'Read'])).toBeUndefined()
+    expect(resolveToolCallName('mytool', ['mytool', 'MyTool'])).toBeUndefined()
+  })
+
+  test('别名表优先于大小写回退，且只在目标已注册时生效', () => {
+    expect(resolveToolCallName('Glob', ['find'])).toBe('find')
+    expect(resolveToolCallName('GLOB', ['find'])).toBe('find')
+    // 目标未注册 → 不改（不把调用引到本会话没开的工具上）
+    expect(resolveToolCallName('Glob', ['read'])).toBeUndefined()
   })
 
   test('唯一大小写候选才回退', () => {
