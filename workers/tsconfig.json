@@ -1,0 +1,25 @@
+{
+  // Worker 源码的类型检查。**刻意独立于根 tsconfig 的 project references**：
+  // Worker 跑在 workerd 里、与 Electron 主进程/渲染进程的 lib 和模块解析都不同，
+  // 混进 `tsc -b` 会互相污染 lib 设置。
+  //
+  // 之所以补这个文件：`tsconfig.node.json` 只 include scripts/electron/shared，
+  // `workers/` 一直是类型盲区——而这里住着公网入口和流式切片这类最不该靠手感写的代码。
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    // workerd 的全局对象与 DOM 的那套（fetch/Request/Response/streams）基本同形，
+    // 没装 @cloudflare/workers-types 时用 dom 这一档足够覆盖本目录用到的 API。
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "types": []
+  },
+  // 只检生产源码：测试文件用 bun:test（需要 bun 自己的类型），而它们本来就靠真跑来验。
+  "include": ["*/src/**/*.ts"],
+  "exclude": ["*/src/**/*.test.ts"]
+}

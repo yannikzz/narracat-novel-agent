@@ -29,7 +29,7 @@
     "check:design": "node scripts/check-design-system.mjs",
     "check:architecture": "node scripts/check-architecture.mjs --enforce && node scripts/check-prose-blocks.mjs && node scripts/check-no-native-details.mjs",
     "smoke:memory": "node scripts/ensure-electron-native.mjs && bun --no-cache run build && node scripts/smoke-memory.mjs",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b && tsc --noEmit -p workers/tsconfig.json"
   },
   "build": {
     "appId": "app.narracat.desktop",
