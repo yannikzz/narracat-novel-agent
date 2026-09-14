@@ -250,6 +250,10 @@ function mapMessageEnd(context: RuntimeMapContext, message: UnknownRecord): Agen
         type: 'run.failed',
         runId: context.runId,
         error: LENGTH_TRUNCATED_ERROR_TEXT,
+        // 与子 agent 致命截断那条同口径。**漏了这个字段，埋点里的 output-limit 会恒为 0**
+        // ——失败原因分类只能靠中文文案猜，而那条文案匹配不上任何 pattern，会落进 unknown，
+        // 反过来让人误以为「截断已经不是问题了」。
+        reason: 'output-limit',
         createdAt: context.createdAt,
       },
     ]

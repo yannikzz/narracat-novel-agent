@@ -191,6 +191,10 @@ describe('mapPiMessageToAgentEvents', () => {
         type: 'run.failed',
         runId: 'run-1',
         error: '模型单次回复长度达到上限，本次运行已中止，请重试或把任务拆小。',
+        // ⚠️ 这个字段不能掉：埋点的失败原因分类优先读结构化 reason，掉了就只能靠中文文案猜，
+        // 而那条文案匹配不上任何 pattern，会落进 unknown——于是 output-limit 恒为 0，
+        // 反过来让人误以为「截断已经不是问题了」。子 agent 致命截断那条也是同口径。
+        reason: 'output-limit',
         createdAt: ctx.createdAt,
       },
     ])

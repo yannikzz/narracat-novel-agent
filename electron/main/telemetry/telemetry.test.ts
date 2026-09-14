@@ -64,6 +64,28 @@ describe('清洗（红线的机械执行者）', () => {
     expect(sanitizeEvent(tooLong, AT)).toBeNull()
   })
 
+  // 失败原因是新加的白名单字段（2026-09-11）：run-failed 占写章节的 20%，
+  // 不分类就不知道该修什么。它仍是枚举码，走的还是同一套裁剪与形态闸。
+  test('失败原因字段放行', () => {
+    const event = {
+      event: 'error_occurred',
+      props: { code: 'run-failed', module: 'write-chapter', reason: 'network-interrupted' },
+    } as unknown as TelemetryEvent
+    expect(sanitizeEvent(event, AT)?.props).toEqual({
+      code: 'run-failed',
+      module: 'write-chapter',
+      reason: 'network-interrupted',
+    })
+  })
+
+  test('失败原因位置夹带正文一样被形态闸拦下', () => {
+    const leaky = {
+      event: 'error_occurred',
+      props: { code: 'run-failed', module: 'write-chapter', reason: '林舟握紧了剑\n他知道避无可避' },
+    } as unknown as TelemetryEvent
+    expect(sanitizeEvent(leaky, AT)).toBeNull()
+  })
+
   test('未登记的事件名发不出去', () => {
     const rogue = { event: 'chapter_text', props: {} } as unknown as TelemetryEvent
     expect(sanitizeEvent(rogue, AT)).toBeNull()

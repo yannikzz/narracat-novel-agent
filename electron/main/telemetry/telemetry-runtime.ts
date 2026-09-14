@@ -22,14 +22,13 @@ import {
 } from '@shared/types/telemetry'
 import { resolvePrimaryModel } from '@shared/lib/model-slots'
 import { getConfigPath, readAppConfig, writeAppConfig, type AppConfig } from '../config.ts'
-import type { ChapterWriteTelemetryEvent } from '../agent/events/agent-main-side-effects.ts'
+import type { RunTelemetryEvent } from '../agent/events/agent-main-side-effects.ts'
+import { planRunTelemetry, UNKNOWN_MODEL } from './run-telemetry-plan.ts'
 import {
   buildWirePayload,
   createFeatureUsedDeduper,
-  durationBucket,
   isTelemetryAllowed,
   sanitizeEvent,
-  sizeBucket,
   trimQueue,
   TELEMETRY_FLUSH_AT,
   TELEMETRY_FLUSH_INTERVAL_MS,
@@ -204,28 +203,37 @@ async function primaryModelLabel(): Promise<{ provider: string; model_id: string
 }
 
 /**
- * 写章节的起止。起点同时补记一条 feature_used(write-chapter)，让 16 个模块的
- * "有机会用 → 用过 → 第二次"口径保持一致（写章节不挂在任何 IPC 通道上，见 ipc-modules.ts）。
+ * 一次 Agent run 的起止。**所有 command 都会走到这里**，按 command 分两档：
+ *
+ * - **写章节**（只有 write-next）：起点补一条 feature_used(write-chapter)，再发
+ *   chapter_write_started / finished。口径与此前完全一致——rewrite/review 虽然同属
+ *   write-chapter 模块，但不是"写新的一章"，混进去会稀释完成率与耗时分布，那两个数要跨版本
+ *   可比（见 run-module.ts 的 isChapterWriteCommand）。
+ * - **其余 command**：不发那两个事件，只在失败时记一条 error_occurred，模块由
+ *   resolveRunModule 给出。
+ *
+ * 失败上报从写章节扩到全部 command 是 2026-09-11 加的：此前「立项卡跑失败了」这类事一条
+ * 记录都没有，而 premise 是第二大模块（128 台设备用过，写章节只有 64 台）。
+ *
+ * **告知版本未 bump**，这是产品主人的决定，依据是 ADR-0039 已把「报错枚举码」列为采纳的
+ * 灰区项、告知屏正文一个字没改、逐条清单（docs/faq.md）已同步。
+ * ⚠️ 别把它读成「以后新增采集项都不用 bump」：本仓另一条记录在案的判据是「这个用户动作在
+ * 改动前会不会产生任何一条事件？答否即新增采集项」，按那条读这次是够得着 bump 线的
+ * （立项卡失败此前确实一条事件都不发）。两种读法都成立，属灰区，由产品主人拍板。
  */
-export async function recordChapterWrite(event: ChapterWriteTelemetryEvent): Promise<void> {
+export async function recordRunTelemetry(event: RunTelemetryEvent): Promise<void> {
   try {
     const state = await loadState()
     if (!allowed(state)) return
-    const model = await primaryModelLabel()
-    if (event.phase === 'started') {
-      recordFeatureUsed('write-chapter')
-      await recordTelemetry({
-        event: 'chapter_write_started',
-        props: { ...model, chapter_bucket: sizeBucket(event.chapter ?? 0) },
-      })
-      return
-    }
-    await recordTelemetry({
-      event: 'chapter_write_finished',
-      props: { ...model, outcome: event.outcome, duration_bucket: durationBucket(event.durationMs) },
-    })
-    if (event.outcome === 'failed') {
-      await recordTelemetry({ event: 'error_occurred', props: { code: 'run-failed', module: 'write-chapter' } })
+
+    // 判断全在 planRunTelemetry（纯函数，可测）；这里只负责取模型标识、发事件。
+    // 先按占位值问一次要不要模型，避免非写章节的 run 白读一次配置文件。
+    const probe = planRunTelemetry(event, UNKNOWN_MODEL)
+    const plan = probe.needsModel ? planRunTelemetry(event, await primaryModelLabel()) : probe
+
+    if (plan.featureUsed) recordFeatureUsed(plan.featureUsed)
+    for (const telemetryEvent of plan.events) {
+      await recordTelemetry(telemetryEvent)
     }
   } catch {
     // 埋点不许影响写作链路。

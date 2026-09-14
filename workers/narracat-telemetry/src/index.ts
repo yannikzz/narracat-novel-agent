@@ -27,12 +27,12 @@ const DEFAULT_POSTHOG_HOST = 'https://eu.i.posthog.com'
  * 两处刻意各写一份而不是共享代码：Worker 与 App 是分开部署的，不能假设线上跑的客户端
  * 就是当前这份源码——服务端要能独立地对着字典拦住任何意外字段。
  */
-const ALLOWED: Record<string, readonly string[]> = {
+export const ALLOWED: Record<string, readonly string[]> = {
   app_started: ['app_version', 'os', 'arch'],
   feature_used: ['module'],
   chapter_write_started: ['provider', 'model_id', 'chapter_bucket'],
   chapter_write_finished: ['provider', 'model_id', 'outcome', 'duration_bucket'],
-  error_occurred: ['code', 'module'],
+  error_occurred: ['code', 'module', 'reason'],
   telemetry_opt_out: ['app_version'],
 }
 
@@ -63,7 +63,10 @@ export function sanitizeIncomingEvent(input: unknown): CleanEvent | null {
   if (typeof input !== 'object' || input === null) return null
   const entry = input as Record<string, unknown>
   const name = entry.event
-  if (typeof name !== 'string' || !(name in ALLOWED)) return null
+  // 必须用 Object.hasOwn 而不是 `in`：`in` 会命中原型链，`event: "constructor"` 能过这一关，
+  // 下面展开 ALLOWED[name] 时拿到的是 Function、当场抛 TypeError，而 fetch 外层没有兜底
+  // ——公网端点一条 curl 就能把整个请求打成 500。
+  if (typeof name !== 'string' || !Object.hasOwn(ALLOWED, name)) return null
   if (!acceptableDistinctId(entry.distinct_id)) return null
 
   const timestamp = typeof entry.timestamp === 'string' ? entry.timestamp : ''
