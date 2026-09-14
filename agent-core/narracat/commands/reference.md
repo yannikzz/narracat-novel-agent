@@ -31,8 +31,8 @@ allowed-tools: [Read, Write, Glob, AskUserQuestion, TaskCreate, TaskUpdate, Skil
 
 ### 步骤 0: 前置检查
 
-1. 确认 `.narracat/config.yaml` 存在；不存在 → 报错 + 提示运行 `/narracat:init`，终止
-2. 确认 `bible/references/` 目录存在；不存在 → 提示「请先运行 `/narracat:init` 或通过 NarraCat Desktop 添加参考作品」，终止
+1. 确认 `.narracat/config.yaml` 存在。**工具报错 ≠ 文件不存在**：读取工具返回错误时如实报出错误与原因，不要据此推断项目未初始化。确认不存在 → 如实说明这本书的项目文件读不到、本次无法继续；不要自行初始化，也不要建议作者重新建一部，终止
+2. 确认 `bible/references/` 目录存在；不存在 → 提示作者先添加参考作品，终止
 3. 用 Glob 列出 `bible/references/*.md` 和 `bible/references/*.txt`
    - 文件列表为空 → 提示「`bible/references/` 为空。请添加 `.md` 或 `.txt` 参考作品后重新运行」，终止
 4. 检查 `bible/reference-guidance/index.md` 是否已存在
@@ -252,8 +252,8 @@ if 调整 → 用户提供调整意见，回到步骤 2 重新分析该维度
 
 | 场景 | 处理 |
 |---|---|
-| 项目未初始化 | 报错 + 提示运行 `/narracat:init`，终止 |
-| `bible/references/` 不存在 | 提示先运行 init 或通过 App 添加，终止 |
+| 读不到项目配置文件 | 如实说明这本书的项目文件读不到、本次无法继续；不要自行初始化，也不要建议作者重新建一部，终止 |
+| `bible/references/` 不存在 | 提示作者先添加参考作品，终止 |
 | `bible/references/` 为空 | 提示添加 `.md` / `.txt` 后重试，终止 |
 | `bible/reference-guidance/index.md` 已存在 | 拒绝覆盖，提示删除目录后重试，终止 |
 | 参考文件格式不支持（非 .md/.txt） | 跳过该文件，告知用户支持的格式 |

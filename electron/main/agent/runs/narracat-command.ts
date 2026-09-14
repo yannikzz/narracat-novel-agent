@@ -36,6 +36,25 @@ const COMMANDS = new Set<AgentRunRequest['command']>([
   'revise-premise',
   'sync-chapter-memory',
 ])
+/**
+ * 桌面端客户端约束（issue #102）：引擎的 command 正文是命令行 / 桌面两类客户端共用的，所以它一律
+ * 客户端中立——「作者该怎么自救」这类话由 App 在这里注入，分层上也该是这个方向（引擎不猜客户端）。
+ *
+ * 两条都各有实据：
+ * - **不许向作者输出 `/narracat:xxx`**：App 只把 9 个命令渲染成可点按钮（见 `ACTION_BY_NARRACAT_COMMAND`），
+ *   其余（`init` / `write` / `learn-craft` / `writer-wizard`）解析不出动作、原样退化成纯文本——
+ *   作者眼前就是一条看着像按钮、点不动也没处可敲的死字符串。#102 的原始现场正是模型让作者去跑
+ *   `/narracat:init`，而桌面端根本没有敲斜杠命令的入口。
+ * - **项目文件读不到时不要劝作者重建**：目录真缺文件时项目会被判 invalid，工作台直接退回书架、
+ *   连 Agent 请求都不会发（ADR-0046），命令根本跑不起来；所以真能说出这句话的场景基本只有
+ *   「文件其实在、模型误判」，此时劝重建只会让作者白造一本空书，也与书架「先别急着移除」相悖。
+ */
+const DESKTOP_CLIENT_GUARD = [
+  '桌面客户端约束：作者在 NarraCat App 里使用本命令，没有命令行，也没有敲斜杠命令的入口。',
+  '需要作者做的事一律用自然语言动作名描述（如「回到书架」「在设定页添加参考作品」），不要向作者输出 /narracat:xxx 形式的命令让其执行。',
+  '项目文件读不到时：如实说明读不到、本次无法继续，并让作者回书架查看这本书的状态；不要自行初始化，也不要建议作者重新建一部作品。',
+].join('\n')
+
 const INTERACTIVE_COMMAND_GUARD = [
   '桌面交互约束：NarraCat command 中每一次需要用户输入、确认、选择、追问或继续/调整决策时，必须调用 AskUserQuestion。',
   '必须使用 AskUserQuestion 承载用户输入轮次，确保 NarraCat App 能显示为交互式问题卡。',
@@ -67,7 +86,7 @@ export function namespaceNarraCatTaskAgentTypes(commandSource: string): string {
 }
 
 export function normalizeNarraCatCommandSource(commandSource: string): string {
-  return [CHAPTER_ARTIFACT_PATH_GUARD, '', namespaceNarraCatTaskAgentTypes(commandSource).trim()].join('\n')
+  return [DESKTOP_CLIENT_GUARD, '', CHAPTER_ARTIFACT_PATH_GUARD, '', namespaceNarraCatTaskAgentTypes(commandSource).trim()].join('\n')
 }
 
 /**

@@ -6,6 +6,7 @@
  * 全文件测试相应补 await。
  */
 import { describe, expect, mock, test } from 'bun:test'
+import { createExtensionRuntime, ExtensionRunner } from '@mariozechner/pi-coding-agent'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -164,8 +165,8 @@ describe('切片③ 权限门禁接线', () => {
   test('guard 扩展始终注入且允许根含 novelRootDir/projectPath/cwd', async () => {
     const adapter = createPiAdapter()
     const options = (await adapter.createRunOptions(makeRunConfig())) as PiRunOptions
-    // guard + eager 参数救回 + 输出上限兑现（测试配置的主力槽是白名单内的 deepseek-v4-pro）。
-    expect(options.extensions).toHaveLength(3)
+    // guard + eager 参数救回 + 工具名归一 + 输出上限兑现（测试配置的主力槽是白名单内的 deepseek-v4-pro）。
+    expect(options.extensions).toHaveLength(4)
     expect(options.extensions.some((extension) => extension.handlers.has('tool_call'))).toBe(true)
   })
 
@@ -213,7 +214,8 @@ describe('切片③ 权限门禁接线', () => {
     // 只有 find（不依赖 fd 的替代实现，工具面含 find 时自动注入）——此处要钉的是
     // 「不注册其它自定义工具」，故精确列举而非只判空。
     expect(options.customTools.map((tool) => tool.name)).toEqual(['find'])
-    expect(options.extensions).toHaveLength(3)
+    // guard + eager 参数救回 + 工具名归一 + 输出上限兑现。
+    expect(options.extensions).toHaveLength(4)
   })
 
   test('createSandboxedRunOptions 沙盒路径同规持久化：resume 翻成 sessionStore.resumeSessionId（对齐 SDK persistSession 默认，向导轮次续接同构）', async () => {
@@ -233,7 +235,8 @@ describe('切片④ 引擎钩子接线', () => {
   test('loadNarraCatRuntime=true → extensions 含 guard + engine-hooks 两个扩展', async () => {
     const adapter = createPiAdapter()
     const options = (await adapter.createRunOptions(makeRunConfig({ loadNarraCatRuntime: true }))) as PiRunOptions
-    expect(options.extensions).toHaveLength(4)
+    // 上面四个 + engine-hooks。
+    expect(options.extensions).toHaveLength(5)
     expect(options.extensions.some((extension) => extension.handlers.has('tool_call'))).toBe(true)
     expect(options.extensions.some((extension) => extension.handlers.has('tool_result'))).toBe(true)
   })
@@ -242,10 +245,10 @@ describe('切片④ 引擎钩子接线', () => {
     const adapter = createPiAdapter()
     const withoutFlag = (await adapter.createRunOptions(makeRunConfig())) as PiRunOptions
     expect(withoutFlag.extensions.some((extension) => extension.handlers.has('tool_result'))).toBe(false)
-    expect(withoutFlag.extensions).toHaveLength(3)
+    expect(withoutFlag.extensions).toHaveLength(4)
     const withFalse = (await adapter.createRunOptions(makeRunConfig({ loadNarraCatRuntime: false }))) as PiRunOptions
     expect(withFalse.extensions.some((extension) => extension.handlers.has('tool_result'))).toBe(false)
-    expect(withFalse.extensions).toHaveLength(3)
+    expect(withFalse.extensions).toHaveLength(4)
   })
 
   test('输出上限兑现扩展按模型装配：白名单内挂，白名单外零装配（不赌 provider 的上限）', async () => {
@@ -296,6 +299,133 @@ describe('eager 工具参数救回接线（issue #16）', () => {
       sandbox: { tools: ['Read'], workspaceDir: '/tmp/sandbox-ws' },
     } as never)) as PiRunOptions
     expect(hasEagerRestorer(options.extensions)).toBe(true)
+  })
+})
+
+describe('工具名大小写归一接线（issue #100）', () => {
+  /**
+   * 判据是**行为**不是「挂了几个扩展」：把一条含大写工具名的 assistant 消息喂给装配好的扩展链，
+   * 看它实际被归一成什么。这同时锁住了装配处传进去的工具名集合是否与 `options.tools` 同源——
+   * 只断言「某个扩展存在」的话，集合传错（比如漏掉 customTools）照样全绿。
+   *
+   * 用**真** `ExtensionRunner.emitMessageEnd` 跑链，不手写 for 循环复刻：上游那段还带 role 一致性
+   * 校验与 try/catch，手写版复刻不全，会漏掉「返回的 message 字段不全被整条丢弃」这类失效。
+   */
+  async function normalizeThrough(options: PiRunOptions, calledName: string): Promise<string> {
+    const message = {
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'toolu_0', name: calledName, arguments: { path: 'x.md' } }],
+    }
+    const runner = new ExtensionRunner(
+      options.extensions,
+      createExtensionRuntime(),
+      '/tmp/normalize-through',
+      undefined as never,
+      undefined as never,
+    )
+    const replacement = (await runner.emitMessageEnd({ type: 'message_end', message } as never)) as
+      | { content?: unknown[] }
+      | undefined
+    const content = (replacement ?? message).content ?? []
+    return (content[0] as { name?: string }).name ?? ''
+  }
+
+  /** 子会话的 pi 内置工具面（不含 customTools）——用来证明断言选的名字确实只能从 customTools 进集合。 */
+  function childFaceToolNames(options: PiRunOptions): string[] {
+    const customNames = new Set(options.customTools.map((tool) => tool.name))
+    return options.tools.filter((name) => !customNames.has(name))
+  }
+
+  test('主会话：模型抄引擎 prompt 的大写名 → 归一成 pi 真名', async () => {
+    const options = (await createPiAdapter().createRunOptions(
+      makeRunConfig({ allowedTools: ['Read', 'Write'] }),
+    )) as PiRunOptions
+    expect(await normalizeThrough(options, 'Read')).toBe('read')
+    expect(await normalizeThrough(options, 'Write')).toBe('write')
+  })
+
+  test('自定义工具名也在判定集合内：大小写抄错的 AskUserQuestion 同样归一', async () => {
+    // 这条专钉「knownToolNames 必须含 customTools」——只传 face.tools 的话它会红。
+    const options = (await createPiAdapter().createRunOptions(
+      makeRunConfig({ allowedTools: ['Read', 'AskUserQuestion'], canUseTool: async () => ({ behavior: 'allow' }) }),
+    )) as PiRunOptions
+    expect(options.tools).toContain('AskUserQuestion')
+    expect(await normalizeThrough(options, 'askuserquestion')).toBe('AskUserQuestion')
+  })
+
+  test('工具面里真没有的名字：原样放行，不凭空改成别的工具', async () => {
+    const options = (await createPiAdapter().createRunOptions(
+      makeRunConfig({ allowedTools: ['Read'] }),
+    )) as PiRunOptions
+    // 默认面不含 write：模型调 Write 必须原样报 not found，归一不能成为绕过工具白名单的通道。
+    expect(options.tools).not.toContain('write')
+    expect(await normalizeThrough(options, 'Write')).toBe('Write')
+    expect(await normalizeThrough(options, 'WebSearch')).toBe('WebSearch')
+  })
+
+  test('子会话同样归一：写手/审校跑在这里，漏了它们照样调不动 Read/Write', async () => {
+    capturedChildSessionCalls = []
+    const options = (await createPiAdapter().createRunOptions(
+      makeRunConfig({
+        loadNarraCatRuntime: true,
+        allowedTools: ['Read', 'Write', 'Agent'],
+        agents: { 'chapter-writer': { description: '写手', prompt: '写手系统词', tools: ['Read', 'Write'] } },
+      }),
+    )) as PiRunOptions
+    const task = options.customTools.find((tool) => tool.name === 'Task')!
+    await task.execute('tc-1', { subagent_type: 'chapter-writer', prompt: '写第一章' } as never, undefined, undefined, {} as never)
+
+    expect(capturedChildSessionCalls).toHaveLength(1)
+    const childOptions = capturedChildSessionCalls[0]!.options as PiRunOptions
+    expect(await normalizeThrough(childOptions, 'Write')).toBe('write')
+    expect(await normalizeThrough(childOptions, 'Read')).toBe('read')
+  })
+
+  test('子会话的判定集合同样含 childCustomTools（漏传时这条会红）', async () => {
+    capturedChildSessionCalls = []
+    const adapter = createPiAdapter({ memoryBridge: fakeMemoryBridge })
+    const options = (await adapter.createRunOptions(
+      makeRunConfig({
+        loadNarraCatRuntime: true,
+        allowedTools: ['Read', 'Glob', 'Agent', `${MEMORY_TOOL_PREFIX}novel_query`],
+        agents: {
+          'chapter-writer': {
+            description: '写手',
+            prompt: '写手系统词',
+            tools: ['Read', 'Glob', `${MEMORY_TOOL_PREFIX}novel_query`],
+          },
+        },
+      }),
+    )) as PiRunOptions
+    const task = options.customTools.find((tool) => tool.name === 'Task')!
+    await task.execute('tc-1', { subagent_type: 'chapter-writer', prompt: '写第一章' } as never, undefined, undefined, {} as never)
+
+    const childOptions = capturedChildSessionCalls[0]!.options as PiRunOptions
+    // 断言必须用**只存在于 childCustomTools** 的名字。portable find/grep 不行——它们的注入条件
+    // 本身就是 childFace.tools.includes('find')，对并集零贡献，漏传照样过（实测如此）。
+    // 记忆工具是唯一独有的那一类：它不在 childFace.tools 里，只从 childCustomTools 进集合。
+    expect(childFaceToolNames(childOptions)).not.toContain(`${MEMORY_TOOL_PREFIX}novel_query`)
+    expect(childOptions.customTools.map((tool) => tool.name)).toContain(`${MEMORY_TOOL_PREFIX}novel_query`)
+    expect(await normalizeThrough(childOptions, `${MEMORY_TOOL_PREFIX}novel_query`.toUpperCase())).toBe(
+      `${MEMORY_TOOL_PREFIX}novel_query`,
+    )
+  })
+
+  test('归一排在 eager 参数救回之后——装配注释声称顺序有意义，就得钉住', async () => {
+    // 两者共用 message_end 链且都返回替换 message。eager 在前，归一看到的才是参数已补全的那份。
+    const options = (await createPiAdapter().createRunOptions(makeRunConfig())) as PiRunOptions
+    const messageEndOwners = options.extensions
+      .filter((extension) => extension.handlers.has('message_end'))
+      .map((extension) => extension.path)
+    expect(messageEndOwners).toEqual(['<narracat:pi-eager-toolcall-args>', '<narracat:pi-toolcall-name-normalizer>'])
+  })
+
+  test('沙盒会话（学习/向导）同样挂载', async () => {
+    const options = (await createPiAdapter().createSandboxedRunOptions({
+      ...makeRunConfig(),
+      sandbox: { tools: ['Read'], workspaceDir: '/tmp/sandbox-ws' },
+    } as never)) as PiRunOptions
+    expect(await normalizeThrough(options, 'Read')).toBe('read')
   })
 })
 

@@ -59,6 +59,6 @@ allowed-tools: [Read, Glob, mcp__narracat_memory__novel_get_arc, mcp__narracat_m
 
 | 场景 | 处理 |
 |---|---|
-| 项目未初始化 | 报错 + 提示执行 /narracat:init |
+| 读不到项目配置文件 | 如实说明这本书的项目文件读不到、本次无法继续；不要自行初始化，也不要建议作者重新建一部 |
 | state.yaml 损坏 | 尝试从文件系统重建基础信息 |
 | MCP 工具不可用 | 对应小节显示 N/A，其余照常输出 |

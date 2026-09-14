@@ -13,7 +13,8 @@ allowed-tools: [Agent, Read, Write, Edit, Glob, Grep, AskUserQuestion, mcp__narr
 ## 步骤 0: 前置检查
 
 读取 `bible/premise.md`：
-- 文件不存在（项目未初始化）→ 提示先运行 /narracat:init，终止。
+- **工具报错 ≠ 文件不存在**：读取工具返回错误时如实报出错误与原因，不要据此推断项目未初始化。
+- 确认文件不存在 → 如实说明这本书的项目文件读不到、本次无法继续；不要自行初始化，也不要建议作者重新建一部，终止。
 - 内容仍是空模板（只有占位符）→ AskUserQuestion："核心前提未填写，角色设计缺少故事根基。" 选项：**先去运行 /narracat:setup**（终止本命令）/ **继续创建**。
 
 ## 步骤 1: 意图解析

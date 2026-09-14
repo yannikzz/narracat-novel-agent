@@ -28,7 +28,12 @@ import { TASK_CREATE_TOOL_NAME, TASK_TOOL_NAME, TASK_UPDATE_TOOL_NAME } from './
 
 export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion'
 
-const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
+/**
+ * SDK（Claude Code 风格）工具名 → pi 内置工具真名。导出供 pi-toolcall-name-normalizer 复用：
+ * 归一判定必须与这张表同源，否则新增映射时「白名单翻译」跟上了而「模型调用归一」没跟上，
+ * 会重演 issue #100（Glob→find 这类改名，靠大小写规则结构上够不着）。
+ */
+export const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
   Read: 'read',
   Write: 'write',
   Edit: 'edit',
