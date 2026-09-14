@@ -9,6 +9,24 @@
 // （网页上把旧 release 设为 latest 即可，见 README）。
 //
 // 本 Worker 无密钥：发布仓是 public，资产匿名可下载。
+//
+// 另外补了一层上游缺失的能力：多区间 Range（Windows 差量更新靠它，Azure Blob 不支持）。
+// 见 multi-range.ts。
+
+import {
+  buildClosingBoundary,
+  buildPartHeader,
+  createBoundary,
+  isExpectedContentRange,
+  isWorthDownloading,
+  parseByteRanges,
+  parseTotalSize,
+  planFetchGroups,
+  resolveGroupBudget,
+  totalFetchBytes,
+  type ByteRange,
+  type FetchGroup,
+} from './multi-range.ts'
 
 /** 安装包所在的公开仓。与开发主仓不是同一个。 */
 const RELEASE_REPO = 'yannikzz/narracat-novel-agent'
@@ -156,12 +174,227 @@ const MUTABLE_CACHE_CONTROL = 'no-cache, max-age=0'
 /** 按版本号寻址的包内容不可变，可以长缓存。 */
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 
+/**
+ * 探路请求：拿文件总大小，顺便拿到跳转后的签名地址。
+ *
+ * 取 `bytes=0-0` 一个字节，图的是响应头里的 `Content-Range: bytes 0-0/<总大小>`。
+ * `redirect: 'follow'` 之后 `response.url` 是最终地址（github.com → Azure 的签名 URL，
+ * 实测约 45 分钟有效，单次更新内复用绰绰有余）；复用它能让后续每组只花 1 个子请求额度
+ * 而不是 2 个。拿不到就退回原地址，预算减半但仍然可用。
+ */
+async function probeUpstream(
+  upstream: string,
+): Promise<{ totalSize: number; assetUrl: string; canReuseSignedUrl: boolean } | null> {
+  const response = await fetch(upstream, {
+    headers: {
+      Range: 'bytes=0-0',
+      'user-agent': 'narracat-update-proxy',
+      // 与取数请求同口径：拿原样字节的长度，别让透明解压把总大小算歪。
+      'accept-encoding': 'identity',
+    },
+    redirect: 'follow',
+  })
+  // 只要头，body 必须显式丢掉，否则连接悬着不放。
+  await response.body?.cancel()
+
+  if (response.status !== 206) return null
+
+  const totalSize = parseTotalSize(response.headers.get('content-range'))
+  if (totalSize === null) return null
+
+  const finalUrl = response.url
+  const canReuseSignedUrl = finalUrl.startsWith('https://') && finalUrl !== upstream
+  return { totalSize, assetUrl: canReuseSignedUrl ? finalUrl : upstream, canReuseSignedUrl }
+}
+
+/**
+ * 取一组数据，从中切出该组的各个区间写进 multipart 流，间隙丢弃。
+ *
+ * 边收边切边写：整个响应最大也就十几 MB，但一次性收进内存既没必要、也会把 CPU 集中在
+ * 一个点上（免费版按两次 I/O 之间的 CPU 计量，流式处理天然分摊得开——实测切 40 MB 无碍）。
+ */
+async function pumpGroup(
+  group: FetchGroup,
+  assetUrl: string,
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+  boundary: string,
+  totalSize: number,
+  isFirstPart: () => boolean,
+  onPartStarted: () => void,
+): Promise<void> {
+  const response = await fetch(assetUrl, {
+    headers: {
+      Range: `bytes=${group.start}-${group.end}`,
+      'user-agent': 'narracat-update-proxy',
+      // 不接受传输编码：workerd 对 gzip 上游会透明解压，解压后的字节流与我们按偏移切片的
+      // 假设对不上。这里要的是原样字节。
+      'accept-encoding': 'identity',
+    },
+    redirect: 'follow',
+  })
+  if (response.status !== 206 || !response.body) {
+    await response.body?.cancel()
+    throw new Error(`上游拒绝区间请求：${response.status}`)
+  }
+  // 206 不等于「给的就是我们要的那一段」，必须对账，见 isExpectedContentRange。
+  if (!isExpectedContentRange(response.headers.get('content-range'), { ...group, totalSize })) {
+    await response.body.cancel()
+    throw new Error(`上游返回的区间与请求不符：${response.headers.get('content-range') ?? '(缺失)'}`)
+  }
+
+  const reader = response.body.getReader()
+  let position = group.start // 当前 chunk 起点在整个文件里的绝对偏移
+  let index = 0 // 本组处理到第几个区间
+  let headerWritten = false
+
+  // finally 里收口：写入端抛错（客户端断连、下游 abort）时也要把上游这条子请求放掉，
+  // 否则连接会一直悬着。
+  try {
+    while (index < group.ranges.length) {
+      const { done, value } = await reader.read()
+      // 上游提前结束 = 这一组没取全。必须抛：继续往下写会交出一份缺字节却格式完整的响应。
+      if (done) throw new Error('上游数据提前结束')
+
+      let offset = 0
+      while (offset < value.length && index < group.ranges.length) {
+        const range = group.ranges[index]
+
+        // 还没到这一段的起点：中间是被合并进来的间隙，直接跳过。
+        if (position < range.start) {
+          const skipped = Math.min(range.start - position, value.length - offset)
+          offset += skipped
+          position += skipped
+          continue
+        }
+
+        if (!headerWritten) {
+          await writer.write(encoder.encode(buildPartHeader(boundary, range, totalSize, isFirstPart())))
+          onPartStarted()
+          headerWritten = true
+        }
+
+        const taken = Math.min(range.end - position + 1, value.length - offset)
+        // slice 而非 subarray：写入是排队的，不能让下游拿到一块随时可能被复用的底层 buffer。
+        await writer.write(value.slice(offset, offset + taken))
+        offset += taken
+        position += taken
+
+        if (position > range.end) {
+          index++
+          headerWritten = false
+        }
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+}
+
+/**
+ * 多区间 Range 的应答：拆成上游认的单区间请求，拼回 `multipart/byteranges`。
+ *
+ * 返回 null 表示这次不接管（预算不够、碎片太散、上游不配合……），调用方照原样把请求转给
+ * 上游——客户端会拿到 501 并回落全量下载，也就是本改动之前的行为。**宁可不接管，也不能
+ * 交出拼错的字节**：这些字节会被写进安装包。
+ */
+async function serveMultiRange(
+  upstream: string,
+  ranges: ByteRange[],
+): Promise<Response | null> {
+  // 不接管的每条路径都留一行：线上只看「用户还在全量下」分不清是没接管、还是接管了拼到一半挂。
+  // 只打区间数与字节数这类形状信息，不打地址、不打内容。
+  const declineReason = (why: string): null => {
+    console.log(`[multi-range] 不接管（${why}）ranges=${ranges.length}`)
+    return null
+  }
+
+  const probe = await probeUpstream(upstream)
+  if (probe === null) return declineReason('探路未拿到总大小')
+
+  const { totalSize, assetUrl, canReuseSignedUrl } = probe
+  // 请求的区间超出文件末尾说明客户端与上游对不上（版本换了？），别猜，交还上游。
+  if (ranges[ranges.length - 1].end >= totalSize) return declineReason('区间超出文件末尾')
+
+  const groups = planFetchGroups(ranges, resolveGroupBudget(canReuseSignedUrl))
+  if (groups === null) return declineReason('分组失败')
+
+  const fetchBytes = totalFetchBytes(groups)
+  if (!isWorthDownloading(fetchBytes, totalSize)) {
+    return declineReason(`合并后要取 ${fetchBytes}/${totalSize} 字节，不如回落全量`)
+  }
+
+  console.log(
+    `[multi-range] 接管 ranges=${ranges.length} groups=${groups.length} ` +
+      `fetch=${fetchBytes} total=${totalSize} signedUrl=${canReuseSignedUrl}`,
+  )
+
+  const boundary = createBoundary()
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+
+  // 这里之后不再 return null：响应头已经发出去了，出错只能中断流，让客户端回落。
+  void (async () => {
+    let partCount = 0
+    try {
+      for (const group of groups) {
+        await pumpGroup(
+          group,
+          assetUrl,
+          writer,
+          encoder,
+          boundary,
+          totalSize,
+          () => partCount === 0,
+          () => {
+            partCount++
+          },
+        )
+      }
+      await writer.write(encoder.encode(buildClosingBoundary(boundary)))
+      await writer.close()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      console.log(`[multi-range] 取数中断，已交给客户端回落全量：${detail}`)
+      // abort 而不是 close：截断的流会让客户端判定差量失败并回落全量下载，
+      // close 则会把不完整的内容当成完整响应交出去。
+      // 传 Error 实例而非字符串：流以非 Error 值出错时，运行时会把它当成「未处理的错误」
+      // 另行上报一次（bun 下会直接让测试红），而这条路径是我们**预期内**的失败。
+      await writer.abort(error instanceof Error ? error : new Error(detail)).catch(() => {})
+    }
+  })()
+
+  return new Response(readable, {
+    status: 206,
+    headers: {
+      'content-type': `multipart/byteranges; boundary=${boundary}`,
+      'accept-ranges': 'bytes',
+      // **固定 no-store，不跟随调用方的缓存策略**：这份 body 的内容取决于请求里的 Range 头，
+      // 按 URL 缓存下来就会被当成完整文件发给下一个人。资产路径本身是 immutable 的，
+      // 但那说的是「整个文件不变」，不是「这份合成响应可复用」。
+      'cache-control': 'no-store',
+    },
+  })
+}
+
 async function proxy(
   request: Request,
   upstream: string,
   cacheControl: string,
   downloadFileName?: string,
+  options: { allowMultiRange?: boolean } = {},
 ): Promise<Response> {
+  // 多区间请求上游一律回 501，本层代劳；单区间与普通下载保持原路，不受影响。
+  const ranges =
+    options.allowMultiRange !== false && request.method === 'GET'
+      ? parseByteRanges(request.headers.get('range'))
+      : null
+  if (ranges !== null && ranges.length > 1) {
+    const multiRange = await serveMultiRange(upstream, ranges)
+    if (multiRange !== null) return multiRange
+  }
+
   const upstreamResponse = await fetch(upstream, {
     method: request.method,
     headers: forwardHeaders(request.headers),
@@ -195,7 +428,12 @@ async function serveDownloadAlias(request: Request, alias: DownloadAlias): Promi
   if (!version) return new Response('Bad Gateway', { status: 502 })
 
   const fileName = `NarraCat-${version}${alias.assetSuffix}`
-  return proxy(request, buildAliasAssetUrl(alias, version), MUTABLE_CACHE_CONTROL, fileName)
+  // **永久链接不接管多区间**：这条路径已经为清单花掉了子请求额度，再叠上探路与取数就正好顶到
+  // 免费版 50 个的天花板，清单那跳多一次重定向就超——超了是流中途报错，比干净回落更糟。
+  // 而它本来就是给人用的（下载工具可能发多区间），自动更新走的是带版本号的地址，不经过这里。
+  return proxy(request, buildAliasAssetUrl(alias, version), MUTABLE_CACHE_CONTROL, fileName, {
+    allowMultiRange: false,
+  })
 }
 
 export default {
