@@ -9,7 +9,9 @@ allowed-tools: [Read, Edit, AskUserQuestion, mcp__narracat_memory__novel_submit_
 
 ## 前置
 
-1. Read `.narracat/config.yaml`。不存在 → 提示先运行 `/narracat:init`，终止。已有的 `title`、`genre` 作为已知信息，不再从零问。
+1. Read `.narracat/config.yaml`。已有的 `title`、`genre` 作为已知信息，不再从零问。
+   - **工具报错 ≠ 文件不存在**：读取工具返回错误（工具不存在、权限、路径错误等）时，如实告诉作者这次读取失败了、失败原因是什么，**不要据此推断项目未初始化**，也不要指引作者去做初始化。
+   - 确认文件确实不存在 → 告知作者：桌面版新建作品时会自动备好项目文件，缺失说明这个作品的目录不完整，可回作品列表重新建一部，或检查目录是否被移动 / 删除；命令行用户运行 `/narracat:init`。终止。
 2. Read `bible/premise.md`。若已有填写内容（不只是模板占位），用 AskUserQuestion 问用户：继续补缺口 / 重新立项（覆盖）/ 退出。
 3. Read `bible/reference-guidance/premise.md`（不存在则跳过）。存在时，它是你推断答案、生成推荐的素材——能从中可靠推出的结论不再问用户。
 
@@ -95,5 +97,5 @@ grill 第 3 卡的 `feedback_loop`（读者隔多久爽一次）时，用头部�
 
 | 场景 | 处理 |
 |---|---|
-| 项目未初始化 | 提示执行 /narracat:init，终止 |
+| 项目未初始化 | 告知作者桌面版新建作品时会自动备好项目文件，缺失说明目录不完整（可回作品列表重建或检查目录是否被移动），命令行用户运行 `/narracat:init`，终止 |
 | 用户中途退出 | 尚未提交的卡不入库；下次运行 /narracat:setup 重新确认（已知信息与 reference-guidance 会加速） |

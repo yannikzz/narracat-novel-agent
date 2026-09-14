@@ -59,6 +59,6 @@ allowed-tools: [Read, Glob, mcp__narracat_memory__novel_get_arc, mcp__narracat_m
 
 | 场景 | 处理 |
 |---|---|
-| 项目未初始化 | 报错 + 提示执行 /narracat:init |
+| 项目未初始化 | 告知作者桌面版新建作品时会自动备好项目文件，缺失说明目录不完整（可回作品列表重建或检查目录是否被移动），命令行用户运行 `/narracat:init` |
 | state.yaml 损坏 | 尝试从文件系统重建基础信息 |
 | MCP 工具不可用 | 对应小节显示 N/A，其余照常输出 |

@@ -45,6 +45,7 @@ import { createPiEagerToolArgsRestorer } from './pi-eager-toolcall-args.ts'
 import { createPiEngineHooksExtension } from './pi-engine-hooks.ts'
 import { createSubagentEventChannel, createTaskCardTools, createTaskTool } from './pi-subagent.ts'
 import { createAskUserQuestionTool, createPiToolGuard, mapSdkToolFaceToPi } from './pi-tool-guard.ts'
+import { createPiToolCallNameNormalizer } from './pi-toolcall-name-normalizer.ts'
 
 /** 与 claude-sdk adapter 的 DEFAULT_MAX_TURNS 对齐；命令路径经 RuntimeRunConfig.maxTurns 覆盖（48-72 档）。 */
 const DEFAULT_PI_MAX_TURNS = 12
@@ -118,6 +119,12 @@ async function buildPiRunOptions(
   const maxOutputTokens = resolvePiMaxOutputTokens(args.config, model.provider, model.id)
   const extensions = [
     createPiEagerToolArgsRestorer(),
+    // 排在参数救回之后、guard 之前：message_end 是链式的，先补全参数再归一名字；guard 走的是
+    // tool_call 事件（更晚），拿到的已是归一后的真名，圈禁与权限判定不受影响（issue #100）。
+    // 工具名集合与下面 return 的 `tools` 同源，惰性求值以规避 customTools 边构造边 push 的顺序耦合。
+    createPiToolCallNameNormalizer({
+      knownToolNames: () => [...new Set([...face.tools, ...customTools.map((tool) => tool.name)])],
+    }),
     guard,
     ...(args.loadNarraCatRuntime ? [createPiEngineHooksExtension({ cwd })] : []),
     ...(maxOutputTokens === undefined ? [] : [createPiMaxOutputTokensPatch(maxOutputTokens)]),
@@ -186,6 +193,10 @@ async function buildPiRunOptions(
       // 并发子会话互相串参数。
       extensions: [
         createPiEagerToolArgsRestorer(),
+        // 与父会话同一条纪律：写手/审校跑在子会话里，漏了这条它们照样调不动 Read/Write（#100）。
+        createPiToolCallNameNormalizer({
+          knownToolNames: () => [...new Set([...childFace.tools, ...childCustomTools.map((tool) => tool.name)])],
+        }),
         childGuard,
         createPiEngineHooksExtension({ cwd }),
         // 子会话可能走轻量槽的另一个模型 id，故按 childModel 重新解析，不继承父会话的值。
