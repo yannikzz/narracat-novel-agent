@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Dialog } from '@/components/ui/dialog'
 import { EMPTY_PRIMARY_TITLE_CLASS } from '@/design-system'
-import { ReferenceWorksPasteDialogPanel, ReferenceWorksView } from './ReferenceWorksView'
+import { hasPasteReferenceInput, ReferenceWorksPasteDialogPanel, ReferenceWorksView } from './ReferenceWorksView'
 import type { ReferenceWorksSummary } from '@shared/types/novel'
 
 const emptySummary: ReferenceWorksSummary = {
@@ -197,6 +197,67 @@ describe('ReferenceWorksView', () => {
     expect(html).toContain('参考指导')
     expect(html).toContain('data-reference-works-reset="true"')
     expect(html).not.toContain('还没有参考作品')
+  })
+})
+
+describe('粘贴参考作品的必填校验（issue #109）', () => {
+  function renderPanel({ title, content, busy = false }: { title: string; content: string; busy?: boolean }): string {
+    return renderToStaticMarkup(
+      <Dialog open>
+        <ReferenceWorksPasteDialogPanel
+          busy={busy}
+          content={content}
+          error={null}
+          title={title}
+          onContentChange={() => {}}
+          onSubmit={() => {}}
+          onTitleChange={() => {}}
+        />
+      </Dialog>,
+    )
+  }
+
+  /**
+   * 只能判「保存」那个 button 标签自身的 disabled 属性：按钮 class 里含 Tailwind 的
+   * `disabled:opacity-50` 等变体，对整段 html 做 includes('disabled') 恒为真，会骗出一片假绿。
+   * 找不到按钮直接抛错，避免选择器失效时静默判成「未禁用」。
+   */
+  function saveButtonDisabled(html: string): boolean {
+    const tag = html.match(/<button[^>]*data-reference-works-paste-submit[^>]*>/)?.[0]
+    if (!tag) throw new Error('未找到「保存」按钮，选择器已失效')
+    return / disabled=""/.test(tag)
+  }
+
+  test('标题与正文齐全时可提交', () => {
+    expect(saveButtonDisabled(renderPanel({ title: '片段', content: '正文' }))).toBe(false)
+  })
+
+  test('标题为空时禁用保存——后端必填，不能等它抛错', () => {
+    expect(saveButtonDisabled(renderPanel({ title: '', content: '正文' }))).toBe(true)
+  })
+
+  test('正文为空时禁用保存', () => {
+    expect(saveButtonDisabled(renderPanel({ title: '片段', content: '' }))).toBe(true)
+  })
+
+  test('纯空格与后端同口径判空（readRequiredString 走 trim）', () => {
+    expect(saveButtonDisabled(renderPanel({ title: '   ', content: '正文' }))).toBe(true)
+    expect(saveButtonDisabled(renderPanel({ title: '片段', content: ' \n ' }))).toBe(true)
+  })
+
+  test('busy 时禁用（原有行为不回归）', () => {
+    expect(saveButtonDisabled(renderPanel({ title: '片段', content: '正文', busy: true }))).toBe(true)
+  })
+})
+
+describe('hasPasteReferenceInput', () => {
+  test('两个字段都非空白才成立', () => {
+    expect(hasPasteReferenceInput('片段', '正文')).toBe(true)
+    expect(hasPasteReferenceInput('', '正文')).toBe(false)
+    expect(hasPasteReferenceInput('片段', '')).toBe(false)
+    expect(hasPasteReferenceInput('  ', '正文')).toBe(false)
+    expect(hasPasteReferenceInput('片段', '\t\n')).toBe(false)
+    expect(hasPasteReferenceInput('', '')).toBe(false)
   })
 })
 

@@ -61,6 +61,18 @@ function PasteField({
   )
 }
 
+/**
+ * 「粘贴参考作品」可提交判据：标题与正文都是后端必填，且后端按 trim 后判空
+ * （`electron/main/ipc/inputs.ts` 的 `readRequiredString`）——前端必须用同一口径，否则纯空格的标题
+ * 在界面上看着能提交，走到主进程才抛「缺少参考作品标题」，等于拿后端异常当前端校验用（issue #109）。
+ *
+ * 提取成纯函数是因为有两处消费它：提交按钮的禁用态（挡点击），和提交处理的前置守卫（挡回车——
+ * 单行输入框里回车照样触发表单提交，禁用按钮拦不住）。两处共用一份口径才不会各自漂移。
+ */
+export function hasPasteReferenceInput(title: string, content: string): boolean {
+  return title.trim().length > 0 && content.trim().length > 0
+}
+
 export function ReferenceWorksPasteDialogPanel({
   busy,
   content,
@@ -78,6 +90,8 @@ export function ReferenceWorksPasteDialogPanel({
   onSubmit: FormEventHandler<HTMLFormElement>
   onTitleChange: (value: string) => void
 }) {
+  const canSubmit = !busy && hasPasteReferenceInput(title, content)
+
   return (
     <form onSubmit={onSubmit} data-reference-works-paste-panel="true" className="grid">
       <DialogHeader className="border-b border-border px-6 pb-5 pt-6 text-left">
@@ -110,7 +124,7 @@ export function ReferenceWorksPasteDialogPanel({
       </div>
 
       <DialogFooter className="border-t border-border bg-active/40 px-6 py-4">
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={!canSubmit} data-reference-works-paste-submit="true">
           保存
         </Button>
       </DialogFooter>
@@ -204,6 +218,10 @@ export function ReferenceWorksView({
   const canAnalyze = hasSources && !busy
 
   async function handlePaste() {
+    // 与提交按钮同一口径再拦一道：按钮禁用只挡住点击，单行输入框里按回车照样触发表单提交，
+    // 只靠禁用态挡不住空值走到主进程（issue #109 日志里那条 ERROR 就是这么来的）。
+    if (!hasPasteReferenceInput(title, content)) return
+
     setSubmitting(true)
     setError(null)
 
