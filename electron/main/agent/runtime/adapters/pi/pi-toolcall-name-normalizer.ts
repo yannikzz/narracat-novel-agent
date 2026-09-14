@@ -68,9 +68,13 @@
  * 「大小写不敏感匹配回落真实工具名」，只是上游仅在 OAuth 路径启用（那条路径上 pi 把工具名伪装成
  * Claude Code 名发出去，回来自然要转回来）。本 App 恒走 API key 路径，享受不到，这里补齐。
  *
- * 比上游多一条唯一性检查：只有在大小写不敏感候选**唯一**时才改名。真正未注册的工具（模型幻觉出
- * 的 `WebSearch` 之类）与大小写歧义（同时存在 `read`/`Read`）一律原样放行，让它照常报 not found
+ * 比上游多一条唯一性检查：**第 3 档**只有在大小写不敏感候选唯一时才改名。真正未注册的工具
+ * （模型幻觉出的 `WebSearch` 之类）与第 3 档的大小写歧义一律原样放行，让它照常报 not found
  * ——误伤面不扩大，模型也能从错误里得到真实反馈。
+ *
+ * 歧义只对第 3 档成立：别名表里的名字有权威映射可依，按表走不算猜（`READ` 在 `read`/`Read` 并存时
+ * 仍归一到 `read`）。现实中也构造不出这种并存——本仓注册名要么是 pi 的小写内置名，要么是
+ * `AskUserQuestion` / `Task` / `TaskCreate` / `TaskUpdate` / `mcp__narracat_memory__*`，无大小写碰撞对。
  */
 import { createSyntheticSourceInfo } from '@mariozechner/pi-coding-agent'
 import type { Extension } from '@mariozechner/pi-coding-agent'

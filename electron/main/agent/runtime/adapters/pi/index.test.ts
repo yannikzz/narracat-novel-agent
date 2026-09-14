@@ -330,6 +330,12 @@ describe('工具名大小写归一接线（issue #100）', () => {
     return (content[0] as { name?: string }).name ?? ''
   }
 
+  /** 子会话的 pi 内置工具面（不含 customTools）——用来证明断言选的名字确实只能从 customTools 进集合。 */
+  function childFaceToolNames(options: PiRunOptions): string[] {
+    const customNames = new Set(options.customTools.map((tool) => tool.name))
+    return options.tools.filter((name) => !customNames.has(name))
+  }
+
   test('主会话：模型抄引擎 prompt 的大写名 → 归一成 pi 真名', async () => {
     const options = (await createPiAdapter().createRunOptions(
       makeRunConfig({ allowedTools: ['Read', 'Write'] }),
@@ -375,7 +381,7 @@ describe('工具名大小写归一接线（issue #100）', () => {
     expect(await normalizeThrough(childOptions, 'Read')).toBe('read')
   })
 
-  test('子会话的判定集合同样含 customTools（漏传 childCustomTools 时这条会红）', async () => {
+  test('子会话的判定集合同样含 childCustomTools（漏传时这条会红）', async () => {
     capturedChildSessionCalls = []
     const adapter = createPiAdapter({ memoryBridge: fakeMemoryBridge })
     const options = (await adapter.createRunOptions(
@@ -395,9 +401,23 @@ describe('工具名大小写归一接线（issue #100）', () => {
     await task.execute('tc-1', { subagent_type: 'chapter-writer', prompt: '写第一章' } as never, undefined, undefined, {} as never)
 
     const childOptions = capturedChildSessionCalls[0]!.options as PiRunOptions
-    // find 是 portable 版（customTool），只在 childCustomTools 里；Glob→find 走别名档。
-    expect(childOptions.customTools.map((tool) => tool.name)).toContain('find')
-    expect(await normalizeThrough(childOptions, 'Glob')).toBe('find')
+    // 断言必须用**只存在于 childCustomTools** 的名字。portable find/grep 不行——它们的注入条件
+    // 本身就是 childFace.tools.includes('find')，对并集零贡献，漏传照样过（实测如此）。
+    // 记忆工具是唯一独有的那一类：它不在 childFace.tools 里，只从 childCustomTools 进集合。
+    expect(childFaceToolNames(childOptions)).not.toContain(`${MEMORY_TOOL_PREFIX}novel_query`)
+    expect(childOptions.customTools.map((tool) => tool.name)).toContain(`${MEMORY_TOOL_PREFIX}novel_query`)
+    expect(await normalizeThrough(childOptions, `${MEMORY_TOOL_PREFIX}novel_query`.toUpperCase())).toBe(
+      `${MEMORY_TOOL_PREFIX}novel_query`,
+    )
+  })
+
+  test('归一排在 eager 参数救回之后——装配注释声称顺序有意义，就得钉住', async () => {
+    // 两者共用 message_end 链且都返回替换 message。eager 在前，归一看到的才是参数已补全的那份。
+    const options = (await createPiAdapter().createRunOptions(makeRunConfig())) as PiRunOptions
+    const messageEndOwners = options.extensions
+      .filter((extension) => extension.handlers.has('message_end'))
+      .map((extension) => extension.path)
+    expect(messageEndOwners).toEqual(['<narracat:pi-eager-toolcall-args>', '<narracat:pi-toolcall-name-normalizer>'])
   })
 
   test('沙盒会话（学习/向导）同样挂载', async () => {

@@ -33,9 +33,12 @@ import {
   SettingsManager,
 } from '@mariozechner/pi-coding-agent'
 import type { Extension } from '@mariozechner/pi-coding-agent'
+import { streamAnthropic } from '@mariozechner/pi-ai/anthropic'
+import type { Model } from '@mariozechner/pi-ai'
 import type { AppConfig } from '@shared/types/config'
 import { POOL_DEFAULT_FIELDS } from '@shared/types/config'
 import { createPiModel } from './pi-model.ts'
+import { createPiEagerToolArgsRestorer } from './pi-eager-toolcall-args.ts'
 import { createPiToolCallNameNormalizer } from './pi-toolcall-name-normalizer.ts'
 
 const config: AppConfig = {
@@ -49,51 +52,89 @@ const config: AppConfig = {
 
 const PROBE_CONTENT = '归一成功才读得到这一行'
 
-/** 模型发起的那次工具调用（`Read` 是引擎 prompt 里的写法，pi 真名是 `read`）。 */
-function assistantToolCallMessage(toolName: string) {
-  return {
-    role: 'assistant' as const,
-    content: [{ type: 'toolCall' as const, id: 'toolu_1', name: toolName, arguments: { path: 'probe.txt' } }],
-    stopReason: 'toolUse',
-    usage: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    provider: 'deepseek',
-    model: 'test',
-    api: 'anthropic-messages',
-  }
+type SseEvent = { type: string } & Record<string, unknown>
+
+function toSse(events: SseEvent[]): string {
+  return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('')
 }
 
-/** 工具跑完后的收尾回合：纯文本 + stop，让 agent loop 正常结束。 */
-function assistantTextMessage() {
-  return {
-    role: 'assistant' as const,
-    content: [{ type: 'text' as const, text: '读完了' }],
-    stopReason: 'stop',
-    usage: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    provider: 'deepseek',
-    model: 'test',
-    api: 'anthropic-messages',
-  }
+const MODEL: Model<'anthropic-messages'> = {
+  id: 'fake-anthropic-compatible',
+  name: 'fake-anthropic-compatible',
+  api: 'anthropic-messages',
+  provider: 'anthropic',
+  baseUrl: 'https://example.invalid',
+  reasoning: false,
+  input: ['text'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 200_000,
+  maxTokens: 8192,
 }
 
 /**
- * EventStream 替身：既能 for-await，又有 agent-loop 在 done 分支要调的 `result()`。
- * 刻意用真的 async generator——agent-loop 在 done 分支是从 `for await` 里 `return` 的，
- * 由此触发的迭代器 cleanup 正是归一赖以生效的那点微任务余量，数组迭代复刻不出来。
+ * 走**真** `streamAnthropic`（只把 HTTP client 换成喂构造 SSE 的替身），不手写 EventStream 替身。
+ *
+ * 这一点是本文件的成败所在：手写替身是纯同步产出的，微任务余量远小于真实流（真实流要 await
+ * `asResponse()` 再逐块读 ReadableStream），扩展链一多就会假阴性——实测手写替身下「eager + 归一」
+ * 会红，而同样的链走真 streamAnthropic 则正常归一，与生产一致。测试的时序必须与生产同构，
+ * 否则它红的是自己，不是生产。
  */
-function fakeEventStream(finalMessage: ReturnType<typeof assistantToolCallMessage> | ReturnType<typeof assistantTextMessage>) {
-  const partial = { ...finalMessage, content: [] as unknown[] }
-  async function* events() {
-    yield { type: 'start', partial }
-    for (const [index, block] of finalMessage.content.entries()) {
-      yield { type: block.type === 'toolCall' ? 'toolcall_start' : 'text_start', contentIndex: index, partial: finalMessage }
-    }
-    yield { type: 'done', reason: 'stop', message: finalMessage, partial: finalMessage }
+function streamFromSse(events: SseEvent[]) {
+  const client = {
+    messages: {
+      create: () => ({
+        asResponse: async () =>
+          new Response(toSse(events), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+      }),
+    },
   }
-  const iterator = events()
-  return {
-    [Symbol.asyncIterator]: () => iterator,
-    result: async () => finalMessage,
-  }
+  return streamAnthropic(
+    MODEL,
+    // biome-ignore lint/suspicious/noExplicitAny: 测试替身，只需满足 streamAnthropic 的运行时形状
+    { messages: [{ role: 'user', content: '读一下 probe.txt' }], tools: [] } as any,
+    // biome-ignore lint/suspicious/noExplicitAny: 同上
+    { client: client as any, apiKey: 'test' },
+  )
+}
+
+/**
+ * 第一轮：模型发起一次工具调用（`Read` 是引擎 prompt 里的写法，pi 真名是 `read`）。
+ *
+ * `eagerInput` 选的是两种服务端形态，区别只在参数怎么传，与工具名无关：
+ * - `false`（默认）＝官方 Anthropic 的标准增量：参数走 `input_json_delta`，上游解析本就正确；
+ * - `true` ＝部分兼容端点的 eager 形态：参数塞在 `content_block_start.input`、之后无增量，
+ *   上游会在收尾把它抹成 `{}`（issue #16），必须挂 `createPiEagerToolArgsRestorer` 才救得回来。
+ *
+ * 默认用标准增量，好让「归一有没有生效」的判定不被参数丢失这件无关的事干扰。
+ */
+function toolCallStream(toolName: string, args: Record<string, unknown>, eagerInput = false) {
+  const argsJson = JSON.stringify(args)
+  return streamFromSse([
+    { type: 'message_start', message: { id: 'msg_1', usage: { input_tokens: 10, output_tokens: 0 } } },
+    {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'toolu_1', name: toolName, input: eagerInput ? args : {} },
+    },
+    ...(eagerInput
+      ? []
+      : [{ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: argsJson } }]),
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 20 } },
+    { type: 'message_stop' },
+  ])
+}
+
+/** 第二轮：纯文本收尾，让 agent loop 正常结束。 */
+function textStream() {
+  return streamFromSse([
+    { type: 'message_start', message: { id: 'msg_2', usage: { input_tokens: 10, output_tokens: 0 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '读完了' } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } },
+    { type: 'message_stop' },
+  ])
 }
 
 /**
@@ -104,6 +145,8 @@ async function runWithToolCall(
   calledToolName: string,
   extensions: Extension[],
   tools: string[] = ['read'],
+  args?: Record<string, unknown>,
+  eagerInput = false,
 ): Promise<string> {
   const cwd = mkdtempSync(join(tmpdir(), 'narracat-normalizer-it-'))
   writeFileSync(join(cwd, 'probe.txt'), `${PROBE_CONTENT}\n`, 'utf-8')
@@ -139,11 +182,11 @@ async function runWithToolCall(
       // biome-ignore lint/suspicious/noExplicitAny: resourceLoader 只需满足运行时形状，同 pi-session.ts 的做法
     } as any)
 
-    // 换掉 streamFn 即可完全离线：会话、扩展链、agent-loop 一个没动。
+    // 只换 streamFn 的 HTTP 出口即可完全离线：会话、扩展链、agent-loop、上游流解析一个没动。
     let turn = 0
     session.agent.streamFn = (() => {
       turn += 1
-      return fakeEventStream(turn === 1 ? assistantToolCallMessage(calledToolName) : assistantTextMessage())
+      return turn === 1 ? toolCallStream(calledToolName, args ?? { path: 'probe.txt' }, eagerInput) : textStream()
       // biome-ignore lint/suspicious/noExplicitAny: 测试替身，只需满足 agent-loop 的运行时形状
     }) as any
 
@@ -177,13 +220,36 @@ describe('工具名归一在真实运行时生效（issue #100）', () => {
   }, 20_000)
 
   test('Glob 这类改名映射同样在真实运行时生效（不是只有大小写差异的才管用）', async () => {
-    // find 是 pi 对 Glob 的真名。这里只验「归一确实把 Glob 送到了 find」——find 没在 tools 白名单里
-    // 时结果仍是 not found，故把 find 一并开进工具面。
+    // 断言必须是**正向**的：`not.toContain('Tool Glob not found')` 在 run 整个没产出时也会平凡通过，
+    // 归一迟到反而看不出来。这里要求真的出现 find 的执行事件并命中探针文件。
+    // 参数给 `pattern` 而非 `path`——find 的 schema 是 {pattern, path?, limit?}，给错会卡在参数校验，
+    // 「工具执行了」就无从谈起（这正是上一版这条用例的毛病）。
     const output = await runWithToolCall(
       'Glob',
       [createPiToolCallNameNormalizer({ knownToolNames: () => ['read', 'find'] })],
       ['read', 'find'],
+      { pattern: 'probe.txt' },
     )
-    expect(output).not.toContain('Tool Glob not found')
+    expect(output).toContain('"toolName":"find"')
+    expect(output).toContain('probe.txt')
+    expect(output).not.toContain('not found')
+  }, 20_000)
+
+  test('与生产同构的扩展链（eager 在前）下两个扩展共存且都生效', async () => {
+    // 注释里立了「禁止在 message_* handler 里做异步 I/O」，并点名这条纪律对 eager 同样成立——
+    // 只挂归一器一个扩展是守不住它的：eager 排在归一之前、共用同一条队列余量。这条把生产链复刻
+    // 进来，纪律才真的有人看守。
+    //
+    // 同时用 eager 形态的服务端流：参数只在 content_block_start 出现、会被上游抹空，于是这条同时
+    // 要求两件事都成立——eager 把参数救回来（否则参数校验失败），归一把名字改对（否则 not found）。
+    const output = await runWithToolCall(
+      'Read',
+      [createPiEagerToolArgsRestorer(), createPiToolCallNameNormalizer({ knownToolNames: () => ['read'] })],
+      ['read'],
+      { path: 'probe.txt' },
+      true,
+    )
+    expect(output).toContain(PROBE_CONTENT)
+    expect(output).not.toContain('Tool Read not found')
   }, 20_000)
 })

@@ -76,7 +76,7 @@ function PasteField({
  * 所以纯空格不放行；否则界面上看着能提交，走到主进程才抛「缺少参考作品标题」，等于拿后端异常
  * 当前端校验用（issue #109 日志里那条 ERROR）。
  */
-export function canSubmitPasteReference(busy: boolean, title: string, content: string): boolean {
+export function canSubmitPasteReference({ busy, title, content }: { busy: boolean; title: string; content: string }): boolean {
   return !busy && title.trim().length > 0 && content.trim().length > 0
 }
 
@@ -97,10 +97,23 @@ export function ReferenceWorksPasteDialogPanel({
   onSubmit: FormEventHandler<HTMLFormElement>
   onTitleChange: (value: string) => void
 }) {
-  const canSubmit = canSubmitPasteReference(busy, title, content)
+  const canSubmit = canSubmitPasteReference({ busy, title, content })
+
+  /**
+   * 回车与点击走同一道闸：按钮的 disabled 只挡鼠标，两个输入框在提交中并不 disabled，单行输入框里
+   * 按回车照样触发表单提交。守卫放在这里而不是调用方，是因为 `canSubmit` 与按钮 disabled 用的是
+   * **同一个变量**——两处判据物理上不可能漂移（曾经分别拼条件，就漏过一个 busy）。
+   */
+  const handleSubmit: FormEventHandler<HTMLFormElement> = (event) => {
+    if (!canSubmit) {
+      event.preventDefault()
+      return
+    }
+    onSubmit(event)
+  }
 
   return (
-    <form onSubmit={onSubmit} data-reference-works-paste-panel="true" className="grid">
+    <form onSubmit={handleSubmit} data-reference-works-paste-panel="true" className="grid">
       <DialogHeader className="border-b border-border px-6 pb-5 pt-6 text-left">
         <DialogTitle className="text-lg leading-tight">粘贴一个片段</DialogTitle>
         <DialogDescription className="sr-only">输入片段标题和正文，保存为当前项目的一个参考作品来源。</DialogDescription>
@@ -225,8 +238,9 @@ export function ReferenceWorksView({
   const canAnalyze = hasSources && !busy
 
   async function handlePaste() {
-    // 与提交按钮逐字同一个判据（判据详情见 canSubmitPasteReference）：按钮禁用只挡点击，回车得靠这道。
-    if (!canSubmitPasteReference(busy, title, content)) return
+    // 纵深防御：表单那道闸（ReferenceWorksPasteDialogPanel 的 handleSubmit）才是回车的正门，
+    // 这里再拦一次，免得将来有别的调用方绕过 panel 直接调进来。
+    if (!canSubmitPasteReference({ busy, title, content })) return
 
     setSubmitting(true)
     setError(null)

@@ -252,19 +252,19 @@ describe('粘贴参考作品的必填校验（issue #109）', () => {
 
 describe('canSubmitPasteReference', () => {
   test('两个字段都非空白、且不在提交中，才能提交', () => {
-    expect(canSubmitPasteReference(false, '片段', '正文')).toBe(true)
-    expect(canSubmitPasteReference(false, '', '正文')).toBe(false)
-    expect(canSubmitPasteReference(false, '片段', '')).toBe(false)
-    expect(canSubmitPasteReference(false, '  ', '正文')).toBe(false)
-    expect(canSubmitPasteReference(false, '片段', '\t\n')).toBe(false)
-    expect(canSubmitPasteReference(false, '', '')).toBe(false)
+    expect(canSubmitPasteReference({ busy: false, title: '片段', content: '正文' })).toBe(true)
+    expect(canSubmitPasteReference({ busy: false, title: '', content: '正文' })).toBe(false)
+    expect(canSubmitPasteReference({ busy: false, title: '片段', content: '' })).toBe(false)
+    expect(canSubmitPasteReference({ busy: false, title: '  ', content: '正文' })).toBe(false)
+    expect(canSubmitPasteReference({ busy: false, title: '片段', content: '\t\n' })).toBe(false)
+    expect(canSubmitPasteReference({ busy: false, title: '', content: '' })).toBe(false)
   })
 
   test('提交中一律不可再提交——这一条挡的是回车重复提交', () => {
     // 两个输入框在 busy 时并不 disabled，回车绕过按钮禁用；漏了这条会重复发请求，
     // 而后端把同标题当新来源追加，凭空多出一份重复参考作品。
-    expect(canSubmitPasteReference(true, '片段', '正文')).toBe(false)
-    expect(canSubmitPasteReference(true, '', '')).toBe(false)
+    expect(canSubmitPasteReference({ busy: true, title: '片段', content: '正文' })).toBe(false)
+    expect(canSubmitPasteReference({ busy: true, title: '', content: '' })).toBe(false)
   })
 })
 

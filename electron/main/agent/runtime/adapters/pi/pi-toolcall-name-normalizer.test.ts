@@ -169,12 +169,13 @@ describe('createPiToolCallNameNormalizer', () => {
     expect(await onEnd({ message: { role: 'user', content } })).toBeUndefined()
   })
 
-  test('content 不是数组 / 工具名为空时安全跳过，不抛异常', async () => {
+  test('content 不是数组 / 工具名字段缺失时安全跳过，不抛异常', async () => {
     // handler 抛异常会被 runner catch 成 emitError → 归一静默不生效，症状退回 not found。
     const extension = createPiToolCallNameNormalizer({ knownToolNames: () => KNOWN_TOOLS })
     const onEnd = extension.handlers.get('message_end')?.[0]
     if (!onEnd) throw new Error('扩展未注册处理器')
     expect(await onEnd({ message: { role: 'assistant', content: '不是数组' } })).toBeUndefined()
+    // 空串那半是 defensive：走完三档同样返回 undefined，与有守卫时行为一致，故此处只作不抛异常的保证。
     expect(
       await onEnd({ message: { role: 'assistant', content: [{ type: 'toolCall', id: 'x', name: '', arguments: {} }] } }),
     ).toBeUndefined()
@@ -249,6 +250,11 @@ describe('resolveToolCallName', () => {
   test('精确命中优先于一切：别名表与大小写回退都不参与', () => {
     expect(resolveToolCallName('Read', ['read', 'Read'])).toBeUndefined()
     expect(resolveToolCallName('mytool', ['mytool', 'MyTool'])).toBeUndefined()
+  })
+
+  test('别名表内的名字遇到大小写并存时按表走（不是猜，有权威映射可依）', () => {
+    // 这条钉住第 2、3 档的**顺序**：一旦对调，READ 会落进第 3 档被判歧义而不改，行为静默翻转。
+    expect(resolveToolCallName('READ', ['read', 'Read'])).toBe('read')
   })
 
   test('别名表优先于大小写回退，且只在目标已注册时生效', () => {
