@@ -4,6 +4,11 @@
 
 ## Current Branch
 
+**2026-09-16（撤掉发版收尾 PR：`HIGHEST_SHIPPED_VERSION` 常量改为直接问 GitHub，分支 chore/drop-highest-shipped-constant）**：v0.4.2 发完后产品主人质疑「每次发版后还要一个 PR 抬版本号」不合理，核实后成立，四处不合理：①常量是线上事实的手抄缓存，而发布脚本本来就在查 GitHub；防「忘了抬版本」的机制自己靠「别忘了抬常量」维持，0.3.2 那次就真漏抬过；②收尾 PR 把 `package.json` 写成下一个占位号，等于替下一版提前定了 patch/minor，与 ADR-0038「版本号由人在发版时定」相悖；③两个数必须同步改是陷阱；④它真正防的场景发布脚本已有闸。
+- **改法**：删常量与其单测断言；`release.mjs` 新增 `assertVersionAboveLatestRelease`（`gh release view` 不带 tag 取 latest，严格大于才放行；查不到时放行、交给后面 create 去炸，与重复版本闸同款处置），与既有 `assertVersionNotAlreadyReleased` 并列放在打包前。**两道闸职责不同**：重复闸只拦「这个号发过」，跳着发一个没用过却低于线上的号它放行，而后果是 `releases/latest` 倒退、装了线上版的机器全部掉队——新闸补的正是这个。预检同源改查线上；SKILL / release-checklist / workflow / ADR-0038 同步。
+- **发版流程从此少一步**：发完不再开任何收尾 PR，`package.json` 停在刚发的号上，下一版的号在下次发版第一步再定。当前 `package.json = 0.4.3` 是 PR #114 留下的占位，下次发版时按实际内容决定是否改。
+- 验证：`client-version` + `release` 测试 77 绿；预检对真实 GitHub 实跑读到 latest=0.4.2 且判 0.4.3 通过；**变异实测**：把 `package.json` 临时改成 0.4.2 预检当场报阻断。
+
 **2026-09-11 → 09-14（Agent 任务失败分类 + 上报扩面，分支 feat/telemetry-failure-reason，PR #105）**：遥测二读（近 30 天 185 台设备）发现**写章节失败率 20%（94/471）、44% 的活跃设备遇到过、其中 45% 是跑满 5 分钟以上才挂**，而 `error_occurred` **全库只有一处上报、八个错误码只用了一个**——20% 的失败是个黑箱，`update-failed` 也从没发过（自动更新出问题同样看不见）。
 - **刀一**：`run-failed` 拆成 13 个原因枚举（`telemetry/failure-reason.ts`，**原始错误的终点站**，只吐枚举常量、无透传路径）。`provider-bad-request` 单独成项有目的：OpenAI 兼容渠道的协议字段错配（自建网关/中转/Ollama 落进 pi-ai 默认 compat 档）正是以 400 呈现，它的占比直接决定要不要做「后端类型」选择器。
 - **刀二**：失败上报从写章节扩到全部 11 个 command（`run-module.ts` 的 command → 模块映射）。此前「立项卡跑失败了」一条记录都没有，而 premise 是第二大模块（128 台设备用过，写章节只有 64 台）。⚠️ **`rewrite`/`review` 属 write-chapter 模块但不算「写了一章」**——`chapter_write_*` 只认 `write-next`，混进去会稀释完成率与耗时分布，那两个数跨版本比较用，口径一变就不可比（单列 `isChapterWriteCommand` 并有回归测试专守）。

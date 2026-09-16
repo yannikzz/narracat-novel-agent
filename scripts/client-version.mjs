@@ -23,22 +23,15 @@ const repoRoot = resolve(scriptDir, '..')
 /** 版本号格式正则（SSOT——校验方一律用它，不要各自手写 `^0\.3\.` 这类硬编码） */
 export const CLIENT_VERSION_RE = /^\d+\.\d+\.\d+$/
 
-/**
- * 已交付到用户手上的最高版本。**新版本号必须严格大于它**，否则 electron-updater 认为
- * 用户已是最新，那批机器就此掉队（静默，无任何提示）。
- *
- * 当前值 `0.3.0` = 2026-08-30 发布的首个双平台版本（mac + Windows 各自的更新链均已实测 200）。
- *
- * **发版之后要做两件事，缺一不可**（2026-08-30 发 0.3.0 时才发现这是一对）：
- *   ① 把这个常量抬到刚发出去的版本——它是那道「手滑把版本改小 / 忘了 bump」的闸的唯一依据
- *   ② 同时把 `package.json` 的 version 抬到下一个开发版本（如 `0.3.1`）
- * 只做①会让 `client-version.test.mjs` 当场变红：断言是 package.json 的 version **严格大于**
- * 本常量，而刚发完时两者相等。这不是断言写歪了——严格大于正是「忘了 bump 就发版」的拦截力
- * 所在，改成 `>=` 等于把闸拆了。两件一起做，仓库就始终停在「下一版待发」的状态上。
- */
-export const HIGHEST_SHIPPED_VERSION = '0.4.2'
 
-/** semver 三段比较：a > b。只处理 `x.y.z`，本仓不发预发布版（feed 只认 releases/latest）。 */
+/**
+ * semver 三段比较：a > b。只处理 `x.y.z`，本仓不发预发布版（feed 只认 releases/latest）。
+ *
+ * 消费方是 `release.mjs` 的「新版本必须高于线上 latest」闸：electron-updater 只认
+ * 「feed 版本 > 已安装版本」，发一个不高于线上的号，装了线上版的机器就此掉队（静默，无提示）。
+ * 「线上 latest 是几」直接问 GitHub，不在仓库里手抄一份——手抄的那份曾经漏抬过一次（0.3.2），
+ * 而且逼着每次发完版都要再开一个 PR 去同步它。
+ */
 export function isVersionGreater(a, b) {
   const pa = String(a).split('.').map(Number)
   const pb = String(b).split('.').map(Number)

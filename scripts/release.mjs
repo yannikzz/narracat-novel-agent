@@ -29,7 +29,7 @@ import {
   winFeedUrl,
   winReleaseAssetFileNames,
 } from './update-feed.mjs'
-import { resolveClientVersion } from './client-version.mjs'
+import { isVersionGreater, resolveClientVersion } from './client-version.mjs'
 import { loadEnvFiles, runPackageRc } from './package-rc.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -407,6 +407,56 @@ export function assertVersionNotAlreadyReleased(clientVersion, { readState = rea
  * Error 对象里根本拿不到内容。命中就返回 true，探测本身失败（tag 确实不存在）
  * 就返回 false，交给调用方原样抛出原始错误。
  */
+/**
+ * 线上 latest 的版本号（`gh release view` 不带 tag = 最新的非 draft、非 prerelease）。
+ * 查不到（还没发过任何版本 / 没网 / 没登录）返回 null——与 readReleaseState 同款处置：
+ * 网络与认证故障后面真正 create 时一样会炸，不会静默发出去。
+ */
+export function readLatestReleasedVersion({ execFile = execFileSync, repo = RELEASE_REPO } = {}) {
+  try {
+    const out = execFile('gh', ['release', 'view', '--repo', repo, '--json', 'tagName'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const tagName = JSON.parse(out)?.tagName
+    if (typeof tagName !== 'string') return null
+    const version = tagName.replace(/^v/, '')
+    return /^\d+\.\d+\.\d+$/.test(version) ? version : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 版本线闸：新版本号必须**严格高于**线上 latest（ADR-0038 补的第一道，2026-09-16 改为直接问 GitHub）。
+ *
+ * 为什么不能只靠上面的重复版本闸：它只拦「这个号发过」。跳着发一个从没用过、却低于线上的号
+ * （线上 0.4.2、package.json 手滑写成 0.3.9）它放行，而发出去的后果是 releases/latest 倒退、
+ * 装了 0.4.2 的机器全部掉队——electron-updater 只认「feed 版本 > 已安装版本」，且静默无提示。
+ *
+ * 这条以前是仓库里一个手抄常量 `HIGHEST_SHIPPED_VERSION` + 单测在守：每发一次版就要人再开一个
+ * PR 去抬它，而它守的事实 GitHub 本来就知道。手抄那份曾经漏抬过一次（0.3.2），防「忘了抬」的
+ * 机制自己靠「别忘了抬」维持，所以撤了，改为发版时直接问线上。
+ */
+export function assertVersionAboveLatestRelease(clientVersion, { readLatest = readLatestReleasedVersion } = {}) {
+  const latest = readLatest()
+  if (latest === null) return
+  if (isVersionGreater(clientVersion, latest)) return
+
+  throw new Error(
+    [
+      `发布中止：${clientVersion} 没有高过线上已发布的 ${latest}。`,
+      '',
+      '装了线上那一版的机器会认为自己已是最新，收不到这一版且无任何提示；',
+      '若照样发出去，releases/latest 还会倒退到这个更低的号。',
+      '',
+      `请把 package.json 的 version 改成高于 ${latest} 的号（修 bug 走 patch，有新能力走 minor），`,
+      '提交后重新跑一遍 `bun --no-cache run release`。',
+    ].join('\n'),
+  )
+}
+
 function releaseAlreadyExists(plan, run) {
   try {
     run(['release', 'view', plan.tag, '--repo', plan.repo, '--json', 'tagName'])
@@ -562,8 +612,9 @@ export async function runRelease({ winDir, winFromRelease = false, useExistingAr
   assertInteractive(process.stdin.isTTY)
 
   const clientVersion = resolveClientVersion({ root: repoRoot })
-  // 重复版本闸放在打包之前：撞上了就别浪费几分钟签名 + 公证（与上面 assertInteractive 同理）。
+  // 两道版本号闸放在打包之前：撞上了就别浪费几分钟签名 + 公证（与上面 assertInteractive 同理）。
   assertVersionNotAlreadyReleased(clientVersion)
+  assertVersionAboveLatestRelease(clientVersion)
   // 本机只打 mac：Windows 包由 CI 出（SignPath 要求可验证地从源码构建），
   // 通过 --with-win <目录> 把下载好的三件产物带进本次 Release——两条路互不影响，
   // --use-existing-artifacts 跳过的只是 mac 这一次打包。

@@ -10,6 +10,7 @@ import {
   lastProductChangeIso,
   assertArtifactsNotarized,
   assertInteractive,
+  assertVersionAboveLatestRelease,
   assertVersionNotAlreadyReleased,
   assertZipMatchesManifest,
   assertManifestMatchesVersion,
@@ -19,6 +20,7 @@ import {
   publishRelease,
   readVersionHighlights,
   readReleaseAssets,
+  readLatestReleasedVersion,
   readReleaseState,
 } from './release.mjs'
 import { releaseAssetFileNames } from './update-feed.mjs'
@@ -402,6 +404,75 @@ describe('版本号重复闸（ADR-0038 补的第二道）', () => {
     expect(
       readReleaseState('v0.3.0', { execFile: () => JSON.stringify({ isDraft: true }) }),
     ).toEqual({ isDraft: true })
+  })
+})
+
+describe('版本线闸：新版本必须严格高于线上 latest（替代手抄常量 HIGHEST_SHIPPED_VERSION）', () => {
+  // 重复版本闸只拦「这个号发过」。跳着发一个从没用过、却低于线上的号它放行，
+  // 而后果是 releases/latest 倒退、装了线上版的机器全部掉队且静默。这一组是补上的那道。
+
+  test('高于线上：放行', () => {
+    expect(() =>
+      assertVersionAboveLatestRelease('0.4.3', { readLatest: () => '0.4.2' }),
+    ).not.toThrow()
+  })
+
+  test('等于线上：拦——刚发完没抬号就是这个状态', () => {
+    expect(() =>
+      assertVersionAboveLatestRelease('0.4.2', { readLatest: () => '0.4.2' }),
+    ).toThrow('0.4.2')
+  })
+
+  test('低于线上但从没发过这个号：拦，且指出线上是几、该怎么改', () => {
+    let error
+    try {
+      assertVersionAboveLatestRelease('0.3.9', { readLatest: () => '0.4.2' })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toContain('0.3.9')
+    expect(error.message).toContain('0.4.2')
+    expect(error.message).toContain('package.json')
+  })
+
+  test('查不到线上版本（从没发过 / 没网）：放行，交给后面真正 create 时去炸', () => {
+    expect(() =>
+      assertVersionAboveLatestRelease('0.1.0', { readLatest: () => null }),
+    ).not.toThrow()
+  })
+
+  test('readLatestReleasedVersion：解析 tagName 并去掉 v 前缀', () => {
+    expect(
+      readLatestReleasedVersion({ execFile: () => JSON.stringify({ tagName: 'v0.4.2' }) }),
+    ).toBe('0.4.2')
+  })
+
+  test('readLatestReleasedVersion：不带 tag 调 gh release view（那才是 latest 的语义）', () => {
+    const seen = []
+    readLatestReleasedVersion({
+      execFile: (_cmd, args) => {
+        seen.push(args)
+        return JSON.stringify({ tagName: 'v0.4.2' })
+      },
+    })
+    expect(seen).toHaveLength(1)
+    expect(seen[0].slice(0, 3)).toEqual(['release', 'view', '--repo'])
+    expect(seen[0]).toContain('tagName')
+  })
+
+  test('readLatestReleasedVersion：gh 报错或 tag 不是 x.y.z 时返回 null，不把发版流程炸掉', () => {
+    expect(
+      readLatestReleasedVersion({
+        execFile: () => {
+          throw new Error('release not found')
+        },
+      }),
+    ).toBeNull()
+    expect(
+      readLatestReleasedVersion({ execFile: () => JSON.stringify({ tagName: 'nightly' }) }),
+    ).toBeNull()
   })
 })
 

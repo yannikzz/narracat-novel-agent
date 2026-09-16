@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test'
 import {
   CLIENT_VERSION_OVERRIDE_ENV,
   CLIENT_VERSION_RE,
-  HIGHEST_SHIPPED_VERSION,
   isVersionGreater,
   readPackageVersion,
   resolveClientVersion,
@@ -94,25 +93,14 @@ describe('resolveOverridableClientVersion — 覆盖机制（ADR-0038 保留不�
   })
 })
 
-describe('版本线不变量 — 必须压过已交付到用户手上的最高版本', () => {
-  // 派生方案（ADR-0006）唯一的真好处是「永不重复、永不忘记」；改成人来定之后这两件事都可能
-  // 出错。这一组就是补上的那道闸——手滑把版本改小、或发完版忘了往上抬，测试立刻红。
-  //
-  // 为什么是 0.2.92 而不是线上最新的 0.2.65：0.2.92 是 Windows 适配分支 CI 出的包，
-  // 已经装在产品主人的真机上。electron-updater 只认「feed 版本 > 已安装版本」，漏掉这台
-  // 就是这台永久收不到更新（正是 ADR-0038 要治的那起事故）。取两者中的大者。
-  test('package.json 的 version 严格大于已交付的最高版本', () => {
-    const current = resolveClientVersion({})
-
-    expect(CLIENT_VERSION_RE.test(current)).toBe(true)
-    expect(isVersionGreater(current, HIGHEST_SHIPPED_VERSION)).toBe(true)
-  })
-
-  test('比较函数本身可信：同值不算大于，低版本必须失守（证明断言真有牙）', () => {
+describe('isVersionGreater — 发布闸「新版本必须高于线上 latest」的比较函数', () => {
+  // 「线上 latest 是几」由 release.mjs 在发版时直接问 GitHub（见那边的 assertVersionAboveLatestRelease），
+  // 仓库里不再手抄一份常量。这里只钉比较函数本身可信：同值不算大于，低版本必须失守。
+  test('同值不算大于，低版本必须失守（证明闸真有牙）', () => {
     expect(isVersionGreater('0.3.0', '0.2.92')).toBe(true)
     expect(isVersionGreater('0.2.92', '0.2.92')).toBe(false)
-    expect(isVersionGreater('0.2.75', HIGHEST_SHIPPED_VERSION)).toBe(false)
-    // 合并后主干那个 0.2.75 正是事故现场：它低于已交付的 0.2.92，发出去没人收得到。
+    // 0.2.75 vs 0.2.92 正是 ADR-0038 的事故现场：合并后主干的号低于已交付真机的号，发出去没人收得到。
+    expect(isVersionGreater('0.2.75', '0.2.92')).toBe(false)
     expect(isVersionGreater('0.2.100', '0.2.92')).toBe(true)
     expect(isVersionGreater('1.0.0', '0.9.9')).toBe(true)
   })

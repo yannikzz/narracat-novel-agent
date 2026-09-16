@@ -9,7 +9,7 @@
 - Target: macOS arm64
 - Artifact: DMG plus unpacked `.app`
 - Artifact naming: `NarraCat-${version}-mac-arm64`
-- Client version: `package.json`'s `version`, decided by a human at release time (ADR-0038; superseded the commit-count derivation of ADR-0006). Resolved through `scripts/client-version.mjs`; must be strictly greater than `HIGHEST_SHIPPED_VERSION` or those machines never see the update.
+- Client version: `package.json`'s `version`, decided by a human at release time (ADR-0038; superseded the commit-count derivation of ADR-0006). Resolved through `scripts/client-version.mjs`; must be strictly greater than the latest published GitHub Release (checked live by `release.mjs` and the preflight script) or those machines never see the update.
 
 ## Step 0 — Decide The Version
 
@@ -18,11 +18,10 @@
 this is caught before packaging by `release.mjs`'s duplicate-version gate — but catching it early
 saves a signing + notarization round.
 
-After the release ships, raise **both** numbers — they are a pair: `HIGHEST_SHIPPED_VERSION` in
-`scripts/client-version.mjs` goes to the version just shipped, and `package.json`'s `version` goes to
-the next development version. Raising only the former makes the invariant test fail immediately (the
-two are equal right after a release), and relaxing that test to `>=` would remove the "forgot to
-bump" protection entirely. Doing both leaves the repo parked at "next version, ready to cut".
+After the release ships there is **nothing to bump**. The "highest shipped" number used to be a
+hand-maintained constant (`HIGHEST_SHIPPED_VERSION`) that needed its own PR after every release; since
+2026-09-16 both the preflight and `release.mjs` ask GitHub for the latest published release instead.
+`package.json` simply stays at the version just shipped until the next release decides the next number.
 
 Both platforms read the same `package.json`, so mac and Windows artifacts carry the same version
 by construction — that is the point of ADR-0038.

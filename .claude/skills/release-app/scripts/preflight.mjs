@@ -31,8 +31,11 @@ if (!repoRoot) {
   process.exit(1)
 }
 
-const { HIGHEST_SHIPPED_VERSION, isVersionGreater, readPackageVersion } = await import(
+const { isVersionGreater, readPackageVersion } = await import(
   pathToFileURL(join(repoRoot, 'scripts', 'client-version.mjs')).href
+)
+const { readLatestReleasedVersion } = await import(
+  pathToFileURL(join(repoRoot, 'scripts', 'release.mjs')).href
 )
 const { releaseTag, winReleaseAssetFileNames, RELEASE_REPO } = await import(
   pathToFileURL(join(repoRoot, 'scripts', 'update-feed.mjs')).href
@@ -108,12 +111,17 @@ try {
   version = readPackageVersion(repoRoot)
   add('ok', `版本号 ${version}`, 'package.json（ADR-0038 的唯一真相源）')
 
-  if (isVersionGreater(version, HIGHEST_SHIPPED_VERSION)) {
-    add('ok', `高于已交付的 ${HIGHEST_SHIPPED_VERSION}`, '存量用户能收到这一版')
+  // 「线上 latest 是几」直接问 GitHub（与 release.mjs 的 assertVersionAboveLatestRelease 同源），
+  // 不在仓库里手抄常量——那份常量曾漏抬过一次，且逼着每次发完版都要再开一个 PR 去同步它。
+  const latest = readLatestReleasedVersion()
+  if (latest === null) {
+    add('warning', '查不到线上已发布的版本', 'gh 没登录、没网、或从没发过版；发布脚本会再查一次')
+  } else if (isVersionGreater(version, latest)) {
+    add('ok', `高于线上已发布的 ${latest}`, '存量用户能收到这一版')
   } else {
     add(
       'blocker',
-      `没有高过已交付的 ${HIGHEST_SHIPPED_VERSION}`,
+      `没有高过线上已发布的 ${latest}`,
       '装了那一版的机器会认为自己已是最新，收不到更新且无任何提示——先抬 package.json 的 version',
     )
   }
