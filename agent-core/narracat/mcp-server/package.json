@@ -1,6 +1,6 @@
 {
   "name": "@narracat/mcp-server",
-  "version": "4.0.186",
+  "version": "4.0.187",
   "description": "NovelMemory MCP Server - adapter between NarraCat Agent runtime and OpenMemory",
   "type": "module",
   "main": "dist/index.js",

@@ -602,11 +602,8 @@ async function applyProgressUpdate(chapter, ctx) {
     }
     doc.setIn(["word_count", "total"], total);
     doc.setIn(["word_count", "by_chapter"], doc.createNode(byChapter));
-    // 清 checkpoint
-    doc.setIn(["checkpoint", "last_command"], null);
-    doc.setIn(["checkpoint", "last_step"], null);
-    doc.setIn(["checkpoint", "context_snapshot"], null);
-    doc.setIn(["checkpoint", "timestamp"], null);
+    // 清 checkpoint（别的章写到一半的中断记录保留，见 clearCheckpointKeepingPendingWrite）
+    clearCheckpointKeepingPendingWrite(doc);
     await writeFile(statePath, String(doc), "utf-8");
     return { ok: true, completed, lastCompleted, total };
 }
@@ -677,6 +674,19 @@ function unfinishedWriteCheckpoint(doc) {
     if (!isPositiveInteger(chapter) || parseCompletedChapters(doc).includes(chapter))
         return null;
     return { lastCommand: raw.trim(), chapter };
+}
+/**
+ * 收尾清断点：当前断点若是另一章写到一半（write N、第 N 章仍未完成），保留它——作品页靠它认出
+ * 可继续写的中断章，改写 / 同步别的章收尾时不能顺手清掉。须在完成进度写回 doc 之后调用：
+ * 写章自己完成第 N 章时 N 已进完成集合，断点照常清。
+ */
+function clearCheckpointKeepingPendingWrite(doc) {
+    if (unfinishedWriteCheckpoint(doc))
+        return;
+    doc.setIn(["checkpoint", "last_command"], null);
+    doc.setIn(["checkpoint", "last_step"], null);
+    doc.setIn(["checkpoint", "context_snapshot"], null);
+    doc.setIn(["checkpoint", "timestamp"], null);
 }
 export async function novelCheckpoint(args, ctx) {
     const command = args["command"];
@@ -781,11 +791,8 @@ export async function revertProgressToChapter(projectRoot, chapter) {
     }
     doc.setIn(["word_count", "total"], total);
     doc.setIn(["word_count", "by_chapter"], doc.createNode(byChapter));
-    // 清 checkpoint（回滚后旧断点不再有效）
-    doc.setIn(["checkpoint", "last_command"], null);
-    doc.setIn(["checkpoint", "last_step"], null);
-    doc.setIn(["checkpoint", "context_snapshot"], null);
-    doc.setIn(["checkpoint", "timestamp"], null);
+    // 清 checkpoint（回滚后旧断点不再有效；别的章写到一半的中断记录保留）
+    clearCheckpointKeepingPendingWrite(doc);
     await writeFile(statePath, String(doc), "utf-8");
     return { ok: true, completed_chapters: completed, word_count_total: total };
 }
