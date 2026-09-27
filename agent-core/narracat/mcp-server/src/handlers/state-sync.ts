@@ -775,11 +775,8 @@ async function applyProgressUpdate(
   doc.setIn(["word_count", "total"], total);
   doc.setIn(["word_count", "by_chapter"], doc.createNode(byChapter));
 
-  // 清 checkpoint
-  doc.setIn(["checkpoint", "last_command"], null);
-  doc.setIn(["checkpoint", "last_step"], null);
-  doc.setIn(["checkpoint", "context_snapshot"], null);
-  doc.setIn(["checkpoint", "timestamp"], null);
+  // 清 checkpoint（别的章写到一半的中断记录保留，见 clearCheckpointKeepingPendingWrite）
+  clearCheckpointKeepingPendingWrite(doc);
 
   await writeFile(statePath, String(doc), "utf-8");
 
@@ -864,6 +861,30 @@ export async function novelRestoreProgress(
 // novel_checkpoint — 机械写 checkpoint 节
 // ============================================================
 
+/** 当前断点是写章且该章尚未完成时返回它（章号取自「write N」）。 */
+function unfinishedWriteCheckpoint(doc: Document): { lastCommand: string; chapter: number } | null {
+  const raw = doc.getIn(["checkpoint", "last_command"]);
+  if (typeof raw !== "string") return null;
+  const match = /^(?:\/narracat:)?write\s+(\d+)$/.exec(raw.trim());
+  if (!match) return null;
+  const chapter = Number(match[1]);
+  if (!isPositiveInteger(chapter) || parseCompletedChapters(doc).includes(chapter)) return null;
+  return { lastCommand: raw.trim(), chapter };
+}
+
+/**
+ * 收尾清断点：当前断点若是另一章写到一半（write N、第 N 章仍未完成），保留它——作品页靠它认出
+ * 可继续写的中断章，改写 / 同步别的章收尾时不能顺手清掉。须在完成进度写回 doc 之后调用：
+ * 写章自己完成第 N 章时 N 已进完成集合，断点照常清。
+ */
+function clearCheckpointKeepingPendingWrite(doc: Document): void {
+  if (unfinishedWriteCheckpoint(doc)) return;
+  doc.setIn(["checkpoint", "last_command"], null);
+  doc.setIn(["checkpoint", "last_step"], null);
+  doc.setIn(["checkpoint", "context_snapshot"], null);
+  doc.setIn(["checkpoint", "timestamp"], null);
+}
+
 export async function novelCheckpoint(
   args: Record<string, unknown>,
   ctx: ToolContext,
@@ -906,6 +927,19 @@ export async function novelCheckpoint(
   const lastCommand = isPositiveInteger(chapter) ? `${command.trim()} ${chapter}` : command.trim();
   const timestamp = new Date().toISOString();
 
+  // 未完成的写章断点只让写章自己覆盖：作品页靠 last_command="write N" 认出可继续写的中断章，
+  // 中途跑设定 / 大纲等别的命令若把它改掉，作者就找不回「继续写第 N 章」。这些命令只拿断点做展示、
+  // 不据此恢复，所以跳过它们的断点不影响它们自己。
+  const pendingWrite = unfinishedWriteCheckpoint(doc);
+  if (pendingWrite && !/^(?:\/narracat:)?write$/.test(command.trim())) {
+    return {
+      ok: true,
+      preserved_write_checkpoint: true,
+      last_command: pendingWrite.lastCommand,
+      message: `第${pendingWrite.chapter}章写作中断的断点保留，本次「${lastCommand}」步骤 ${step} 不记断点`,
+    };
+  }
+
   doc.setIn(["checkpoint", "last_command"], lastCommand);
   doc.setIn(["checkpoint", "last_step"], step);
   doc.setIn(["checkpoint", "timestamp"], timestamp);
@@ -918,6 +952,32 @@ export async function novelCheckpoint(
     last_step: step,
     timestamp,
   };
+}
+
+// ============================================================
+// readCompletedChapters — 只读取完成章节列表（novel_rollback_chapter 判断后文是否已写完）
+// ============================================================
+
+function parseCompletedChapters(doc: Document): number[] {
+  const existingRaw = doc.getIn(["progress", "completed_chapters"]);
+  const existing: number[] = [];
+  if (existingRaw && typeof (existingRaw as { toJSON?: unknown }).toJSON === "function") {
+    const parsed = (existingRaw as { toJSON: () => unknown }).toJSON();
+    if (Array.isArray(parsed)) {
+      for (const v of parsed) {
+        if (isPositiveInteger(v)) existing.push(v);
+      }
+    }
+  }
+  return [...new Set(existing)].sort((a, b) => a - b);
+}
+
+export async function readCompletedChapters(
+  projectRoot: string,
+): Promise<{ ok: true; chapters: number[] } | { ok: false; error: string }> {
+  const loaded = await loadStateDocument(projectRoot);
+  if ("error" in loaded) return { ok: false, error: loaded.error };
+  return { ok: true, chapters: parseCompletedChapters(loaded.doc) };
 }
 
 // ============================================================
@@ -939,17 +999,7 @@ export async function revertProgressToChapter(
   const { doc, statePath } = loaded;
 
   // completed_chapters：仅保留回滚点之前的章
-  const existingRaw = doc.getIn(["progress", "completed_chapters"]);
-  const existing: number[] = [];
-  if (existingRaw && typeof (existingRaw as { toJSON?: unknown }).toJSON === "function") {
-    const parsed = (existingRaw as { toJSON: () => unknown }).toJSON();
-    if (Array.isArray(parsed)) {
-      for (const v of parsed) {
-        if (isPositiveInteger(v)) existing.push(v);
-      }
-    }
-  }
-  const completed = [...new Set(existing.filter((c) => c < chapter))].sort((a, b) => a - b);
+  const completed = parseCompletedChapters(doc).filter((c) => c < chapter);
   const lastCompleted = completed.length > 0 ? completed[completed.length - 1] : null;
 
   doc.setIn(["progress", "completed_chapters"], doc.createNode(completed));
@@ -976,11 +1026,8 @@ export async function revertProgressToChapter(
   doc.setIn(["word_count", "total"], total);
   doc.setIn(["word_count", "by_chapter"], doc.createNode(byChapter));
 
-  // 清 checkpoint（回滚后旧断点不再有效）
-  doc.setIn(["checkpoint", "last_command"], null);
-  doc.setIn(["checkpoint", "last_step"], null);
-  doc.setIn(["checkpoint", "context_snapshot"], null);
-  doc.setIn(["checkpoint", "timestamp"], null);
+  // 清 checkpoint（回滚后旧断点不再有效；别的章写到一半的中断记录保留）
+  clearCheckpointKeepingPendingWrite(doc);
 
   await writeFile(statePath, String(doc), "utf-8");
 

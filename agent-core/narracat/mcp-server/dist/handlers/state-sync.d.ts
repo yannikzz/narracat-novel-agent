@@ -123,6 +123,13 @@ export declare function novelUpdateProgress(args: Record<string, unknown>, ctx: 
  */
 export declare function novelRestoreProgress(args: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
 export declare function novelCheckpoint(args: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
+export declare function readCompletedChapters(projectRoot: string): Promise<{
+    ok: true;
+    chapters: number[];
+} | {
+    ok: false;
+    error: string;
+}>;
 export declare function revertProgressToChapter(projectRoot: string, chapter: number): Promise<{
     ok: true;
     completed_chapters: number[];

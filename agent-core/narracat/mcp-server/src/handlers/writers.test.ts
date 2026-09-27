@@ -2668,6 +2668,140 @@ describe("novel_rollback_chapter", () => {
   });
 });
 
+describe("novel_rollback_chapter mode=reconcile-chapter（重写中间章只动本章）", () => {
+  function writeCompletedState(root: string, completed: number[]): void {
+    writeFileSync(
+      join(root, ".narracat", "state.yaml"),
+      BASE_STATE.replace("  last_completed_chapter: 0", `  last_completed_chapter: ${completed[completed.length - 1]}`)
+        .replace("  completed_chapters: []", `  completed_chapters: [${completed.join(", ")}]`),
+    );
+  }
+
+  const CHAPTER_FACTS: Record<number, Array<{ subject: string; predicate: string; object: string; change_type: "new" | "update" }>> = {
+    1: [{ subject: "林晚", predicate: "location", object: "杂役峰药圃", change_type: "new" }],
+    2: [
+      { subject: "林晚", predicate: "location", object: "剑冢偏院", change_type: "update" },
+      { subject: "林晚", predicate: "possession", object: "断剑", change_type: "new" },
+    ],
+    3: [
+      { subject: "林晚", predicate: "location", object: "药圃后山", change_type: "update" },
+      { subject: "沈决", predicate: "status", object: "冷淡", change_type: "new" },
+    ],
+    4: [{ subject: "沈决", predicate: "status", object: "缓和", change_type: "update" }],
+  };
+
+  async function buildFourChapterBook(): Promise<ProjectFixture> {
+    const project = createProject();
+    const { ctx, root } = project;
+    writeCharacter(root, "林晚");
+    writeCharacter(root, "沈决");
+    const commit = loadFixture<Record<string, unknown>>("commit-chapter-v5-valid.json");
+    for (const chapter of [1, 2, 3, 4]) {
+      writeManuscript(root, chapter);
+      const committed = (await novelCommitChapter(
+        { ...commit, chapter, characters_appeared: [], foreshadowing_actions: [], summary: `第${chapter}章摘要：${commit.summary as string}` },
+        ctx,
+      )) as Record<string, unknown>;
+      expect(committed.ok).toBe(true);
+      const extracted = (await novelSubmitExtraction({ chapter, facts: CHAPTER_FACTS[chapter] }, ctx)) as Record<string, unknown>;
+      expect(extracted.ok, JSON.stringify(extracted)).toBe(true);
+    }
+    writeCompletedState(root, [1, 2, 3, 4]);
+    return project;
+  }
+
+  function summaryChapters(db: Database.Database): number[] {
+    return (
+      db.prepare("SELECT chapter FROM chapter_summaries WHERE novel_id = ? ORDER BY chapter").all("novel-test") as Array<{ chapter: number }>
+    ).map((r) => r.chapter);
+  }
+
+  function factRows(db: Database.Database): Array<{ object: string; from_chapter: number; invalidated_at_chapter: number | null }> {
+    return db
+      .prepare("SELECT object, from_chapter, invalidated_at_chapter FROM facts WHERE novel_id = ? ORDER BY from_chapter, object")
+      .all("novel-test") as Array<{ object: string; from_chapter: number; invalidated_at_chapter: number | null }>;
+  }
+
+  it("改第 2 章：只清第 2 章派生记忆，第 3 章起摘要 / 事实 / 回执与完成进度全部保留", async () => {
+    const { ctx, root, db } = await buildFourChapterBook();
+
+    const result = (await novelRollbackChapter({ chapter: 2, mode: "reconcile-chapter" }, ctx)) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    expect(summaryChapters(db)).toEqual([1, 3, 4]);
+    // 第 1 章旧位置原被第 2 章取代、第 2 章又被第 3 章取代：删第 2 章后第 1 章直接挂到第 3 章为止，不复活成「永久有效」
+    expect(factRows(db)).toEqual([
+      { object: "杂役峰药圃", from_chapter: 1, invalidated_at_chapter: 3 },
+      { object: "冷淡", from_chapter: 3, invalidated_at_chapter: 4 },
+      { object: "药圃后山", from_chapter: 3, invalidated_at_chapter: null },
+      { object: "缓和", from_chapter: 4, invalidated_at_chapter: null },
+    ]);
+    expect(existsSync(join(root, ".narracat", "receipts", "ch-002.json"))).toBe(false);
+    expect(existsSync(join(root, ".narracat", "receipts", "ch-003.json"))).toBe(true);
+    expect(existsSync(join(root, ".narracat", "receipts", "ch-004.json"))).toBe(true);
+    const state = parse(readFileSync(join(root, ".narracat", "state.yaml"), "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2, 3, 4]);
+    expect(state.progress.last_completed_chapter).toBe(4);
+  });
+
+  it("按新正文重抽第 2 章：update 只取代到第 2 章为止仍有效的旧值，不把后文章事实失效掉", async () => {
+    const { ctx, root, db } = await buildFourChapterBook();
+    await novelRollbackChapter({ chapter: 2, mode: "reconcile-chapter" }, ctx);
+
+    writeManuscript(root, 2, `# 第2章\n\n${"林晚被沈决带去了外门演武场，心里仍惦记着妹妹的药钱。".repeat(40)}\n`);
+    const commit = loadFixture<Record<string, unknown>>("commit-chapter-v5-valid.json");
+    expect(((await novelCommitChapter({ ...commit, characters_appeared: [], foreshadowing_actions: [] }, ctx)) as Record<string, unknown>).ok).toBe(true);
+    const extracted = (await novelSubmitExtraction(
+      { chapter: 2, facts: [{ subject: "沈决", predicate: "status", object: "试探", change_type: "update" }] },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(extracted.ok).toBe(true);
+
+    expect(summaryChapters(db)).toEqual([1, 2, 3, 4]);
+    // 第 3、4 章的「冷淡 → 缓和」链不被第 2 章新抽的 update 动到
+    const attitude = db
+      .prepare("SELECT object, from_chapter, invalidated_at_chapter FROM facts WHERE novel_id = ? AND predicate = 'status' ORDER BY from_chapter")
+      .all("novel-test");
+    expect(attitude).toEqual([
+      { object: "试探", from_chapter: 2, invalidated_at_chapter: null },
+      { object: "冷淡", from_chapter: 3, invalidated_at_chapter: 4 },
+      { object: "缓和", from_chapter: 4, invalidated_at_chapter: null },
+    ]);
+    const state = parse(readFileSync(join(root, ".narracat", "state.yaml"), "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2, 3, 4]);
+  });
+
+  it("默认区间回滚遇到后文已完成章 → 拒绝且不动任何记忆（防旧流程误删后文）", async () => {
+    const { ctx, root, db } = await buildFourChapterBook();
+
+    const result = (await novelRollbackChapter({ chapter: 2 }, ctx)) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("reconcile-chapter");
+    expect(summaryChapters(db)).toEqual([1, 2, 3, 4]);
+    expect(factRows(db)).toHaveLength(6);
+    const state = parse(readFileSync(join(root, ".narracat", "state.yaml"), "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2, 3, 4]);
+  });
+
+  it("默认区间回滚对最末完成章照旧可用（作者手改最末章同步记忆的链路不受影响）", async () => {
+    const { ctx, root, db } = await buildFourChapterBook();
+
+    const result = (await novelRollbackChapter({ chapter: 4 }, ctx)) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    expect(summaryChapters(db)).toEqual([1, 2, 3]);
+    const state = parse(readFileSync(join(root, ".narracat", "state.yaml"), "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2, 3]);
+  });
+
+  it("非法 mode 报错", async () => {
+    const { ctx } = await buildFourChapterBook();
+    const result = (await novelRollbackChapter({ chapter: 2, mode: "all" }, ctx)) as Record<string, unknown>;
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("foreshadowing lifecycle audit（维护者诊断）", () => {
   it("报告重复 plant 动作与注册表埋设章冲突", () => {
     const { db } = createProject();

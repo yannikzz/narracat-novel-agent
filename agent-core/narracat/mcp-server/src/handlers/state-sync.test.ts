@@ -12,6 +12,7 @@ import {
   novelUpdateProgress,
   novelRestoreProgress,
   novelCheckpoint,
+  revertProgressToChapter,
   countWords,
   resolveWorkingManuscript,
   stagingManuscriptPath,
@@ -497,6 +498,70 @@ describe("novel_restore_progress", () => {
   });
 });
 
+// 写第 3 章中断（断点 write 3、第 3 章未完成）后，作者又去改写 / 同步别的章：它们收尾时不能把
+// 写章中断记录一并清掉，否则作品页找不回「继续写第 3 章」。写章自己完成第 3 章时照常清。
+describe("写章中断记录不被别的章的收尾清掉", () => {
+  const INTERRUPTED_AT_3 = BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [1, 2]")
+    .replace("  last_completed_chapter: 0", "  last_completed_chapter: 2")
+    .replace("  last_command: null\n  last_step: null", "  last_command: write 3\n  last_step: 3");
+
+  it("改写第 1 章收尾（novel_update_progress）保留写第 3 章的中断记录", async () => {
+    const { ctx, root, statePath } = createProject(INTERRUPTED_AT_3);
+    await passReview(ctx, root, 1, "改写后的第一章正文。");
+
+    const result = (await novelUpdateProgress({ chapter: 1 }, ctx)) as Record<string, unknown>;
+
+    expect(result["ok"]).toBe(true);
+    const state = parse(await readFile(statePath, "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2]);
+    expect(state.checkpoint.last_command).toBe("write 3");
+    expect(state.checkpoint.last_step).toBe(3);
+  });
+
+  it("同步最后一章记忆（区间回滚第 2 章 + novel_restore_progress）保留写第 3 章的中断记录", async () => {
+    const { ctx, root, statePath } = createProject(INTERRUPTED_AT_3);
+    writeManuscript(root, 2, "作者手改后的第二章正文。");
+
+    const reverted = await revertProgressToChapter(root, 2);
+    expect(reverted.ok).toBe(true);
+    let state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("write 3");
+
+    const result = (await novelRestoreProgress({ chapter: 2 }, ctx)) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    state = parse(await readFile(statePath, "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2]);
+    expect(state.checkpoint.last_command).toBe("write 3");
+    expect(state.checkpoint.last_step).toBe(3);
+  });
+
+  it("写章自己完成第 3 章时照常清掉中断记录", async () => {
+    const { ctx, root, statePath } = createProject(INTERRUPTED_AT_3);
+    await passReview(ctx, root, 3, "第三章正文。");
+
+    const result = (await novelUpdateProgress({ chapter: 3 }, ctx)) as Record<string, unknown>;
+
+    expect(result["ok"]).toBe(true);
+    const state = parse(await readFile(statePath, "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2, 3]);
+    expect(state.checkpoint.last_command).toBeNull();
+    expect(state.checkpoint.last_step).toBeNull();
+  });
+
+  it("不是写章中断的记录（如 rewrite 1）收尾时照常清", async () => {
+    const { ctx, root, statePath } = createProject(
+      INTERRUPTED_AT_3.replace("  last_command: write 3", "  last_command: rewrite 1"),
+    );
+    await passReview(ctx, root, 1, "改写后的第一章正文。");
+
+    await novelUpdateProgress({ chapter: 1 }, ctx);
+
+    const state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBeNull();
+  });
+});
+
 describe("novel_checkpoint", () => {
   it("writes last_command with chapter suffix and the current step", async () => {
     const { ctx, statePath } = await createProjectFixture();
@@ -522,6 +587,54 @@ describe("novel_checkpoint", () => {
 
     const state = parse(await readFile(statePath, "utf-8"));
     expect(state.checkpoint.last_command).toBe("plan");
+  });
+
+  // 写章中断后作品页只靠 last_command="write N" 认出可恢复的中断章（引擎从不写 in_progress_chapter），
+  // 中途跑一次设定 / 大纲等别的命令若覆盖掉它，作品页就丢了「继续写第 N 章」。
+  const INTERRUPTED_WRITE_STATE = BASE_STATE.replace(
+    "  completed_chapters: []",
+    "  completed_chapters: [1, 2]",
+  ).replace("  last_command: null\n  last_step: null", "  last_command: write 3\n  last_step: 3");
+
+  it("已有未完成的写章断点时，别的命令不覆盖它", async () => {
+    const { ctx, statePath } = await createProjectFixture(INTERRUPTED_WRITE_STATE);
+
+    for (const step of [3, 4, 5, 6]) {
+      const result = (await novelCheckpoint({ command: "world", step }, ctx)) as Record<string, unknown>;
+      expect(result["ok"]).toBe(true);
+      expect(result["preserved_write_checkpoint"]).toBe(true);
+      expect(result["last_command"]).toBe("write 3");
+    }
+    await novelCheckpoint({ command: "plan", step: 2 }, ctx);
+
+    const state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("write 3");
+    expect(state.checkpoint.last_step).toBe(3);
+  });
+
+  it("写章自己的断点照常推进；写另一章也照常覆盖", async () => {
+    const { ctx, statePath } = await createProjectFixture(INTERRUPTED_WRITE_STATE);
+
+    await novelCheckpoint({ command: "write", step: 4, chapter: 3 }, ctx);
+    let state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("write 3");
+    expect(state.checkpoint.last_step).toBe(4);
+
+    await novelCheckpoint({ command: "write", step: 1, chapter: 4 }, ctx);
+    state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("write 4");
+  });
+
+  it("写章断点对应的章已完成（残留断点）时，别的命令照常覆盖", async () => {
+    const { ctx, statePath } = await createProjectFixture(
+      INTERRUPTED_WRITE_STATE.replace("  completed_chapters: [1, 2]", "  completed_chapters: [1, 2, 3]"),
+    );
+
+    const result = (await novelCheckpoint({ command: "world", step: 3 }, ctx)) as Record<string, unknown>;
+
+    expect(result["preserved_write_checkpoint"]).toBeUndefined();
+    const state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("world");
   });
 
   it("rejects an empty command", async () => {

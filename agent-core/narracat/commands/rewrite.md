@@ -1,10 +1,10 @@
 ---
-description: 重写已完成章节 — 回滚记忆后重新执行写作流程，并分析对后续章节的级联影响
+description: 重写已完成章节 — 只清空本章记忆后重新执行写作流程，后续章节记忆与进度不动，并分析对后续章节的级联影响
 argument-hint: <章节号>（可追加一句重写要求）
 allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__narracat_memory__novel_build_writing_context_pack", "mcp__narracat_memory__novel_rollback_chapter", "mcp__narracat_memory__novel_get_review", "mcp__narracat_memory__novel_get_arc", "mcp__narracat_memory__novel_character_state", "mcp__narracat_memory__novel_update_progress", "mcp__narracat_memory__novel_checkpoint"]
 ---
 
-重写指定的已完成章节：确认 → 构建上下文包 → 记忆回滚 → 重写 → 审修 → 入库 → 级联影响分析。
+重写指定的已完成章节：确认 → 构建上下文包 → 本章记忆回滚 → 重写 → 审修 → 入库 → 级联影响分析。只动本章：后续已完成章节的记忆与完成进度全程保持不变。
 
 **对作者说话**：你内部用精确的字段 / 文件 / 工具 / agent 名保证引擎正确，但作者会读到的文本（对话叙述、AskUserQuestion 的问题与选项、报告正文）里不出现内部标识——schema 字段名（如 `antagonistic_force`）、立项卡编号（`§5`/`§7`）、文件 / 目录名（`bible/`、`*.md`）、确定度英文枚举（`canon`/`tentative`/`open`）、agent 名（`world-curator` 等）、工程黑话（落盘 / blocking / payoff_beat 等）一律翻成作者词汇，信息全留、黑话全译。对照表见 `${CLAUDE_PLUGIN_ROOT}/docs/contracts/user-facing-language.md`（命令 `/narracat:xxx` 由 App 渲染为动作按钮，不在此列）。
 
@@ -15,7 +15,7 @@ allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__narracat_
 3. chapter_num 不在 `progress.completed_chapters` → 报错："该章未完成，请使用 /narracat:write"。
 4. chapter_num 不在 `structure.chapter_to_volume` → 报错："该章未在大纲中规划"。
 5. 调 `novel_get_review(chapter=chapter_num)`：有 blockers 则展示，作为默认修复目标。
-6. 展示警告："重写第 {chapter_num} 章将回滚该章记忆并重新写作，可能影响第 {chapter_num+1}-{last_completed_chapter} 章（共 N 章）。" → AskUserQuestion："确认重写" / "取消"。取消即终止，不做任何修改。
+6. 展示警告："重写第 {chapter_num} 章将清空该章记忆并重新写作；后面第 {chapter_num+1}-{last_completed_chapter} 章（共 N 章）的正文、记忆和进度都不动，但内容可能与新稿对不上，重写完成后会逐章列出。" （本章就是最后完成的一章时只说前半句）→ AskUserQuestion："确认重写" / "取消"。取消即终止，不做任何修改。
 
 ## 步骤 1：构建上下文包（不修改记忆与正文）
 
@@ -26,7 +26,7 @@ allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__narracat_
 
 ## 步骤 2：记忆回滚
 
-- 调 `novel_rollback_chapter(chapter=chapter_num)`：该章记忆移除、被该章失效的旧事实恢复、进度状态回退，全部由工具完成。主会话不手改 `state.yaml`。
+- 调 `novel_rollback_chapter(chapter=chapter_num, mode="reconcile-chapter")`：只清空本章记忆待重抽、被本章覆盖的旧事实按后文接续，后续章节的记忆与完成进度保持不变，全部由工具完成。必须带 `mode="reconcile-chapter"`——不带时工具会按区间回滚处理，后面还有已完成章会被拒绝。主会话不手改 `state.yaml`。
 - 回滚失败 → 终止并报告（记忆状态不一致时不得继续写作）。
 - 调 `novel_checkpoint(command="rewrite {chapter_num}", step=2, chapter=chapter_num)`。
 
@@ -71,7 +71,7 @@ WritingContextPack 路径: {pack_path}
    本章调 novel_commit_chapter 与 novel_submit_extraction。"
    ```
 
-   若本章是其所在 arc 或卷的末章（用 `novel_get_arc(chapter=chapter_num)` 查边界），在派发中追加："本章到达 {arc|volume} {scope_id} 边界（第 {start}-{end} 章），另调 novel_consolidate 刷新该区间摘要。"
+   用 `novel_get_arc(chapter=chapter_num)` 查本章所在 arc 与卷的边界：边界末章 ≤ last_completed_chapter（该区间已写完，含本章就是末章）时，在派发中追加："本章所在 {arc|volume} {scope_id}（第 {start}-{end} 章）已写完，另调 novel_consolidate 按区间内各章当前摘要刷新该区间摘要。"（arc 与卷都已写完时两条都追加）
 2. 调 `novel_update_progress(chapter=chapter_num)`（完成集合、字数、checkpoint 清理全部由工具写 `state.yaml`）。
 
 ## 步骤 6：级联影响分析（主会话直接执行）

@@ -27,7 +27,7 @@ import { loadStateVocabulary } from "./state-dimensions.js";
 import { mirrorChapterPlannedState } from "./planned-state.js";
 import { buildBenchmarkNote } from "./grid-benchmark.js";
 import { narratorAddressPhrase } from "./narrator-address.js";
-import { writeStructureToState, checkReviewFreshness, checkManuscriptContract, resolveWorkingManuscript, countWords, visibleBodyText, extractManuscriptSnippets, chapterFileSegment, volumeDirSegment, revertProgressToChapter, } from "./state-sync.js";
+import { writeStructureToState, checkReviewFreshness, checkManuscriptContract, resolveWorkingManuscript, countWords, visibleBodyText, extractManuscriptSnippets, chapterFileSegment, volumeDirSegment, revertProgressToChapter, readCompletedChapters, } from "./state-sync.js";
 import { errorResponse, singleError } from "../types.js";
 import { loadAliasMap, normalizeName, resolveCharacterUid, relationshipSubject, } from "./alias-map.js";
 /** 查最早的已兑现 plant（status='realized'），用于 plant→develop 矫正 */
@@ -309,21 +309,23 @@ async function commitResolvedFacts(facts, chapter, ctx, warnings) {
     const insertByFact = new Map(inserts.map((i) => [i.fact, i]));
     let stored = 0;
     let invalidated = 0;
+    // 只取代记录章不晚于本章的旧值：重写中间章（novel_rollback_chapter mode=reconcile-chapter）时
+    // 后文章的事实仍在库里，那是更新的观察，不是本章要取代的旧值。顺写最新章时所有事实都 ≤ 本章，行为不变。
     const findExisting = (f) => {
         if (f.upsert_key) {
             const byId = ctx.db
                 .prepare(`SELECT id FROM facts
-           WHERE novel_id = ? AND id = ? AND invalidated_at_chapter IS NULL`)
-                .get(ctx.novelId, f.upsert_key);
+           WHERE novel_id = ? AND id = ? AND invalidated_at_chapter IS NULL AND from_chapter <= ?`)
+                .get(ctx.novelId, f.upsert_key, chapter);
             if (byId)
                 return byId;
         }
         return ctx.db
             .prepare(`SELECT id FROM facts
          WHERE novel_id = ? AND subject = ? AND predicate = ?
-           AND invalidated_at_chapter IS NULL
+           AND invalidated_at_chapter IS NULL AND from_chapter <= ?
          ORDER BY from_chapter DESC, created_at DESC LIMIT 1`)
-            .get(ctx.novelId, f.subject, f.predicate);
+            .get(ctx.novelId, f.subject, f.predicate, chapter);
     };
     const tx = ctx.db.transaction(() => {
         const invalidate = ctx.db.prepare(`UPDATE facts SET invalidated_at_chapter = ?, invalidated_by = ?, updated_at = datetime('now')
@@ -2213,11 +2215,27 @@ export async function novelUpdateOutlineBookField(args, ctx) {
 }
 // ============================================================
 // novel_rollback_chapter — 回滚章节（按 invalidated_at_chapter 恢复）
+//
+// 两种模式：
+// - rewrite（默认）：区间回滚，清该章及之后的记忆并回退完成进度。只用于「后面没有已完成章」的场景
+//   （最末章同步记忆）；后面还有已完成章时拒绝执行——否则一次改写会删光后文记忆与进度。
+// - reconcile-chapter：只清该章本身的派生记忆待重抽，后续章记忆与完成进度保持不变（/rewrite 用）。
 // ============================================================
 export async function novelRollbackChapter(args, ctx) {
     const chapter = args["chapter"];
     if (typeof chapter !== "number" || !Number.isInteger(chapter) || chapter < 1) {
         return singleError("chapter", "integer ≥ 1", `${typeof chapter}: ${JSON.stringify(chapter)}`, "传入回滚起始章号（该章及之后的记忆将被清除）");
+    }
+    const mode = args["mode"] ?? "rewrite";
+    if (mode !== "rewrite" && mode !== "reconcile-chapter") {
+        return singleError("mode", '"rewrite" | "reconcile-chapter"', JSON.stringify(mode), "重写某一章（后续章不动）用 reconcile-chapter；最末章区间回滚用默认 rewrite。");
+    }
+    if (mode === "reconcile-chapter")
+        return reconcileSingleChapter(ctx, chapter);
+    const completedNow = await readCompletedChapters(ctx.projectRoot);
+    const laterCompleted = completedNow.ok ? completedNow.chapters.filter((c) => c > chapter) : [];
+    if (laterCompleted.length > 0) {
+        return singleError("mode", '后面没有已完成章，或 mode="reconcile-chapter"', `${describeChapters(laterCompleted)}已完成`, `区间回滚会删掉${describeChapters(laterCompleted)}的记忆并回退进度，本次未做任何修改。只重写第${chapter}章请改用 mode="reconcile-chapter"。`);
     }
     let deletedSummaries = 0;
     let deletedFacts = 0;
@@ -2361,6 +2379,147 @@ export async function novelRollbackChapter(args, ctx) {
         character_cards_refreshed: refreshedCards,
         state_progress_reverted: stateRevert.ok,
         message: `已回滚第${chapter}章及之后的记忆（恢复 ${restoredFacts} 条曾被覆盖的事实）；${stateNote}`,
+    };
+}
+/** 章号列表的人读写法：连续区间合并（[3,4,5,9] → 「第 3–5、9 章」）。 */
+function describeChapters(chapters) {
+    const parts = [];
+    for (let i = 0; i < chapters.length;) {
+        let j = i;
+        while (j + 1 < chapters.length && chapters[j + 1] === chapters[j] + 1)
+            j += 1;
+        parts.push(j > i ? `${chapters[i]}–${chapters[j]}` : `${chapters[i]}`);
+        i = j + 1;
+    }
+    return `第 ${parts.join("、")} 章`;
+}
+/**
+ * 单章回滚（mode=reconcile-chapter）：只清第 chapter 章自己的派生记忆，后续章记忆与完成进度不动。
+ *
+ * 事实：删 from_chapter = 本章的行。被本章事实取代 / 失效的旧行（受害行）按「本章那条后来的命运」接续：
+ * 本章那条若已被后文章取代（invalidated_at_chapter > 本章），受害行直接挂到那一章为止、取代者改指向后文那条；
+ * 否则受害行恢复有效。这样删掉本章后，旧值不会在后文已被改写的地方复活成「永久有效」。
+ * 篇章 / 卷摘要不删（删了就只剩空洞）：/rewrite 收尾时对已写完的所在篇章 / 卷重新 consolidate 覆盖。
+ */
+async function reconcileSingleChapter(ctx, chapter) {
+    const completed = await readCompletedChapters(ctx.projectRoot);
+    if (!completed.ok) {
+        return singleError("state.yaml", "可读的完成章节列表", "不可用", completed.error);
+    }
+    if (!completed.chapters.includes(chapter)) {
+        return singleError("chapter", "已完成章节", String(chapter), `第${chapter}章不在完成进度里：单章回滚只针对已完成章，未完成章按正常写作流程收尾。`);
+    }
+    let deletedSummaries = 0;
+    let deletedFacts = 0;
+    let restoredFacts = 0;
+    let repointedFacts = 0;
+    let deletedActions = 0;
+    let deletedReviews = 0;
+    const refreshedCards = [];
+    const tx = ctx.db.transaction(() => {
+        const summaryIds = ctx.db
+            .prepare("SELECT id FROM chapter_summaries WHERE novel_id = ? AND chapter = ?")
+            .all(ctx.novelId, chapter).map((r) => r.id);
+        ftsDeleteBySourceIds(ctx.db, "chapter_summaries", summaryIds);
+        vecDeleteBySourceIds(ctx.db, "chapter_summaries", summaryIds);
+        ctx.db
+            .prepare("DELETE FROM chapter_summaries WHERE novel_id = ? AND chapter = ?")
+            .run(ctx.novelId, chapter);
+        deletedSummaries = summaryIds.length;
+        ctx.db
+            .prepare("DELETE FROM style_anchors WHERE novel_id = ? AND chapter = ?")
+            .run(ctx.novelId, chapter);
+        const chapterFacts = ctx.db
+            .prepare(`SELECT id, subject_character_uid, subject, invalidated_at_chapter, invalidated_by
+         FROM facts WHERE novel_id = ? AND from_chapter = ?`)
+            .all(ctx.novelId, chapter);
+        const deletedIds = new Set(chapterFacts.map((f) => f.id));
+        // 受害行接续：先按删除前的链路算好，再删本章事实
+        const setInvalidation = ctx.db.prepare(`UPDATE facts SET invalidated_at_chapter = ?, invalidated_by = ?, updated_at = datetime('now')
+       WHERE novel_id = ? AND id = ?`);
+        const victimsOf = ctx.db.prepare(`SELECT id FROM facts WHERE novel_id = ? AND invalidated_by = ? AND from_chapter <> ?`);
+        for (const fact of chapterFacts) {
+            const laterFate = fact.invalidated_at_chapter !== null && fact.invalidated_at_chapter > chapter
+                ? {
+                    at: fact.invalidated_at_chapter,
+                    by: fact.invalidated_by && !deletedIds.has(fact.invalidated_by) ? fact.invalidated_by : null,
+                }
+                : null;
+            for (const victim of victimsOf.all(ctx.novelId, fact.id, chapter)) {
+                if (laterFate) {
+                    setInvalidation.run(laterFate.at, laterFate.by, ctx.novelId, victim.id);
+                    repointedFacts += 1;
+                }
+                else {
+                    setInvalidation.run(null, null, ctx.novelId, victim.id);
+                    restoredFacts += 1;
+                }
+            }
+        }
+        // 本章 invalidate（无取代者）失效掉的旧值：本章记忆清空后恢复，重抽时如仍成立会再失效
+        restoredFacts += ctx.db
+            .prepare(`UPDATE facts SET invalidated_at_chapter = NULL, invalidated_by = NULL, updated_at = datetime('now')
+         WHERE novel_id = ? AND invalidated_at_chapter = ? AND invalidated_by IS NULL AND from_chapter < ?`)
+            .run(ctx.novelId, chapter, chapter).changes;
+        const factIds = [...deletedIds];
+        ftsDeleteBySourceIds(ctx.db, "facts", factIds);
+        vecDeleteBySourceIds(ctx.db, "facts", factIds);
+        ctx.db
+            .prepare("DELETE FROM facts WHERE novel_id = ? AND from_chapter = ?")
+            .run(ctx.novelId, chapter);
+        deletedFacts = factIds.length;
+        deletedActions = ctx.db
+            .prepare(`DELETE FROM foreshadowing_actions_log WHERE novel_id = ? AND chapter = ? AND status = 'realized'`)
+            .run(ctx.novelId, chapter).changes;
+        deletedReviews = ctx.db
+            .prepare("DELETE FROM chapter_reviews WHERE novel_id = ? AND chapter = ?")
+            .run(ctx.novelId, chapter).changes;
+        ctx.db
+            .prepare("DELETE FROM extraction_stage WHERE novel_id = ? AND chapter = ?")
+            .run(ctx.novelId, chapter);
+        // 角色卡：本章事实牵涉的角色按各自卡的时点重折叠（后文事实仍在，卡不退回到本章之前）
+        const touched = new Set(chapterFacts.map((f) => f.subject_character_uid).filter((uid) => !!uid));
+        const cards = ctx.db
+            .prepare(`SELECT character_uid, character, as_of_chapter FROM character_cards WHERE novel_id = ?`)
+            .all(ctx.novelId);
+        const deleteCard = ctx.db.prepare(`DELETE FROM character_cards WHERE novel_id = ? AND character_uid = ?`);
+        for (const card of cards) {
+            if (!touched.has(card.character_uid) || card.as_of_chapter < chapter)
+                continue;
+            if (isEmptyFoldedCard(foldCharacterCard(ctx, card.character_uid, card.as_of_chapter))) {
+                deleteCard.run(ctx.novelId, card.character_uid);
+            }
+            else {
+                refreshedCards.push(...refreshCharacterCards(ctx, [{ uid: card.character_uid, name: card.character }], card.as_of_chapter));
+            }
+        }
+    });
+    tx();
+    const segment = chapterFileSegment(chapter);
+    const receiptPath = join(ctx.projectRoot, ".narracat", "receipts", `ch-${segment}.json`);
+    const reviewPath = join(ctx.projectRoot, "reviews", `ch-${segment}-review.json`);
+    const deletedReceipts = existsSync(receiptPath) ? (await unlink(receiptPath), 1) : 0;
+    const deletedReviewFiles = existsSync(reviewPath) ? (await unlink(reviewPath), 1) : 0;
+    const later = completed.chapters.filter((c) => c > chapter);
+    return {
+        ok: true,
+        chapter,
+        mode: "reconcile-chapter",
+        deleted: {
+            chapter_summaries: deletedSummaries,
+            facts: deletedFacts,
+            foreshadowing_actions: deletedActions,
+            chapter_reviews: deletedReviews,
+            review_files: deletedReviewFiles,
+            receipts: deletedReceipts,
+        },
+        restored_facts: restoredFacts,
+        repointed_facts: repointedFacts,
+        character_cards_refreshed: refreshedCards,
+        later_chapters_kept: later,
+        state_progress_reverted: false,
+        message: `已清空第${chapter}章的记忆待重抽（恢复 ${restoredFacts} 条曾被本章覆盖的事实）；完成进度不变` +
+            (later.length > 0 ? `，${describeChapters(later)}的记忆保持不动` : ""),
     };
 }
 export async function novelSubmitDialogueSamples(args, ctx) {
