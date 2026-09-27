@@ -5,7 +5,7 @@
  * 切片⑥后 createRunOptions/createSandboxedRunOptions 改 async（NovelMemory 工具异步装载），
  * 全文件测试相应补 await。
  */
-import { describe, expect, mock, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { createExtensionRuntime, ExtensionRunner } from '@mariozechner/pi-coding-agent'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -17,18 +17,28 @@ import type { PiMemoryBridge } from './pi-memory-tools.ts'
 import { MEMORY_TOOL_PREFIX } from './pi-memory-tools.ts'
 
 // 子会话 Task 派发（pi-subagent.ts）内部固定 import 真实 runPiSession，真派发会尝试起真会话打
-// 网络——mock 掉整个 pi-session.ts 模块，子会话记忆工具测试用它捕获 buildChildRunOptions 的产出；
+// 网络——mock 掉 pi-session.ts 的 runPiSession，子会话记忆工具测试用它捕获 buildChildRunOptions 的产出；
 // 其余测试要么不触发 Task 派发的 runSession 调用，要么走 createPiAdapter({ runSession }) 的 DI
-// 覆盖 startRun 本身，不受影响（bun mock.module 按测试文件隔离，不会漏到 pi-session.test.ts/
-// pi-subagent.test.ts）。必须在 import index.ts 之前装好（bun mock.module 对同一 specifier 的
+// 覆盖 startRun 本身。必须在 import index.ts 之前装好（bun mock.module 对同一 specifier 的
 // 后续 import 生效）。
+//
+// bun 的 mock.module 是进程级的，会泄漏到同批次后跑的 pi-session.test.ts / pi-subagent.test.ts
+// （它们拿到的 runPiSession 变成空生成器、其余导出直接消失，Linux CI 按目录顺序先跑本文件时整组红）。
+// 所以先快照真实模块：mock 展开真实导出，只接管 runPiSession，且本文件跑完后回落到真实实现。
+const realPiSession = { ...(await import('./pi-session.ts')) }
+let interceptChildSessions = true
 let capturedChildSessionCalls: RunPiSessionArgs[] = []
 mock.module('./pi-session.ts', () => ({
+  ...realPiSession,
   runPiSession: (args: RunPiSessionArgs) => {
+    if (!interceptChildSessions) return realPiSession.runPiSession(args)
     capturedChildSessionCalls.push(args)
     return (async function* () {})() as AsyncGenerator<unknown>
   },
 }))
+afterAll(() => {
+  interceptChildSessions = false
+})
 
 const { computeBaselineAllowedRoots, createPiAdapter } = await import('./index.ts')
 
