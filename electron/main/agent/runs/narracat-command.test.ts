@@ -215,6 +215,17 @@ describe('NarraCat command run resolver', () => {
     }
   })
 
+  // 重写中间章曾调不带 mode 的区间回滚，一次删光后面各章的记忆并把完成进度退回到本章。
+  // 钉住重写只走单章回滚：后续章记忆与进度不动。
+  test('rewrite rolls back only the rewritten chapter', async () => {
+    const commandRoot = join(process.cwd(), 'agent-core', 'narracat', 'commands')
+    const rewriteSource = await readFile(join(commandRoot, 'rewrite.md'), 'utf-8')
+
+    expect(rewriteSource).toContain('novel_rollback_chapter(chapter=chapter_num, mode="reconcile-chapter")')
+    expect(rewriteSource).not.toContain('novel_rollback_chapter(chapter=chapter_num)')
+    expect(rewriteSource).not.toContain('进度状态回退')
+  })
+
   // 开写确认门是作者对「这一章怎么写」提要求的唯一入口。它曾被 automation_level 的全自动档整段
   // 跳过，而新建小说默认就是全自动——作者因此从没见过它。这里钉住它不再受档位控制。
   // 门内的实际表现（摘要够不够判断、冲突判得准不准）只有真机 dogfood 能验，测试只防回退。

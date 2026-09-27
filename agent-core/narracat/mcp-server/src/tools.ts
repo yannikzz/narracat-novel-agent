@@ -687,11 +687,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "novel_rollback_chapter",
     description:
-      "回滚章节记忆（重写场景）：删除该章及之后的摘要 / 事实 / 兑现动作 / 审校信号 / 温层摘要，恢复曾被失效的旧事实，重折叠角色卡",
+      "回滚章节记忆。mode=reconcile-chapter（重写某一章用这个）：只清该章自己的摘要 / 事实 / 兑现动作 / 审校信号待重抽，后续章记忆与完成进度保持不变。默认 mode=rewrite：区间回滚该章及之后的记忆并回退进度，只在后面没有已完成章时可用（后面还有已完成章会被拒绝，不做任何修改）",
     inputSchema: {
       type: "object",
       properties: {
-        chapter: { type: "integer", minimum: 1, description: "从该章开始回滚（含本章）" },
+        chapter: { type: "integer", minimum: 1, description: "要回滚的章号（rewrite 模式为起始章，含本章）" },
+        mode: {
+          type: "string",
+          enum: ["rewrite", "reconcile-chapter"],
+          description: "reconcile-chapter 只清本章、后续章不动（/rewrite 用）；默认 rewrite 为区间回滚，仅限最末完成章",
+        },
       },
       required: ["chapter"],
     },
