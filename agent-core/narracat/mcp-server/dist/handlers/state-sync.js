@@ -665,6 +665,19 @@ export async function novelRestoreProgress(args, ctx) {
 // ============================================================
 // novel_checkpoint — 机械写 checkpoint 节
 // ============================================================
+/** 当前断点是写章且该章尚未完成时返回它（章号取自「write N」）。 */
+function unfinishedWriteCheckpoint(doc) {
+    const raw = doc.getIn(["checkpoint", "last_command"]);
+    if (typeof raw !== "string")
+        return null;
+    const match = /^(?:\/narracat:)?write\s+(\d+)$/.exec(raw.trim());
+    if (!match)
+        return null;
+    const chapter = Number(match[1]);
+    if (!isPositiveInteger(chapter) || parseCompletedChapters(doc).includes(chapter))
+        return null;
+    return { lastCommand: raw.trim(), chapter };
+}
 export async function novelCheckpoint(args, ctx) {
     const command = args["command"];
     const step = args["step"];
@@ -685,6 +698,18 @@ export async function novelCheckpoint(args, ctx) {
     const { doc, statePath } = loaded;
     const lastCommand = isPositiveInteger(chapter) ? `${command.trim()} ${chapter}` : command.trim();
     const timestamp = new Date().toISOString();
+    // 未完成的写章断点只让写章自己覆盖：作品页靠 last_command="write N" 认出可继续写的中断章，
+    // 中途跑设定 / 大纲等别的命令若把它改掉，作者就找不回「继续写第 N 章」。这些命令只拿断点做展示、
+    // 不据此恢复，所以跳过它们的断点不影响它们自己。
+    const pendingWrite = unfinishedWriteCheckpoint(doc);
+    if (pendingWrite && !/^(?:\/narracat:)?write$/.test(command.trim())) {
+        return {
+            ok: true,
+            preserved_write_checkpoint: true,
+            last_command: pendingWrite.lastCommand,
+            message: `第${pendingWrite.chapter}章写作中断的断点保留，本次「${lastCommand}」步骤 ${step} 不记断点`,
+        };
+    }
     doc.setIn(["checkpoint", "last_command"], lastCommand);
     doc.setIn(["checkpoint", "last_step"], step);
     doc.setIn(["checkpoint", "timestamp"], timestamp);

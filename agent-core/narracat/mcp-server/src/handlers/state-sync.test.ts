@@ -524,6 +524,54 @@ describe("novel_checkpoint", () => {
     expect(state.checkpoint.last_command).toBe("plan");
   });
 
+  // 写章中断后作品页只靠 last_command="write N" 认出可恢复的中断章（引擎从不写 in_progress_chapter），
+  // 中途跑一次设定 / 大纲等别的命令若覆盖掉它，作品页就丢了「继续写第 N 章」。
+  const INTERRUPTED_WRITE_STATE = BASE_STATE.replace(
+    "  completed_chapters: []",
+    "  completed_chapters: [1, 2]",
+  ).replace("  last_command: null\n  last_step: null", "  last_command: write 3\n  last_step: 3");
+
+  it("已有未完成的写章断点时，别的命令不覆盖它", async () => {
+    const { ctx, statePath } = await createProjectFixture(INTERRUPTED_WRITE_STATE);
+
+    for (const step of [3, 4, 5, 6]) {
+      const result = (await novelCheckpoint({ command: "world", step }, ctx)) as Record<string, unknown>;
+      expect(result["ok"]).toBe(true);
+      expect(result["preserved_write_checkpoint"]).toBe(true);
+      expect(result["last_command"]).toBe("write 3");
+    }
+    await novelCheckpoint({ command: "plan", step: 2 }, ctx);
+
+    const state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("write 3");
+    expect(state.checkpoint.last_step).toBe(3);
+  });
+
+  it("写章自己的断点照常推进；写另一章也照常覆盖", async () => {
+    const { ctx, statePath } = await createProjectFixture(INTERRUPTED_WRITE_STATE);
+
+    await novelCheckpoint({ command: "write", step: 4, chapter: 3 }, ctx);
+    let state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("write 3");
+    expect(state.checkpoint.last_step).toBe(4);
+
+    await novelCheckpoint({ command: "write", step: 1, chapter: 4 }, ctx);
+    state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("write 4");
+  });
+
+  it("写章断点对应的章已完成（残留断点）时，别的命令照常覆盖", async () => {
+    const { ctx, statePath } = await createProjectFixture(
+      INTERRUPTED_WRITE_STATE.replace("  completed_chapters: [1, 2]", "  completed_chapters: [1, 2, 3]"),
+    );
+
+    const result = (await novelCheckpoint({ command: "world", step: 3 }, ctx)) as Record<string, unknown>;
+
+    expect(result["preserved_write_checkpoint"]).toBeUndefined();
+    const state = parse(await readFile(statePath, "utf-8"));
+    expect(state.checkpoint.last_command).toBe("world");
+  });
+
   it("rejects an empty command", async () => {
     const { ctx } = await createProjectFixture();
     const result = (await novelCheckpoint({ command: " ", step: 1 }, ctx)) as Record<

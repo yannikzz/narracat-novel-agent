@@ -965,7 +965,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "novel_checkpoint",
-    description: "机械写 state.yaml checkpoint 节（last_command / last_step / timestamp）",
+    description: "机械写 state.yaml checkpoint 节（last_command / last_step / timestamp）。已有未完成的写章断点时，只有写章本身能覆盖它，别的命令调用会原样保留并返回 preserved_write_checkpoint=true",
     inputSchema: {
       type: "object",
       properties: {
