@@ -19,6 +19,7 @@ export type PackLearnResult =
 
 export type PackLearnSource =
   | { kind: 'novel'; projectPath: string; title: string }
+  | { kind: 'file'; filePath: string; title: string }
   | { kind: 'txt'; filePath: string; title: string }
 
 export interface CapabilityPackSummary {
@@ -270,7 +271,7 @@ export type PackLocalSource = 'created' | 'learned-own' | 'learned-external'
 
 /** 学习来源摘要（草稿工程 meta 与 UI 展示用；title 是书名/文件名）。 */
 export interface PackLearnedFrom {
-  sourceKind: 'novel' | 'txt'
+  sourceKind: 'novel' | 'file' | 'txt'
   title: string
 }
 

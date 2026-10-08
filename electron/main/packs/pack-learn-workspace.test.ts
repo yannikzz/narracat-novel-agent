@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import * as fsp from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import AdmZip from 'adm-zip'
 import {
   planSampling,
   loadNovelChapters,
@@ -35,6 +36,39 @@ mock.module('node:fs/promises', () => ({
 let tmp: string
 beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'narracat-learn-ws-')) })
 afterEach(() => { rmSync(tmp, { recursive: true, force: true }) })
+
+function writeEpub(path: string): void {
+  const zip = new AdmZip()
+  zip.addFile('mimetype', Buffer.from('application/epub+zip'))
+  zip.addFile('META-INF/container.xml', Buffer.from('<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>'))
+  zip.addFile('OPS/content.opf', Buffer.from('<package xmlns="http://www.idpf.org/2007/opf"><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="second" href="second.xhtml" media-type="application/xhtml+xml"/><item id="first" href="first.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="first"/><itemref idref="nav"/><itemref idref="second"/></spine></package>'))
+  zip.addFile('OPS/nav.xhtml', Buffer.from('<html><body><p>目录不可当正文</p></body></html>'))
+  zip.addFile('OPS/first.xhtml', Buffer.from('<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>第一章</h1><p>甲 &amp; 乙。</p><script>不要读脚本</script></body></html>'))
+  zip.addFile('OPS/second.xhtml', Buffer.from('<html><body><h1>第二章</h1><p>后续正文。</p></body></html>'))
+  zip.writeZip(path)
+}
+
+function writePdf(path: string, text: string | null): void {
+  const commands = text === null ? '' : `BT /F1 12 Tf 72 700 Td (${text}) Tj ET`
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(commands)} >>\nstream\n${commands}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(pdf))
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
+  }
+  const xref = Buffer.byteLength(pdf)
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  pdf += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  writeFileSync(path, pdf)
+}
 
 describe('planSampling', () => {
   test('skim：前3 + 均匀7，升序去重', () => {
@@ -135,7 +169,7 @@ describe('loadExternalBook（外部书大小护栏，T11 评审 F2）', () => {
     const txtPath = join(tmp, '太大了.txt')
     writeFileSync(txtPath, '正文'.repeat(10), 'utf8')
     forcedStatSize = MAX_EXTERNAL_BOOK_BYTES + 1
-    await expect(loadExternalBook(txtPath)).rejects.toThrow('这个文件太大，请确认选的是单本小说的 txt 文件。')
+    await expect(loadExternalBook(txtPath)).rejects.toThrow('这个文件太大，请确认选的是单本电子书。')
   })
 
   test('阈值以内正常读出章节（真实文件大小，不 mock stat）', async () => {
@@ -143,6 +177,36 @@ describe('loadExternalBook（外部书大小护栏，T11 评审 F2）', () => {
     writeFileSync(txtPath, `第1章 开局\n${'正文。'.repeat(100)}\n第2章 发展\n正文二`, 'utf8')
     const source = await loadExternalBook(txtPath)
     expect(source.chapters.length).toBeGreaterThan(0)
+  })
+
+  test('EPUB 按 spine 顺序读取正文，跳过目录和脚本', async () => {
+    const path = join(tmp, '测试.epub')
+    writeEpub(path)
+    const source = await loadExternalBook(path)
+    expect(source.sourceKind).toBe('file')
+    expect(source.title).toBe('测试')
+    expect(source.chapters.map((chapter) => chapter.title)).toEqual(['第一章', '第二章'])
+    expect(source.chapters[0].body).toContain('甲 & 乙。')
+    expect(source.chapters.map((chapter) => chapter.body).join('')).not.toContain('目录不可当正文')
+    expect(source.chapters.map((chapter) => chapter.body).join('')).not.toContain('不要读脚本')
+  })
+
+  test('文字版 PDF 可提取正文；扫描版给出明确错误', async () => {
+    const textPath = join(tmp, 'text.pdf')
+    const scanPath = join(tmp, 'scan.pdf')
+    writePdf(textPath, 'A readable chapter')
+    writePdf(scanPath, null)
+    expect((await loadExternalBook(textPath)).chapters[0].body).toContain('A readable chapter')
+    await expect(loadExternalBook(scanPath)).rejects.toThrow('扫描版暂不支持')
+  })
+
+  test('拒绝不支持的后缀和伪造的 EPUB', async () => {
+    const unsupported = join(tmp, 'book.docx')
+    const fake = join(tmp, 'fake.epub')
+    writeFileSync(unsupported, 'text')
+    writeFileSync(fake, 'text')
+    await expect(loadExternalBook(unsupported)).rejects.toThrow('请选择 TXT、EPUB 或 PDF 文件。')
+    await expect(loadExternalBook(fake)).rejects.toThrow()
   })
 })
 

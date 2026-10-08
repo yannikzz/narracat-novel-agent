@@ -102,7 +102,7 @@ export const IPC_CHANNEL_MODULES: Readonly<Record<string, TelemetryModule | null
   'packs:draft-get': null,
 
   // ── 能力包：从书学写法 ──────────────────────────────────────────────
-  'packs:learn-pick-txt': 'packs-learn',
+  'packs:learn-pick-book': 'packs-learn',
   'packs:learn-estimate': 'packs-learn',
   'packs:learn-start': 'packs-learn',
   'packs:learn-cancel': null,

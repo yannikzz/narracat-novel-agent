@@ -150,15 +150,15 @@ export function LearnFromBookView({ onOpenDraft }: { onOpenDraft: (draftId: stri
     [selectSource],
   )
 
-  const handlePickTxt = useCallback(async () => {
+  const handlePickBook = useCallback(async () => {
     if (pickBusyKey) return
-    setPickBusyKey('txt')
+    setPickBusyKey('file')
     try {
-      const picked = await window.electron.pickLearnTxt()
+      const picked = await window.electron.pickLearnBook()
       if (!picked) return
-      await selectSource({ kind: 'txt', filePath: picked.filePath, title: picked.title }, 'txt')
+      await selectSource({ kind: 'file', filePath: picked.filePath, title: picked.title }, 'file')
     } finally {
-      setPickBusyKey((current) => (current === 'txt' ? null : current))
+      setPickBusyKey((current) => (current === 'file' ? null : current))
     }
   }, [pickBusyKey, selectSource])
 
@@ -268,12 +268,12 @@ export function LearnFromBookView({ onOpenDraft }: { onOpenDraft: (draftId: stri
       pickBusyKey={pickBusyKey}
       sourceError={sourceError}
       onPickNovel={handlePickNovel}
-      onPickTxt={() => void handlePickTxt()}
+      onPickBook={() => void handlePickBook()}
     />
   )
 }
 
-/** 选源页：书架书按钮列表 + 「选本地 txt 文件」；书架为空时只显示 txt 入口 + 一句提示（空状态克制）。 */
+/** 选源页：书架书按钮列表 + 本地电子书入口；书架为空时只显示文件入口和简短提示。 */
 function LearnSourceStep({
   novels,
   loaded,
@@ -281,7 +281,7 @@ function LearnSourceStep({
   pickBusyKey,
   sourceError,
   onPickNovel,
-  onPickTxt,
+  onPickBook,
 }: {
   novels: NovelProjectSummary[]
   loaded: boolean
@@ -289,7 +289,7 @@ function LearnSourceStep({
   pickBusyKey: string | null
   sourceError: string | null
   onPickNovel: (novel: NovelProjectSummary) => void
-  onPickTxt: () => void
+  onPickBook: () => void
 }) {
   return (
     <section className="space-y-3" data-learn-source-step="true">
@@ -303,7 +303,7 @@ function LearnSourceStep({
         <p className="text-xs leading-5 text-muted-foreground">加载中…</p>
       ) : novels.length === 0 ? (
         <p className="text-xs leading-5 text-muted-foreground" data-learn-shelf-empty="true">
-          书架里还没有小说，可以选本地 txt 文件来学。
+          书架里还没有小说，可以选本地电子书来学。
         </p>
       ) : (
         <div className={GROUP_CLASS} data-learn-shelf-list="true">
@@ -339,11 +339,11 @@ function LearnSourceStep({
         variant="secondary"
         size="sm"
         disabled={pickBusyKey !== null}
-        data-learn-pick-txt-trigger="true"
-        onClick={onPickTxt}
+        data-learn-pick-book-trigger="true"
+        onClick={onPickBook}
       >
-        {pickBusyKey === 'txt' ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
-        选本地 txt 文件
+        {pickBusyKey === 'file' ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+        选本地电子书（TXT / EPUB / PDF）
       </Button>
     </section>
   )

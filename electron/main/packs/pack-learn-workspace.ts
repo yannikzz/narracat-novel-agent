@@ -6,12 +6,15 @@
  */
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, extname, join, posix } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import AdmZip from 'adm-zip'
+import { XMLParser } from 'fast-xml-parser'
 import { decodeBookBuffer, cleanBookLines, splitBookChapters, type BookChapter } from './book-normalize'
 import { MANUSCRIPT_DIR } from '../novel/novel-layout'
 
 export interface LearnSourceChapters {
-  sourceKind: 'novel' | 'txt'
+  sourceKind: 'novel' | 'file' | 'txt'
   title: string
   chapters: BookChapter[]
 }
@@ -90,17 +93,135 @@ export async function loadNovelChapters(projectPath: string, title: string): Pro
 // 让后面的 decode/split/学习会话去扛（PR#477 外审 P2-6：原 100MB 上限配合全书精确 Set 索引可致
 // 主进程 OOM，现窗口层已改 Bloom filter 覆盖全书，此处上限单纯收紧到"正常单本书"量级）。
 export const MAX_EXTERNAL_BOOK_BYTES = 30 * 1024 * 1024
+const MAX_EPUB_CONTENT_BYTES = 40 * 1024 * 1024
+const MAX_EPUB_ENTRIES = 5000
+const MAX_PDF_PAGES = 2000
+
+const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', removeNSPrefix: true, processEntities: false })
+const xhtmlParser = new XMLParser({ preserveOrder: true, removeNSPrefix: true, trimValues: false, processEntities: false })
+const blockTags = new Set(['article', 'blockquote', 'br', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'p', 'section', 'tr'])
+const ignoredTags = new Set(['head', 'nav', 'script', 'style', 'svg'])
+
+function decodeXmlEntities(text: string): string {
+  const named: Record<string, string> = { amp: '&', apos: "'", gt: '>', lt: '<', nbsp: ' ', quot: '"' }
+  return text.replace(/&(#x[\da-f]+|#\d+|amp|apos|gt|lt|nbsp|quot);/gi, (match, entity: string) => {
+    if (!entity.startsWith('#')) return named[entity.toLowerCase()] ?? match
+    const codePoint = entity[1]?.toLowerCase() === 'x' ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10)
+    return Number.isFinite(codePoint) && codePoint > 0 && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match
+  })
+}
+
+function orderedBodyText(nodes: unknown, inBody = false): string {
+  if (!Array.isArray(nodes)) return ''
+  let output = ''
+  for (const node of nodes) {
+    if (!node || typeof node !== 'object') continue
+    for (const [tag, value] of Object.entries(node)) {
+      if (tag === '#text') {
+        if (inBody) output += decodeXmlEntities(String(value))
+      } else if (!tag.startsWith(':') && !ignoredTags.has(tag)) {
+        const active = inBody || tag === 'body'
+        if (active && blockTags.has(tag)) output += '\n'
+        output += orderedBodyText(value, active)
+        if (active && blockTags.has(tag)) output += '\n'
+      }
+    }
+  }
+  return output
+}
+
+function archivePath(base: string, href: string): string {
+  const decoded = decodeURIComponent(decodeXmlEntities(href).split(/[?#]/, 1)[0])
+  if (!decoded || decoded.startsWith('/') || decoded.includes('\\')) throw new Error('EPUB 内的正文路径不合法。')
+  const path = posix.normalize(posix.join(posix.dirname(base), decoded))
+  if (path === '..' || path.startsWith('../')) throw new Error('EPUB 内的正文路径不合法。')
+  return path
+}
+
+function asList<T>(value: T | T[] | undefined): T[] {
+  return value === undefined ? [] : Array.isArray(value) ? value : [value]
+}
+
+function loadEpubChapters(data: Buffer): BookChapter[] {
+  const zip = new AdmZip(data)
+  const mimetype = zip.getEntry('mimetype')
+  if (zip.getEntries().length > MAX_EPUB_ENTRIES || !mimetype || mimetype.header.size > 64 || mimetype.getData().toString('utf8').trim() !== 'application/epub+zip') {
+    throw new Error('这不是可读取的 EPUB 文件。')
+  }
+  let decodedBytes = 0
+  const readEntry = (name: string): string => {
+    const entry = zip.getEntry(name)
+    if (!entry || entry.isDirectory || entry.header.size > MAX_EXTERNAL_BOOK_BYTES) throw new Error('EPUB 的正文文件缺失或过大。')
+    decodedBytes += entry.header.size
+    if (decodedBytes > MAX_EPUB_CONTENT_BYTES) throw new Error('这本 EPUB 的正文过大。')
+    return entry.getData().toString('utf8')
+  }
+  const container = xmlParser.parse(readEntry('META-INF/container.xml')) as {
+    container?: { rootfiles?: { rootfile?: { 'full-path'?: string } | Array<{ 'full-path'?: string }> } }
+  }
+  const packagePath = asList(container.container?.rootfiles?.rootfile)[0]?.['full-path']
+  if (!packagePath) throw new Error('EPUB 缺少书籍目录。')
+  const opfPath = archivePath('root.opf', packagePath)
+  const opf = xmlParser.parse(readEntry(opfPath)) as {
+    package?: {
+      manifest?: { item?: { id?: string; href?: string; 'media-type'?: string; properties?: string } | Array<{ id?: string; href?: string; 'media-type'?: string; properties?: string }> }
+      spine?: { itemref?: { idref?: string; linear?: string } | Array<{ idref?: string; linear?: string }> }
+    }
+  }
+  const manifest = new Map(asList(opf.package?.manifest?.item).map((item) => [item.id, item]))
+  const chapters: BookChapter[] = []
+  for (const ref of asList(opf.package?.spine?.itemref)) {
+    const item = manifest.get(ref.idref)
+    if (!item?.href || ref.linear === 'no' || item.properties?.split(/\s+/).includes('nav')) continue
+    if (item['media-type'] !== 'application/xhtml+xml' && item['media-type'] !== 'text/html') continue
+    const path = archivePath(opfPath, item.href)
+    const raw = orderedBodyText(xhtmlParser.parse(readEntry(path)))
+    const body = cleanBookLines(raw).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+    if (!body) continue
+    const title = body.split('\n', 1)[0].trim().slice(0, 80) || basename(path)
+    chapters.push({ title, body })
+  }
+  if (chapters.length === 1) return splitBookChapters(chapters[0].body)
+  return chapters
+}
+
+async function loadPdfChapters(data: Buffer): Promise<BookChapter[]> {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const standardFontDataUrl = fileURLToPath(new URL('../../standard_fonts/', import.meta.resolve('pdfjs-dist/legacy/build/pdf.mjs')))
+  const task = getDocument({ data: new Uint8Array(data), disableFontFace: true, standardFontDataUrl })
+  try {
+    const pdf = await task.promise
+    if (pdf.numPages > MAX_PDF_PAGES) throw new Error('这本 PDF 页数过多。')
+    const pages: string[] = []
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const page = await pdf.getPage(pageNumber)
+      const content = await page.getTextContent()
+      const text = content.items.map((item) => ('str' in item ? item.str + (item.hasEOL ? '\n' : '') : '')).join('').trim()
+      if (text) pages.push(text)
+      page.cleanup()
+    }
+    if (pages.length === 0) throw new Error('这本 PDF 没有可提取的文字；扫描版暂不支持。')
+    return splitBookChapters(cleanBookLines(pages.join('\n')))
+  } finally {
+    await task.destroy()
+  }
+}
 
 export async function loadExternalBook(filePath: string): Promise<LearnSourceChapters> {
+  const extension = extname(filePath).toLowerCase()
+  if (!['.txt', '.epub', '.pdf'].includes(extension)) throw new Error('请选择 TXT、EPUB 或 PDF 文件。')
   const fileStat = await stat(filePath)
   if (fileStat.size > MAX_EXTERNAL_BOOK_BYTES) {
-    throw new Error('这个文件太大，请确认选的是单本小说的 txt 文件。')
+    throw new Error('这个文件太大，请确认选的是单本电子书。')
   }
   const buf = await readFile(filePath)
-  const { text } = decodeBookBuffer(new Uint8Array(buf))
-  const chapters = splitBookChapters(cleanBookLines(text))
+  const chapters = extension === '.epub'
+    ? loadEpubChapters(buf)
+    : extension === '.pdf'
+      ? await loadPdfChapters(buf)
+      : splitBookChapters(cleanBookLines(decodeBookBuffer(new Uint8Array(buf)).text))
   if (chapters.length === 0) throw new Error('这个文件里读不出正文内容。')
-  return { sourceKind: 'txt', title: basename(filePath).replace(/\.txt$/i, ''), chapters }
+  return { sourceKind: 'file', title: basename(filePath, extension), chapters }
 }
 
 export function estimateLearnRun(

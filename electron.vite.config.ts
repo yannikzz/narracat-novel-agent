@@ -56,6 +56,7 @@ export default defineConfig({
           'electron-updater',
           '@mariozechner/pi-ai',
           '@mariozechner/pi-coding-agent',
+          'pdfjs-dist/legacy/build/pdf.mjs',
         ],
         output: {
           entryFileNames: '[name].js',

@@ -455,7 +455,7 @@ export interface ElectronApi {
   copyPackToDraft: (input: { id: string; version: string }) => Promise<PackDraftMeta | null>
   getLocalPackContent: (input: { id: string; version: string }) => Promise<LocalPackContent | null>
   // 造包中心「从书学写法」（B2 刀4 Task 11）：txt 选择 / 预估 / 学习编排 + 事件推送。
-  pickLearnTxt: () => Promise<{ filePath: string; title: string } | null>
+  pickLearnBook: () => Promise<{ filePath: string; title: string } | null>
   estimateLearn: (input: { source: PackLearnSource; tier: PackLearnTier }) => Promise<PackLearnEstimate>
   startLearn: (input: { source: PackLearnSource; tier: PackLearnTier }) => Promise<PackLearnResult>
   cancelLearn: () => Promise<{ ok: true }>

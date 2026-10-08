@@ -224,9 +224,9 @@ function readLearnStartInput(input: unknown): { source: PackLearnSource; tier: P
     const projectPath = readRequiredString(sourceValue, 'projectPath', '学习参数非法：缺少项目路径。')
     return { source: { kind: 'novel', projectPath, title }, tier }
   }
-  if (sourceValue.kind === 'txt') {
+  if (sourceValue.kind === 'txt' || sourceValue.kind === 'file') {
     const filePath = readRequiredString(sourceValue, 'filePath', '学习参数非法：缺少文件路径。')
-    return { source: { kind: 'txt', filePath, title }, tier }
+    return { source: { kind: sourceValue.kind, filePath, title }, tier }
   }
   throw new Error('学习参数非法：来源类型不合法。')
 }
@@ -415,20 +415,20 @@ export function registerPacksIpcHandlers(): void {
     return readLocalPackContent({ userDataPath: userDataPath(), id, version })
   })
 
-  // 造包中心「从书学写法」（刀4）：txt 选择 / 预估 / 学习编排三个请求通道 + 一个事件推送通道。
+  // 造包中心「从书学写法」（刀4）：本地书选择 / 预估 / 学习编排三个请求通道 + 一个事件推送通道。
   // 生产依赖组装见 getPackLearner（惰性单例照 getPackCompiler 先例）。
-  ipcMain.handle('packs:learn-pick-txt', async (event): Promise<{ filePath: string; title: string } | null> => {
+  ipcMain.handle('packs:learn-pick-book', async (event): Promise<{ filePath: string; title: string } | null> => {
     const parent = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
       properties: ['openFile'],
-      title: '选择要学习的书（txt）',
+      title: '选择要学习的书',
       buttonLabel: '选择',
-      filters: [{ name: '文本文件', extensions: ['txt'] }],
+      filters: [{ name: '电子书', extensions: ['txt', 'epub', 'pdf'] }],
     }
     const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
     const filePath = result.filePaths[0]
     if (result.canceled || !filePath) return null
-    return { filePath, title: basename(filePath).replace(/\.txt$/i, '') }
+    return { filePath, title: basename(filePath).replace(/\.(txt|epub|pdf)$/i, '') }
   })
 
   ipcMain.handle('packs:learn-estimate', async (_event, input: unknown): Promise<PackLearnEstimate> => {

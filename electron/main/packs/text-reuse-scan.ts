@@ -31,7 +31,7 @@ export interface WindowBloom {
 
 export interface SourceFingerprint {
   version: 2
-  sourceKind: 'novel' | 'txt'
+  sourceKind: 'novel' | 'file' | 'txt'
   sourceTitle: string
   builtAt: string
   sentenceHashes: string[]
@@ -130,7 +130,7 @@ export function windowBloomHas(bloom: WindowBloom, window: string): boolean {
 export function buildSourceFingerprint(input: {
   fullText: string
   properNouns: string[]
-  sourceKind: 'novel' | 'txt'
+  sourceKind: 'novel' | 'file' | 'txt'
   sourceTitle: string
   now: () => string
 }): SourceFingerprint {
