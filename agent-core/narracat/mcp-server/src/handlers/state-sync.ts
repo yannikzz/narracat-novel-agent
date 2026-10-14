@@ -183,17 +183,73 @@ const CONTRACT_TERMINAL_RE = /[。！？…”』」》—]$/;
 const CONTRACT_ASCII_QUOTE_CN_RE = /"[^"\n]*[一-鿿][^"\n]*"/;
 
 /**
- * 正文机械合同：仅当该章存在 staging 时生效（写作链产出必须过合同；
- * 无 staging = 作者手改 / 存量老书链路，一律免检返回 null）。
+ * 本章是否正在写作链里生成：断点记着写章或重写这一章（「write N」「rewrite N」，重写的断点形如
+ * 「rewrite N N」）。作者手改后的同步不记这两种断点，据此与生成流程区分。
+ */
+async function isGeneratingChapter(projectRoot: string, chapter: number): Promise<boolean> {
+  const loaded = await loadStateDocument(projectRoot);
+  if ("error" in loaded) return false;
+  const raw = loaded.doc.getIn(["checkpoint", "last_command"]);
+  if (typeof raw !== "string") return false;
+  const match = /^(?:\/narracat:)?(?:write|rewrite)((?:\s+\d+)+)$/.exec(raw.trim());
+  if (!match) return false;
+  return match[1].trim().split(/\s+/).map(Number).includes(chapter);
+}
+
+/**
+ * 合同要检查的正文：staging 存在 → staging；否则本章正在写作链里生成（重写写在正式路径上，
+ * 写章也可能被写到正式路径）→ 正式稿，正式稿也没有就是 missing；都不是 → null（作者手改 /
+ * 存量老书链路，免检）。
+ */
+type ContractTarget = { path: string; source: "staging" | "manuscript" } | { missing: true } | null;
+
+async function resolveContractTarget(
+  projectRoot: string,
+  chapter: number,
+  generating = false,
+): Promise<ContractTarget> {
+  const staging = stagingManuscriptPath(projectRoot, chapter);
+  try {
+    await access(staging);
+    return { path: staging, source: "staging" };
+  } catch {
+    // 无 staging → 看是否在生成流程中
+  }
+  if (!generating && !(await isGeneratingChapter(projectRoot, chapter))) return null;
+  const entry = await findManuscript(projectRoot, chapter);
+  return entry ? { path: entry.path, source: "manuscript" } : { missing: true };
+}
+
+export interface ManuscriptContractResult {
+  errors: ToolErrorItem[];
+  warnings: string[];
+  source: "staging" | "manuscript" | "missing";
+  /** 可见正文字数；正文缺失时不给。 */
+  wordCount?: number;
+}
+
+/**
+ * 正文机械合同：写作链产出必须过合同——本章有 staging 查 staging；没有 staging 但正在写章 / 重写
+ * 这一章时查正式稿（正式稿缺失直接报错）；都不是 = 作者手改 / 存量老书链路，免检返回 null。
  * 硬项进 errors（拒绝提交），软项进 warnings（只提醒）。
  */
 export async function checkManuscriptContract(
   ctx: ToolContext,
   chapter: number,
-): Promise<{ errors: ToolErrorItem[]; warnings: string[] } | null> {
+  options: { generating?: boolean } = {},
+): Promise<ManuscriptContractResult | null> {
+  const target = await resolveContractTarget(ctx.projectRoot, chapter, options.generating === true);
+  if (!target) return null;
+  if ("missing" in target) {
+    return {
+      errors: [{ field: "manuscript_contract", expected: `第 ${chapter} 章正文文件存在`, actual: "找不到本章正文", hint: "正文没有写进去：确认写手写到了上下文包给出的输出路径后再继续" }],
+      warnings: [],
+      source: "missing",
+    };
+  }
   let raw: string;
   try {
-    raw = await readFile(stagingManuscriptPath(ctx.projectRoot, chapter), "utf-8");
+    raw = await readFile(target.path, "utf-8");
   } catch {
     return null;
   }
@@ -232,7 +288,7 @@ export async function checkManuscriptContract(
     errors.push({ field: "manuscript_contract", expected: "结尾是完整句（句末标点收束）", actual: `末字符「${trimmedBody.slice(-1)}」`, hint: "正文疑似被截断，补完最后一句" });
   }
   if (CONTRACT_ASCII_QUOTE_CN_RE.test(raw)) warnings.push("发现 ASCII 引号包中文对白，建议统一为中文弯引号");
-  return { errors, warnings };
+  return { errors, warnings, source: target.source, wordCount };
 }
 
 /**
@@ -274,10 +330,10 @@ export function normalizeCornerQuotesWhenSoleForm(text: string): string {
 }
 
 /**
- * novel_check_manuscript_contract：/write 写手完成后立即预检本章 staging 正文。
- * 先做引号机械归一（ASCII 成对交替 + 整篇独用直角引号时按弯引号统一；
- * 有变化才写回；此时正文尚未进审校，指纹链不受影响），
- * 再跑机械合同。无 staging 一律放行（作者手改 / 存量老书链路不受门）。
+ * novel_check_manuscript_contract：/write、/rewrite 写手完成后立即预检本章正文（检查对象同
+ * checkManuscriptContract）。先做引号机械归一（ASCII 成对交替 + 整篇独用直角引号时按弯引号统一；
+ * 有变化才写回；此时正文尚未进审校，指纹链不受影响），再跑机械合同。
+ * 免检（作者手改 / 存量老书）时仍如实报字数；本章正文一个都不存在时不报通过。
  * 归一只在本 handler 做——writers 记忆入口与 update_progress 共用的
  * checkManuscriptContract 保持纯读，账房门不写文件。
  */
@@ -295,32 +351,50 @@ export async function novelCheckManuscriptContract(
     );
   }
 
-  const stagingPath = stagingManuscriptPath(ctx.projectRoot, chapter);
+  // 调用方声明是生成稿（重写必传）：断点可能因另一章写作中断而没记下本次重写，不能只靠断点认
+  const generating = args["generating"] === true;
   let normalized = false;
-  try {
-    const raw = await readFile(stagingPath, "utf-8");
-    // 先 ASCII 归一，再判直角：半角与直角混用的章归一后已有弯引号，直角引号按混用规则保留
-    const withNormalizedQuotes = normalizeCornerQuotesWhenSoleForm(
-      normalizeAsciiQuotesInChinese(raw),
-    );
-    if (withNormalizedQuotes !== raw) {
-      await writeFile(stagingPath, withNormalizedQuotes, "utf-8");
-      normalized = true;
+  const target = await resolveContractTarget(ctx.projectRoot, chapter, generating);
+  if (target && !("missing" in target)) {
+    try {
+      const raw = await readFile(target.path, "utf-8");
+      // 先 ASCII 归一，再判直角：半角与直角混用的章归一后已有弯引号，直角引号按混用规则保留
+      const withNormalizedQuotes = normalizeCornerQuotesWhenSoleForm(
+        normalizeAsciiQuotesInChinese(raw),
+      );
+      if (withNormalizedQuotes !== raw) {
+        await writeFile(target.path, withNormalizedQuotes, "utf-8");
+        normalized = true;
+      }
+    } catch {
+      // 读不到交由 checkManuscriptContract 处理
     }
-  } catch {
-    // 无 staging：交由 checkManuscriptContract 返回 null 免检
   }
 
-  const contract = await checkManuscriptContract(ctx, chapter);
+  const contract = await checkManuscriptContract(ctx, chapter, { generating });
   if (!contract) {
+    const existing = await findManuscript(ctx.projectRoot, chapter);
+    if (!existing) {
+      return {
+        ok: false,
+        chapter,
+        staging: false,
+        errors: [{ field: "manuscript_contract", expected: `第 ${chapter} 章正文文件存在`, actual: "找不到本章正文", hint: "本章还没有正文，先完成写作" }],
+        warnings: [],
+        normalized: false,
+        message: "找不到本章正文",
+      };
+    }
+    const wordCount = countWords(visibleBodyText(await readFile(existing.path, "utf-8")));
     return {
       ok: true,
       chapter,
       staging: false,
+      word_count: wordCount,
       errors: [],
       warnings: [],
       normalized: false,
-      message: "本章无草稿区正文，合同免检",
+      message: `本章不在写作流程中（作者正文），合同免检，正文 ${wordCount} 字`,
     };
   }
 
@@ -328,7 +402,8 @@ export async function novelCheckManuscriptContract(
   return {
     ok: errors.length === 0,
     chapter,
-    staging: true,
+    staging: contract.source === "staging",
+    ...(contract.wordCount !== undefined ? { word_count: contract.wordCount } : {}),
     errors,
     warnings,
     normalized,

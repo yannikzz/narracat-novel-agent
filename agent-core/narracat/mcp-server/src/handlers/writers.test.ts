@@ -2343,6 +2343,7 @@ describe("记忆入口合同门", () => {
 describe("novel_submit_review", () => {
   it("blocker → fail，落结构化 JSON 契约 + 入库", async () => {
     const { ctx, root, db } = createProject();
+    writeManuscript(root, 2);
 
     const result = (await novelSubmitReview(
       loadFixture("review-report-v5-valid-fail-blocker.json"),
@@ -2367,6 +2368,7 @@ describe("novel_submit_review", () => {
 
   it("空 issues → pass，JSON 契约 verdict=pass、issues 为空", async () => {
     const { ctx, root } = createProject();
+    writeManuscript(root, 2);
 
     const result = (await novelSubmitReview(
       loadFixture("review-report-v5-valid-pass.json"),
@@ -2453,15 +2455,19 @@ describe("novel_submit_review", () => {
     expect(report.word_count_warning).toBeUndefined();
   });
 
-  it("字数守卫：正文缺失时静默跳过（不给审校提交新增失败模式）", async () => {
-    const { ctx } = createProject();
+  it("正文缺失时拒收：不落报告、不入库，免得「没写进去」被当成「审过了」（issue #127）", async () => {
+    const { ctx, root, db } = createProject();
     const result = (await novelSubmitReview(
       loadFixture("review-report-v5-valid-pass.json"),
       ctx,
     )) as Record<string, unknown>;
-    expect(result.ok).toBe(true);
-    expect(result.word_count).toBeUndefined();
-    expect(result.word_count_warning).toBeUndefined();
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("找不到本章正文");
+    expect(existsSync(join(root, "reviews", "ch-002-review.json"))).toBe(false);
+    const row = db
+      .prepare("SELECT 1 FROM chapter_reviews WHERE novel_id = ? AND chapter = 2")
+      .get("novel-test");
+    expect(row).toBeUndefined();
   });
 
   it("提交审校时落正文指纹：report JSON 与 chapter_reviews 均为当前正文 SHA-256", async () => {
@@ -2487,28 +2493,6 @@ describe("novel_submit_review", () => {
       )
       .get("novel-test") as { reviewed_manuscript_sha256: string };
     expect(row.reviewed_manuscript_sha256).toBe(expectedHash);
-  });
-
-  it("正文缺失时不落指纹（report 无字段、DB 列为 NULL），提交不报错", async () => {
-    const { ctx, root, db } = createProject();
-
-    const result = (await novelSubmitReview(
-      loadFixture("review-report-v5-valid-pass.json"),
-      ctx,
-    )) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    const report = JSON.parse(
-      readFileSync(join(root, "reviews", "ch-002-review.json"), "utf-8"),
-    ) as { reviewed_manuscript_sha256?: string };
-    expect(report.reviewed_manuscript_sha256).toBeUndefined();
-
-    const row = db
-      .prepare(
-        "SELECT reviewed_manuscript_sha256 FROM chapter_reviews WHERE novel_id = ? AND chapter = 2",
-      )
-      .get("novel-test") as { reviewed_manuscript_sha256: string | null };
-    expect(row.reviewed_manuscript_sha256).toBeNull();
   });
 });
 

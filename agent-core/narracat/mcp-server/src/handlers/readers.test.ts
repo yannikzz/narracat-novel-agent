@@ -394,7 +394,8 @@ describe("novel_get_review", () => {
   });
 
   it("返回 verdict 与 blockers（主会话路由依据）", async () => {
-    const { ctx } = createProject();
+    const { ctx, root } = createProject();
+    writeManuscript(root, 2);
     await novelSubmitReview(loadFixture("review-report-v5-valid-fail-blocker.json"), ctx);
 
     const result = (await novelGetReview({ chapter: 2 }, ctx)) as Record<string, unknown>;
@@ -415,7 +416,8 @@ describe("novel_failed_reviews", () => {
   });
 
   it("列出 verdict=fail 章节；pass 覆盖后移出清单", async () => {
-    const { ctx } = createProject();
+    const { ctx, root } = createProject();
+    writeManuscript(root, 2);
     await novelSubmitReview(loadFixture("review-report-v5-valid-fail-blocker.json"), ctx);
     let result = (await novelFailedReviews({}, ctx)) as Record<string, unknown>;
     expect(result.failed_chapters).toEqual([2]);

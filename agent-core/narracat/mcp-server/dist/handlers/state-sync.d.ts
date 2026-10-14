@@ -64,15 +64,21 @@ export interface WorkingManuscript {
  * 定稿类消费（前章结尾摘录、样章取样、全书字数）不得用本函数——那边只认 manuscript/。
  */
 export declare function resolveWorkingManuscript(projectRoot: string, chapter: number): Promise<WorkingManuscript | null>;
-/**
- * 正文机械合同：仅当该章存在 staging 时生效（写作链产出必须过合同；
- * 无 staging = 作者手改 / 存量老书链路，一律免检返回 null）。
- * 硬项进 errors（拒绝提交），软项进 warnings（只提醒）。
- */
-export declare function checkManuscriptContract(ctx: ToolContext, chapter: number): Promise<{
+export interface ManuscriptContractResult {
     errors: ToolErrorItem[];
     warnings: string[];
-} | null>;
+    source: "staging" | "manuscript" | "missing";
+    /** 可见正文字数；正文缺失时不给。 */
+    wordCount?: number;
+}
+/**
+ * 正文机械合同：写作链产出必须过合同——本章有 staging 查 staging；没有 staging 但正在写章 / 重写
+ * 这一章时查正式稿（正式稿缺失直接报错）；都不是 = 作者手改 / 存量老书链路，免检返回 null。
+ * 硬项进 errors（拒绝提交），软项进 warnings（只提醒）。
+ */
+export declare function checkManuscriptContract(ctx: ToolContext, chapter: number, options?: {
+    generating?: boolean;
+}): Promise<ManuscriptContractResult | null>;
 /**
  * ASCII 引号机械归一：仅处理「同一行内成对出现、且该行含汉字」的 ASCII 双引号，
  * 按开/闭交替替换为中文弯引号。奇数个引号的行不动（宁可留给软警告，不做歧义猜测）。
@@ -86,10 +92,10 @@ export declare function normalizeAsciiQuotesInChinese(text: string): string;
  */
 export declare function normalizeCornerQuotesWhenSoleForm(text: string): string;
 /**
- * novel_check_manuscript_contract：/write 写手完成后立即预检本章 staging 正文。
- * 先做引号机械归一（ASCII 成对交替 + 整篇独用直角引号时按弯引号统一；
- * 有变化才写回；此时正文尚未进审校，指纹链不受影响），
- * 再跑机械合同。无 staging 一律放行（作者手改 / 存量老书链路不受门）。
+ * novel_check_manuscript_contract：/write、/rewrite 写手完成后立即预检本章正文（检查对象同
+ * checkManuscriptContract）。先做引号机械归一（ASCII 成对交替 + 整篇独用直角引号时按弯引号统一；
+ * 有变化才写回；此时正文尚未进审校，指纹链不受影响），再跑机械合同。
+ * 免检（作者手改 / 存量老书）时仍如实报字数；本章正文一个都不存在时不报通过。
  * 归一只在本 handler 做——writers 记忆入口与 update_progress 共用的
  * checkManuscriptContract 保持纯读，账房门不写文件。
  */

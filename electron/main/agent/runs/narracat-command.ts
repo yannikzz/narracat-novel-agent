@@ -73,7 +73,7 @@ const CHAPTER_ARTIFACT_PATH_GUARD = [
   '章节正文路径兼容约束：NarraCat 历史输出可能位于 manuscript/vol-{VV}/ch-{NNN}.md，也可能位于 manuscript/ch-{NNN}.md 或非补零 ch-{N}.md。',
   '读取既有章节正文、审修正文或交给 memory-keeper 入库前，必须先用 Glob 检查 volume 路径、root-level 路径和非补零候选，使用实际存在的路径。',
   '禁止直接 Read 尚未确认存在的 manuscript/vol-* 路径；如果 canonical 路径不存在但 root-level 正文存在，应读取 root-level 正文继续流程。',
-  '生成新章节正文时优先写入 canonical 路径 manuscript/vol-{VV}/ch-{NNN}.md 并创建目录；后续审修和记忆更新必须沿用本轮实际写入路径。',
+  '生成章节正文时写入命令或上下文包给出的输出路径（写新章是草稿区 .narracat/staging/ch-{NNN}.md，由写作流程验收后转正），不要自行改写到 manuscript/ 下；后续审修和记忆更新必须沿用本轮实际写入路径。',
 ].join('\n')
 const FULL_CHAPTER_BYPASS_GUARD = [
   '整章写作边界约束：本续聊会话不得直接执行整章级写作——包括写新的一章、从头重写整章。',

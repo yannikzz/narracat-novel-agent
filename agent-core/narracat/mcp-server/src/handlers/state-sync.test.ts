@@ -249,12 +249,14 @@ async function passReview(
 
 describe("novel_update_progress", () => {
   it("merges completed chapters, recounts words from files, clears checkpoint", async () => {
-    const { ctx, root, statePath } = createProject(
+    const { ctx: baseCtx, root, statePath } = createProject(
       BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [1]").replace(
         "  last_command: null",
         '  last_command: "write 2"',
       ),
     );
+    // 断点记着写章 / 重写这一章 = 生成中，正式稿要过正文合同；短夹具把目标字数调到 5 以免触发字数下限
+    const ctx = { ...baseCtx, wordsPerChapter: 5 };
     writeManuscript(root, 1, "第一章正文内容五千字略。");
     await passReview(ctx, root, 2, "第二章正文内容。");
 
@@ -272,6 +274,22 @@ describe("novel_update_progress", () => {
     expect(state.progress.in_progress_chapter).toBeNull();
     expect(state.checkpoint.last_command).toBeNull();
     expect(state.checkpoint.last_step).toBeNull();
+  });
+
+  it("重写中（断点 rewrite N）正式稿过短：拒绝更新进度，不靠审校兜底（issue #127）", async () => {
+    const { ctx: baseCtx, root } = createProject(
+      BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [1, 2]").replace(
+        "  last_command: null",
+        "  last_command: rewrite 2 2",
+      ),
+    );
+    const ctx = { ...baseCtx, wordsPerChapter: 3000 };
+    await passReview(ctx, root, 2, `${"字".repeat(600)}。`);
+
+    const result = (await novelUpdateProgress({ chapter: 2 }, ctx)) as Record<string, unknown>;
+
+    expect(result["ok"]).toBe(false);
+    expect(JSON.stringify(result)).toContain("600 字");
   });
 
   it("is idempotent for repeated commits of the same chapter", async () => {
@@ -537,7 +555,9 @@ describe("写章中断记录不被别的章的收尾清掉", () => {
   });
 
   it("写章自己完成第 3 章时照常清掉中断记录", async () => {
-    const { ctx, root, statePath } = createProject(INTERRUPTED_AT_3);
+    const { ctx: baseCtx, root, statePath } = createProject(INTERRUPTED_AT_3);
+    // 断点记着写章 / 重写这一章 = 生成中，正式稿要过正文合同；短夹具把目标字数调到 5 以免触发字数下限
+    const ctx = { ...baseCtx, wordsPerChapter: 5 };
     await passReview(ctx, root, 3, "第三章正文。");
 
     const result = (await novelUpdateProgress({ chapter: 3 }, ctx)) as Record<string, unknown>;
@@ -550,9 +570,11 @@ describe("写章中断记录不被别的章的收尾清掉", () => {
   });
 
   it("不是写章中断的记录（如 rewrite 1）收尾时照常清", async () => {
-    const { ctx, root, statePath } = createProject(
+    const { ctx: baseCtx, root, statePath } = createProject(
       INTERRUPTED_AT_3.replace("  last_command: write 3", "  last_command: rewrite 1"),
     );
+    // 断点记着写章 / 重写这一章 = 生成中，正式稿要过正文合同；短夹具把目标字数调到 5 以免触发字数下限
+    const ctx = { ...baseCtx, wordsPerChapter: 5 };
     await passReview(ctx, root, 1, "改写后的第一章正文。");
 
     await novelUpdateProgress({ chapter: 1 }, ctx);
@@ -730,6 +752,57 @@ describe("checkManuscriptContract", () => {
     expect(result).toBeNull();
   });
 
+  it("重写中（断点 rewrite N）无 staging：查正式稿，短稿被拦并报实测字数", async () => {
+    const { ctx, root } = await createProjectFixture(
+      BASE_STATE.replace("  last_command: null", `  last_command: rewrite ${CONTRACT_CHAPTER} ${CONTRACT_CHAPTER}`),
+    );
+    await mkdir(join(root, "manuscript", "vol-01"), { recursive: true });
+    writeManuscript(root, CONTRACT_CHAPTER, `${"字".repeat(600)}。`);
+
+    const result = await checkManuscriptContract({ ...ctx, wordsPerChapter: 3000 }, CONTRACT_CHAPTER);
+
+    expect(result?.source).toBe("manuscript");
+    expect(result?.wordCount).toBe(600);
+    expect(result?.errors.some((e) => String(e.expected).includes("2400"))).toBe(true);
+  });
+
+  it("写章中（断点 write N）正式稿与 staging 都没有：报正文缺失", async () => {
+    const { ctx } = await createProjectFixture(
+      BASE_STATE.replace("  last_command: null", `  last_command: write ${CONTRACT_CHAPTER}`),
+    );
+
+    const result = await checkManuscriptContract({ ...ctx, wordsPerChapter: 3000 }, CONTRACT_CHAPTER);
+
+    expect(result?.source).toBe("missing");
+    expect(result?.errors[0]?.actual).toBe("找不到本章正文");
+  });
+
+  it("调用方声明 generating=true：断点没记下本次重写（另一章写作中断挂着）也查正式稿", async () => {
+    const { ctx, root } = await createProjectFixture(
+      BASE_STATE.replace("  last_command: null", "  last_command: write 9"),
+    );
+    await mkdir(join(root, "manuscript", "vol-01"), { recursive: true });
+    writeManuscript(root, CONTRACT_CHAPTER, "短。");
+
+    const result = (await novelCheckManuscriptContract(
+      { chapter: CONTRACT_CHAPTER, generating: true },
+      { ...ctx, wordsPerChapter: 3000 },
+    )) as Record<string, unknown>;
+
+    expect(result["ok"]).toBe(false);
+    expect(result["word_count"]).toBe(1);
+  });
+
+  it("断点是别的章（write 9）：本章正式稿仍按作者正文免检", async () => {
+    const { ctx, root } = await createProjectFixture(
+      BASE_STATE.replace("  last_command: null", "  last_command: write 9"),
+    );
+    await mkdir(join(root, "manuscript", "vol-01"), { recursive: true });
+    writeManuscript(root, CONTRACT_CHAPTER, "短。");
+
+    expect(await checkManuscriptContract({ ...ctx, wordsPerChapter: 3000 }, CONTRACT_CHAPTER)).toBeNull();
+  });
+
   it("空文件 → errors 含 可见正文非空", async () => {
     const { ctx } = await fixtureWithStaging("");
 
@@ -900,8 +973,22 @@ describe("novelCheckManuscriptContract", () => {
     expect(result["ok"]).toBe(false);
   });
 
-  it("无 staging → ok:true, staging:false, 免检提示", async () => {
+  it("本章正文一个都不存在 → ok:false，不报通过", async () => {
     const { ctx } = await createProjectFixture();
+
+    const result = (await novelCheckManuscriptContract(
+      { chapter: CONTRACT_CHAPTER },
+      ctx,
+    )) as Record<string, unknown>;
+
+    expect(result["ok"]).toBe(false);
+    expect(String(result["message"])).toContain("找不到本章正文");
+  });
+
+  it("无 staging、不在写作流程中（作者正文）→ 免检，但如实报字数", async () => {
+    const { ctx, root } = await createProjectFixture();
+    await mkdir(join(root, "manuscript", "vol-01"), { recursive: true });
+    writeManuscript(root, CONTRACT_CHAPTER, "作者自己写的短章。");
 
     const result = (await novelCheckManuscriptContract(
       { chapter: CONTRACT_CHAPTER },
@@ -910,6 +997,7 @@ describe("novelCheckManuscriptContract", () => {
 
     expect(result["ok"]).toBe(true);
     expect(result["staging"]).toBe(false);
+    expect(result["word_count"]).toBe(countWords("作者自己写的短章。"));
     expect(String(result["message"])).toContain("免检");
   });
 

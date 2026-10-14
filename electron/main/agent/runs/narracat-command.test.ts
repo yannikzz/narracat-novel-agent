@@ -226,6 +226,17 @@ describe('NarraCat command run resolver', () => {
     expect(rewriteSource).not.toContain('进度状态回退')
   })
 
+  // 重写写在正式路径上，曾全程不过正文合同：短稿覆盖原稿后照样算写完（issue #127）。
+  // 钉住重写在审校前做机械预检，且显式声明是生成稿（断点可能没记下本次重写）。
+  test('rewrite pre-checks the manuscript contract as generated text before review', async () => {
+    const commandRoot = join(process.cwd(), 'agent-core', 'narracat', 'commands')
+    const rewriteSource = await readFile(join(commandRoot, 'rewrite.md'), 'utf-8')
+
+    expect(rewriteSource).toContain('mcp__narracat_memory__novel_check_manuscript_contract')
+    expect(rewriteSource).toContain('novel_check_manuscript_contract(chapter=chapter_num, generating=true)')
+    expect(rewriteSource.indexOf('generating=true')).toBeLessThan(rewriteSource.indexOf('## 步骤 4'))
+  })
+
   // 开写确认门是作者对「这一章怎么写」提要求的唯一入口。它曾被 automation_level 的全自动档整段
   // 跳过，而新建小说默认就是全自动——作者因此从没见过它。这里钉住它不再受档位控制。
   // 门内的实际表现（摘要够不够判断、冲突判得准不准）只有真机 dogfood 能验，测试只防回退。

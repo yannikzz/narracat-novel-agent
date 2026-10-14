@@ -979,11 +979,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "novel_check_manuscript_contract",
     description:
-      "/write 写手完成后立即预检本章草稿的机械合同：非空/字数下限/无围栏/无前言/未截断为硬项，超上限/引号为软提醒；顺手把 ASCII 引号包中文机械归一为弯引号；无草稿一律放行",
+      "写章 / 重写的写手完成后立即预检本章正文的机械合同：非空/字数下限/无围栏/无前言/未截断为硬项，超上限/引号为软提醒；顺手把 ASCII 引号包中文机械归一为弯引号；返回实测字数 word_count。检查对象：有草稿查草稿；没有草稿但本章正在写章 / 重写（或传 generating=true）查正式稿；都不是视为作者自己的正文，免检但照报字数；本章正文一个都不存在时不通过",
     inputSchema: {
       type: "object",
       properties: {
         chapter: { type: "integer", minimum: 1, description: "要预检的章节号" },
+        generating: { type: "boolean", description: "写作链生成的正文传 true（重写必传）：没有草稿时按生成稿检查正式稿" },
       },
       required: ["chapter"],
     },

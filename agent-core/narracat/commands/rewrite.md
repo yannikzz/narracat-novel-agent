@@ -1,10 +1,10 @@
 ---
 description: 重写已完成章节 — 只清空本章记忆后重新执行写作流程，后续章节记忆与进度不动，并分析对后续章节的级联影响
 argument-hint: <章节号>（可追加一句重写要求）
-allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__narracat_memory__novel_build_writing_context_pack", "mcp__narracat_memory__novel_rollback_chapter", "mcp__narracat_memory__novel_get_review", "mcp__narracat_memory__novel_get_arc", "mcp__narracat_memory__novel_character_state", "mcp__narracat_memory__novel_update_progress", "mcp__narracat_memory__novel_checkpoint"]
+allowed-tools: [Agent, Read, Write, Grep, Glob, AskUserQuestion, "mcp__narracat_memory__novel_build_writing_context_pack", "mcp__narracat_memory__novel_rollback_chapter", "mcp__narracat_memory__novel_get_review", "mcp__narracat_memory__novel_get_arc", "mcp__narracat_memory__novel_character_state", "mcp__narracat_memory__novel_update_progress", "mcp__narracat_memory__novel_checkpoint", "mcp__narracat_memory__novel_check_manuscript_contract"]
 ---
 
-重写指定的已完成章节：确认 → 构建上下文包 → 本章记忆回滚 → 重写 → 审修 → 入库 → 级联影响分析。只动本章：后续已完成章节的记忆与完成进度全程保持不变。
+重写指定的已完成章节：确认 → 构建上下文包 → 本章记忆回滚 → 重写 → 机械预检 → 审修 → 入库 → 级联影响分析。只动本章：后续已完成章节的记忆与完成进度全程保持不变。
 
 **对作者说话**：你内部用精确的字段 / 文件 / 工具 / agent 名保证引擎正确，但作者会读到的文本（对话叙述、AskUserQuestion 的问题与选项、报告正文）里不出现内部标识——schema 字段名（如 `antagonistic_force`）、立项卡编号（`§5`/`§7`）、文件 / 目录名（`bible/`、`*.md`）、确定度英文枚举（`canon`/`tentative`/`open`）、agent 名（`world-curator` 等）、工程黑话（落盘 / blocking / payoff_beat 等）一律翻成作者词汇，信息全留、黑话全译。对照表见 `${CLAUDE_PLUGIN_ROOT}/docs/contracts/user-facing-language.md`（命令 `/narracat:xxx` 由 App 渲染为动作按钮，不在此列）。
 
@@ -42,7 +42,19 @@ WritingContextPack 路径: {pack_path}
 包里没给全的角色资料以上面这段为准，不要去翻或猜项目里的文件。"
 ```
 
-完成后调 `novel_checkpoint(command="rewrite {chapter_num}", step=3, chapter=chapter_num)`。
+完成后进入机械预检：
+
+1. 调 `novel_check_manuscript_contract(chapter=chapter_num, generating=true)`（重写写在正式路径上，必须带 `generating=true`；工具会顺手把 ASCII 引号包中文归一为弯引号）。
+2. `ok == true` → 调 `novel_checkpoint(command="rewrite {chapter_num}", step=3, chapter=chapter_num)`，进入步骤 4。
+3. `ok == false` → 派写手按 errors 补写或清理（下面模板），复检上限 2 轮；2 轮仍不过 → 停止，用作者听得懂的话报告「第 {chapter_num} 章重写稿没达到交付标准」及问题要点（如字数不够、结尾像被截断），请作者处理后重新执行 /narracat:rewrite {chapter_num}。
+
+```
+Task(chapter-writer): "第 {chapter_num} 章正文有下列交付问题，逐条补写或清理，保留其余正文。
+正文路径: {manuscript_path}
+WritingContextPack 路径: {pack_path}
+目标字数区间: {word_count_range 的下限}-{word_count_range 的上限} 字。
+问题: {errors 原样列出}"
+```
 
 ## 步骤 4：审修与路由
 
@@ -59,7 +71,7 @@ WritingContextPack 路径: {pack_path}
    - Task(chapter-writer)："只修复以下问题，其余内容保持不变：{blockers 原样列出}。文件路径: {manuscript_path}。WritingContextPack 路径: {pack_path}。"
    - Task(continuity-editor)："审校第 {chapter_num} 章。只复验下列已修复问题: {blockers 原样列出}。正文路径: {manuscript_path}。上下文包路径: {pack_path}。"
    - 再调 `novel_get_review`。仍 fail → 调 `novel_checkpoint(command="rewrite {chapter_num}", step=4, chapter=chapter_num)`，停止并向用户报告 blockers，等人工处理。
-4. verdict=pass → 继续步骤 5。
+4. verdict=pass → 继续步骤 5；本步做过定向修复的（正文被改过），先按步骤 3 的机械预检重查一次，通过再进步骤 5。
 
 ## 步骤 5：记忆入库与进度
 
@@ -91,4 +103,5 @@ WritingContextPack 路径: {pack_path}
 | 上下文包构建失败 | 终止，不回滚记忆、不覆盖正文 |
 | 记忆回滚失败 | 终止，不继续写作 |
 | 修复复验仍 fail | 停在 checkpoint，报告 blockers 等人工处理 |
+| 机械预检两轮仍不过 | 停止，报告问题要点等人工处理 |
 | 用户取消 | 终止，不做任何修改 |

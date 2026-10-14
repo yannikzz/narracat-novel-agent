@@ -636,20 +636,19 @@ export async function novelSubmitReview(args, ctx) {
     const chapter = args["chapter"];
     const issues = args["issues"];
     // 字数守卫（评价层 finding-only）：机械度量成稿字数缺口，写进报告顶层独立字段——
-    // 不混入 continuity-editor 的 issues（机械度量不是「存疑」判断），不影响 verdict；
-    // 正文缺失时静默跳过（不给审校提交新增失败模式）。字数按可见正文计（剥 chapter_metadata）。
-    let wordCount;
-    let shortfall = null;
-    let manuscriptSha256;
-    // 审校指纹必须对工作正文（staging 优先）取 hash：staging 阶段的审校要绑定草稿版本
+    // 不混入 continuity-editor 的 issues（机械度量不是「存疑」判断），不影响 verdict。
+    // 字数按可见正文计（剥 chapter_metadata）。
+    // 审校指纹必须对工作正文（staging 优先）取 hash：staging 阶段的审校要绑定草稿版本。
+    // 正文缺失时拒收：没有正文的「通过」会让写作链把「没写进去」当成「审过了」继续往下走。
     const manuscript = await resolveWorkingManuscript(ctx.projectRoot, chapter);
-    if (manuscript) {
-        const content = await readFile(manuscript.path, "utf-8");
-        wordCount = countWords(visibleBodyText(content));
-        shortfall = checkChapterWordCount(wordCount, ctx.wordsPerChapter);
-        // 审校新鲜度指纹：对文件原始内容整体取 hash（不剥 metadata——任何字节变化都应使旧审校失效）
-        manuscriptSha256 = createHash("sha256").update(content, "utf8").digest("hex");
+    if (!manuscript) {
+        return singleError("chapter", `第 ${chapter} 章正文文件存在`, "找不到本章正文", "正文没有写进去，审校结果不能记录：先确认正文已写到上下文包给出的输出路径");
     }
+    const content = await readFile(manuscript.path, "utf-8");
+    const wordCount = countWords(visibleBodyText(content));
+    const shortfall = checkChapterWordCount(wordCount, ctx.wordsPerChapter);
+    // 审校新鲜度指纹：对文件原始内容整体取 hash（不剥 metadata——任何字节变化都应使旧审校失效）
+    const manuscriptSha256 = createHash("sha256").update(content, "utf8").digest("hex");
     // verdict 代码计算：任一 blocker → fail
     const blockers = issues.filter((i) => i.severity === "blocker");
     const notes = issues.filter((i) => i.severity === "note");
@@ -659,9 +658,9 @@ export async function novelSubmitReview(args, ctx) {
         chapter,
         verdict,
         issues,
-        ...(wordCount !== undefined ? { word_count: wordCount } : {}),
+        word_count: wordCount,
         ...(shortfall ? { word_count_warning: shortfall } : {}),
-        ...(manuscriptSha256 !== undefined ? { reviewed_manuscript_sha256: manuscriptSha256 } : {}),
+        reviewed_manuscript_sha256: manuscriptSha256,
     };
     const reportPath = join(ctx.projectRoot, "reviews", `ch-${chapterFileSegment(chapter)}-review.json`);
     await mkdir(dirname(reportPath), { recursive: true });
@@ -675,7 +674,7 @@ export async function novelSubmitReview(args, ctx) {
          issues_json = excluded.issues_json,
          reviewed_manuscript_sha256 = excluded.reviewed_manuscript_sha256,
          created_at = datetime('now')`)
-        .run(ctx.novelId, chapter, verdict, JSON.stringify(issues), manuscriptSha256 ?? null);
+        .run(ctx.novelId, chapter, verdict, JSON.stringify(issues), manuscriptSha256);
     return {
         ok: true,
         chapter,
