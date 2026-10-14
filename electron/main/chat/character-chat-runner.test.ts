@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import {
   buildCharacterChatMessages,
   CHARACTER_CHAT_READONLY_NOVEL_MEMORY_TOOLS,
+  characterChatSessionId,
   createCharacterChatRunManager,
   normalizeCharacterChatSendRequest,
 } from './character-chat-runner'
@@ -420,6 +421,35 @@ describe('createCharacterChatRunManager', () => {
     // UI 只收到文本增量（引导 + 续答），不含工具细节
     expect(bubbles(events)).toEqual(['让我想想……我在城南'])
     expect(completedText(events)).toBe('让我想想……我在城南')
+  })
+
+  test('会话 id（issue #108）：按「作品 + 角色」派生、确定且不含本机路径，并传给模型客户端', async () => {
+    const project = await tempProjectWithCharacter()
+    const db = seededDb()
+    const events: CharacterChatStreamEvent[] = []
+    const sessionIds: Array<string | undefined> = []
+    const manager = createCharacterChatRunManager(
+      baseDeps(
+        {
+          createAnthropicClient: (args) => {
+            sessionIds.push(args.sessionId)
+            return fakeAnthropic([textStream(['在'])]).client
+          },
+        },
+        () => makeBunReader(db),
+        events,
+      ),
+    )
+    await manager.send({ runId: 'run-a', projectPath: project, characterUid: UID_LIN, userMode: 'author', message: '在吗' })
+    await waitFor(() => events.some((event) => event.type === 'completed'))
+
+    const expected = characterChatSessionId(project, UID_LIN)
+    expect(sessionIds).toEqual([expected])
+    // 同书同角色下次聊天还是同一个 id（提示缓存靠它），换角色 / 换书则不同
+    expect(characterChatSessionId(project, UID_LIN)).toBe(expected)
+    expect(characterChatSessionId(project, 'other-uid')).not.toBe(expected)
+    expect(characterChatSessionId('/another/book', UID_LIN)).not.toBe(expected)
+    expect(expected).not.toContain(project)
   })
 
   test('多轮历史组装：第一轮请求 messages 含已存 transcript 历史 + 新 user', async () => {

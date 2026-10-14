@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 
 import Anthropic from '@anthropic-ai/sdk'
+import { providerRequestHeaders } from '@shared/lib/provider-request-headers'
 import type { MessageParam, Tool, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 
 import type { AppConfig, ProviderId } from '../config.ts'
@@ -95,7 +96,7 @@ export interface CharacterChatRunManagerDeps {
   /** NovelMemory 只读 MCP 客户端工厂（懒启动；测试注入假 client）。 */
   createMcpClient?: NovelMemoryMcpClientFactory
   /** Anthropic 客户端工厂（测试注入假 SDK）。 */
-  createAnthropicClient?: (args: { apiKey: string; baseURL?: string }) => AnthropicLike
+  createAnthropicClient?: (args: { apiKey: string; baseURL?: string; sessionId?: string }) => AnthropicLike
   createRunId?: () => string
   /** 读用户画像（"懂你"层）；由 ipc.ts 注入；不注入时默认空画像。 */
   readProfiles?: (identity: { projectPath: string; characterUid: string }) => Promise<CharacterChatProfiles>
@@ -274,8 +275,20 @@ function extractToolUseBlocks(content: unknown[]): ToolUseBlock[] {
   return blocks
 }
 
-function defaultCreateAnthropicClient(args: { apiKey: string; baseURL?: string }): AnthropicLike {
-  return new Anthropic({ apiKey: args.apiKey, baseURL: args.baseURL || undefined }) as unknown as AnthropicLike
+/**
+ * 角色聊天的会话 id（issue #108）：同一本书同一个角色是同一段对话，id 必须稳定才吃得到提示缓存。
+ * 会发给第三方服务商，取哈希而不是原样拼路径——作品路径里有本机用户名。
+ */
+export function characterChatSessionId(projectPath: string, characterUid: string): string {
+  return createHash('sha256').update(`${projectPath}\u0000${characterUid}`).digest('hex').slice(0, 32)
+}
+
+function defaultCreateAnthropicClient(args: { apiKey: string; baseURL?: string; sessionId?: string }): AnthropicLike {
+  return new Anthropic({
+    apiKey: args.apiKey,
+    baseURL: args.baseURL || undefined,
+    defaultHeaders: providerRequestHeaders(args.baseURL, args.sessionId),
+  }) as unknown as AnthropicLike
 }
 
 export function createCharacterChatRunManager(deps: CharacterChatRunManagerDeps): CharacterChatRunManager {
@@ -437,7 +450,11 @@ export function createCharacterChatRunManager(deps: CharacterChatRunManagerDeps)
         situationPack,
       })
 
-      const client = createAnthropicClient({ apiKey, baseURL: primary.baseUrl || undefined })
+      const client = createAnthropicClient({
+        apiKey,
+        baseURL: primary.baseUrl || undefined,
+        sessionId: characterChatSessionId(request.projectPath, request.characterUid),
+      })
       const messages = buildCharacterChatMessages(transcript.messages, request.message)
 
       sendEventSafe({ type: 'started', runId })

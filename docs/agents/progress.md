@@ -4,6 +4,9 @@
 
 ## Current Branch
 
+**2026-10-14（opencode go 可用，issue #108，分支 fix/opencode-go-headers）**：opencode go 网关拒收缺 `x-opencode-session` 的请求（400），官方文档另要求客户端自己的 `User-Agent`。新增 `shared/lib/provider-request-headers.ts`，只对 opencode.ai 域名返回两个头，其它渠道请求不变；pi 走 `model.headers`（主会话续接沿用原会话 id、新对话与子会话派发随机生成），直连 `@anthropic-ai/sdk` 的角色聊天 / 画像 / 润色 / 编译 / 卡片改写走 `defaultHeaders`；角色聊天的 id 按「作品 + 角色」取哈希，不把本机路径发给服务商。思路来自报告者在 issue 里给的改法。
+- 验证：本地假端点实测三条协议路径（直连 SDK、pi anthropic-messages、pi openai-completions）都真的发出两个头，且 `User-Agent` 覆盖了 SDK 默认值；新增单测 8 条；全量 3857 条、typecheck、check:architecture 通过。没做：真实 opencode go 订阅联调（需要订阅 Key）。
+
 **2026-10-14（同错连犯即停，issue #111 / #112，分支 fix/repeated-tool-failure-stop）**：子 agent 把 `payload` 传成空字符串，pi 参数校验每次回同一条「must be object」，模型原样重试到回合上限，一次提交烧掉十多块钱。会话桥（主会话与子会话共用 `runPiSession`）新增判定：同一工具连续 3 次报同样的错（剥掉校验错误尾部的参数回显）→ 中止会话，以 `run.failed(reason=repeated-tool-failure)` 收口；子会话命中按「截断即停」先例打致命标记，主会话没有机会原样重派。同名工具成功清零、错误文本变了重新计数、两次重试之间读资料不清零。埋点失败原因新增同名枚举。
 - 验证：新增判定单测 6 条 + 桥 / 映射器 / 子 agent 各一条；全量测试 3859 条、typecheck、check:architecture 通过。没做：真机用会传坏参数的模型复现（需要特定第三方渠道）。
 

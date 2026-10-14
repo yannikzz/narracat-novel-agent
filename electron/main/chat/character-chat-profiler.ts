@@ -1,5 +1,6 @@
 // electron/main/chat/character-chat-profiler.ts
 import Anthropic from '@anthropic-ai/sdk'
+import { providerRequestHeaders } from '@shared/lib/provider-request-headers'
 import { resolveLightModel } from '@shared/lib/model-slots'
 import { AUTHOR_PROFILE_MAX_CHARS, IMPRESSION_MAX_CHARS, readAuthorProfile, readImpressionMeta, writeAuthorProfile, writeImpression } from '../novel/character-chat-profiles.ts'
 import type { AppConfig, ProviderId } from '../config.ts'
@@ -99,7 +100,7 @@ export interface CharacterChatProfilerDeps {
 const PROFILE_REFINE_MAX_OUTPUT_TOKENS = 1024
 
 function defaultCreateClient(args: { apiKey: string; baseURL?: string }): AnthropicCreateLike {
-  return new Anthropic({ apiKey: args.apiKey, baseURL: args.baseURL || undefined }) as unknown as AnthropicCreateLike
+  return new Anthropic({ apiKey: args.apiKey, baseURL: args.baseURL || undefined, defaultHeaders: providerRequestHeaders(args.baseURL) }) as unknown as AnthropicCreateLike
 }
 
 function extractText(content: Array<{ type: string; text?: string }>): string {

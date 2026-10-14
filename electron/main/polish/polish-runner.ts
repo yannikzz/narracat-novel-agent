@@ -10,6 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import Anthropic from '@anthropic-ai/sdk'
+import { providerRequestHeaders } from '@shared/lib/provider-request-headers'
 import { extractTextDelta } from '../chat/character-chat-stream.ts'
 import { detectPolishDrift } from '@shared/lib/prose-polish-drift'
 import { resolveModelByKey, resolvePrimaryModel, type ResolvedModel } from '@shared/lib/model-slots'
@@ -117,7 +118,7 @@ export interface PolishRunManager {
 }
 
 function defaultCreateAnthropicClient(args: { apiKey: string; baseURL?: string }): PolishAnthropicLike {
-  return new Anthropic({ apiKey: args.apiKey, baseURL: args.baseURL || undefined }) as unknown as PolishAnthropicLike
+  return new Anthropic({ apiKey: args.apiKey, baseURL: args.baseURL || undefined, defaultHeaders: providerRequestHeaders(args.baseURL) }) as unknown as PolishAnthropicLike
 }
 
 function errorMessage(error: unknown): string {

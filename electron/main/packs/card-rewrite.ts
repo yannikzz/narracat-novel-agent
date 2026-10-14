@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { providerRequestHeaders } from '@shared/lib/provider-request-headers'
 import { resolveLightModel } from '@shared/lib/model-slots'
 import { getApiKey } from '../secrets.ts'
 import { readCurrentConfig } from '../ipc/inputs.ts'
@@ -18,7 +19,7 @@ export async function rewriteCardBody(input: { body: string; findings: TextReuse
   const model = light?.modelId
   if (!model) return null
 
-  const client = new Anthropic({ apiKey, baseURL: light?.baseUrl || undefined })
+  const client = new Anthropic({ apiKey, baseURL: light?.baseUrl || undefined, defaultHeaders: providerRequestHeaders(light?.baseUrl) })
   const samples = input.findings.map((finding, index) => `${index + 1}. ${finding.sample}`).join('\n')
   try {
     const response = await client.messages.create({

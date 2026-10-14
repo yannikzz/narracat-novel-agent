@@ -10,6 +10,7 @@ import type { Model } from '@mariozechner/pi-ai'
 import type { AppConfig } from '@shared/types/config'
 import { resolveLightModel, resolvePrimaryModel } from '@shared/lib/model-slots'
 import { PI_UPSTREAM_MAX_OUTPUT_CAP, TARGET_MAX_OUTPUT_TOKENS } from '@shared/lib/model-output-limits'
+import { providerRequestHeaders } from '@shared/lib/provider-request-headers'
 
 /** 窗口值与 SDK 侧 CLAUDE_CODE_MAX_CONTEXT_TOKENS 对齐。 */
 const ONE_M_CONTEXT_WINDOW = 1_000_000
@@ -98,6 +99,8 @@ export function createPiModel(
   config: AppConfig,
   explicitId?: string,
   thinking: PiThinkingMode = 'provider-default',
+  /** 本段对话的稳定 id：只有需要会话头的渠道（opencode go，issue #108）才会发出去。 */
+  sessionId?: string,
 ): Model<PiModelWire> {
   const primary = resolvePrimaryModel(config)
   if (!primary) throw new Error('未配置任何模型，无法构造 Pi 模型描述')
@@ -107,12 +110,15 @@ export function createPiModel(
     throw new Error('OpenAI 协议渠道需要先在设置中填写接口地址（以 /v1 结尾，如 https://example.com/v1）。')
   }
   const id = explicitId || primary.modelId
+  const baseUrl = primary.baseUrl || ANTHROPIC_OFFICIAL_BASE_URL
+  const headers = providerRequestHeaders(baseUrl, sessionId)
   return {
     id,
     name: id,
     api: primary.wire === 'openai' ? 'openai-completions' : 'anthropic-messages',
     provider: primary.provider,
-    baseUrl: primary.baseUrl || ANTHROPIC_OFFICIAL_BASE_URL,
+    baseUrl,
+    ...(headers ? { headers } : {}),
     /**
      * ⚠️ 字段名会骗人：`reasoning: true` 不是「开启思考」，而是「本请求由我们决定 thinking」。
      * 链路（pi-ai@0.73.1 / pi-agent-core）：`pi-session.ts` 恒传 `thinkingLevel: 'off'`

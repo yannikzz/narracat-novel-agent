@@ -10,6 +10,7 @@
 // echo 一律由 App 从 compiled.fields 确定性渲染，不信任 LLM 自己回显的文字。
 
 import Anthropic from '@anthropic-ai/sdk'
+import { providerRequestHeaders } from '@shared/lib/provider-request-headers'
 import { resolveLightModel } from '@shared/lib/model-slots'
 import type { AppConfig, ProviderId } from '../config'
 import type { CompiledCardMeta, DraftCard, PackDraftMeta } from '@shared/types/capability-pack'
@@ -80,7 +81,7 @@ export function buildCompileCardSource(card: Pick<DraftCard, 'intent' | 'oneLine
 }
 
 function defaultCreateClient(args: { apiKey: string; baseURL?: string }): AnthropicCreateLike {
-  return new Anthropic({ apiKey: args.apiKey, baseURL: args.baseURL || undefined }) as unknown as AnthropicCreateLike
+  return new Anthropic({ apiKey: args.apiKey, baseURL: args.baseURL || undefined, defaultHeaders: providerRequestHeaders(args.baseURL) }) as unknown as AnthropicCreateLike
 }
 
 function extractText(content: Array<{ type: string; text?: string }>): string {

@@ -142,6 +142,29 @@ describe('createPiModel', () => {
     expect(() => createPiModel(config)).toThrow('OpenAI 协议渠道需要先在设置中填写接口地址')
   })
 
+  test('opencode go 渠道（issue #108）：model.headers 带客户端标识与会话 id；续接传入的 id 原样沿用', () => {
+    const config = makeConfig({
+      providers: { ...DEFAULT_PROVIDER_SETTINGS, custom: { baseUrl: 'https://opencode.ai/zen/go/v1', wire: 'openai' } },
+      modelPool: [{ provider: 'custom', modelId: 'kimi-k2', verification: null }],
+      primaryModelKey: 'custom/kimi-k2',
+    })
+    expect(createPiModel(config, undefined, undefined, 'session-abc').headers).toEqual({
+      'User-Agent': 'NarraCat',
+      'x-opencode-session': 'session-abc',
+    })
+    // 不给 id（新对话 / 子会话派发）也必须带头，否则网关直接 400
+    expect(createPiModel(config).headers?.['x-opencode-session']).toBeTruthy()
+  })
+
+  test('其它渠道不加 headers 字段（请求一个字节都不变）', () => {
+    const config = makeConfig({
+      providers: { ...DEFAULT_PROVIDER_SETTINGS, custom: { baseUrl: 'https://gw.example.com/v1', wire: 'openai' } },
+      modelPool: [{ provider: 'custom', modelId: 'some-model', verification: null }],
+      primaryModelKey: 'custom/some-model',
+    })
+    expect('headers' in createPiModel(config, undefined, undefined, 'session-abc')).toBe(false)
+  })
+
   test('custom 渠道默认仍为 anthropic wire（anthropic-messages）', () => {
     const config = makeConfig({
       providers: { ...DEFAULT_PROVIDER_SETTINGS },
