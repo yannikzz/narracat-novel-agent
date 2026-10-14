@@ -17,7 +17,7 @@ import type { ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from 'typebox'
 import { NARRACAT_ENGINE_AGENT_IDS } from '../../../../engine/agent-core-contract.ts'
 import type { EngineAgentDefinition } from '../../../../engine/engine-agent-registry.ts'
-import { PI_MAX_TURNS_MESSAGE_TYPE, PI_SUBAGENT_EVENT_MESSAGE_TYPE } from './pi-event-mapper.ts'
+import { PI_MAX_TURNS_MESSAGE_TYPE, PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE, PI_SUBAGENT_EVENT_MESSAGE_TYPE } from './pi-event-mapper.ts'
 import type { PiSubagentAbnormalStop, PiSubagentAbnormalStopDetails } from './pi-event-mapper.ts'
 import type { PiThinkingMode } from './pi-model.ts'
 import { runPiSession } from './pi-session.ts'
@@ -40,6 +40,7 @@ const MAX_TURNS_RESULT_PREFIX = '⚠️ 子 agent 达到回合上限，以下为
 const ABNORMAL_STOP_RESULT_PREFIX: Record<PiSubagentAbnormalStop, string> = {
   length: '⚠️ 子 agent 单次回复达到输出上限被截断，本次派发未完成，交付不可信：请核实产物，按需重新派发或把任务拆小。以下为已产出部分：',
   error: '⚠️ 子 agent 因模型或服务端错误异常终止，本次派发未完成，交付不可信：请核实产物后重新派发。以下为已产出部分：',
+  'repeated-tool-failure': '⚠️ 子 agent 同一工具连续多次报同样的错误，已自动停止，本次派发未完成，交付不可信。以下为已产出部分：',
 }
 /**
  * 截断自动降档（问题 2 根因②）：首轮跑在 provider 默认思考档、被 `length` 截断 → 大概率是 thinking
@@ -229,6 +230,7 @@ export function createTaskTool({
               continue
             }
             if (message.type === PI_MAX_TURNS_MESSAGE_TYPE) maxTurnsTripped = true
+            if (message.type === PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE) abnormalStop = 'repeated-tool-failure'
           }
           return { provider: options.provider, api: options.model?.api, finalText, maxTurnsTripped, abnormalStop }
         }
@@ -299,8 +301,9 @@ export function createTaskTool({
         // 就不具备重跑条件的渠道首次截断，都不再交回主会话让它「按需重派」（它只会同参重派），而是
         // 打致命标记让映射器紧跟 run.failed 收口整个 run，把三选一（抬上限 / 换模型 / 拆小）交给作者。
         // error 不致命：那是服务端问题，主会话改派或补救仍有意义。
+        // 同错连犯同样致命（issue #111 / #112）：子会话已经在同一堵墙上撞了 N 次，重派只是再撞 N 次。
         const details: PiSubagentAbnormalStopDetails | undefined = abnormalStop
-          ? abnormalStop === 'length'
+          ? abnormalStop === 'length' || abnormalStop === 'repeated-tool-failure'
             ? { narracatSubagentAbnormalStop: abnormalStop, narracatSubagentFatal: true, narracatSubagentId: agentId }
             : { narracatSubagentAbnormalStop: abnormalStop }
           : undefined

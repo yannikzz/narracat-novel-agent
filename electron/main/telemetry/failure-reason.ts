@@ -20,7 +20,7 @@ import type { TelemetryFailureReason } from '@shared/types/telemetry'
  */
 
 /**
- * run.failed 事件自带的结构化 reason → 埋点枚举。这四个是引擎自己判定的，最可信。
+ * run.failed 事件自带的结构化 reason → 埋点枚举。这五个是引擎自己判定的，最可信。
  *
  * **用 Map 而不是对象字面量**：入参的 `reason` 是宽松的 `string`（故意的，好让不认识的新
  * reason 回落到文本判定）。对象查表会走原型链——`reason='constructor'` 会取到 `Function`，
@@ -31,6 +31,7 @@ import type { TelemetryFailureReason } from '@shared/types/telemetry'
 const STRUCTURED_REASONS: ReadonlyMap<string, TelemetryFailureReason> = new Map([
   ['max-turns', 'max-turns'],
   ['output-limit', 'output-limit'],
+  ['repeated-tool-failure', 'repeated-tool-failure'],
   ['idle-timeout', 'idle-timeout'],
   ['model-service-required', 'model-service-required'],
 ] as const)

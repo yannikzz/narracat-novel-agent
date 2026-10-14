@@ -12,6 +12,7 @@ import { POOL_DEFAULT_FIELDS } from '@shared/types/config'
 import { createPiModel } from './pi-model.ts'
 import {
   PI_MAX_TURNS_MESSAGE_TYPE,
+  PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE,
   PI_RUN_END_MESSAGE_TYPE,
   PI_SESSION_MESSAGE_TYPE,
   PI_SUBAGENT_EVENT_MESSAGE_TYPE,
@@ -313,6 +314,36 @@ describe('runPiSession 预算护栏与合成终态', () => {
     expect(fake.abortCalls()).toBe(0)
     expect(got[got.length - 1]).toEqual({ type: PI_RUN_END_MESSAGE_TYPE })
     expect(got.filter((e) => (e as { type?: string }).type === PI_MAX_TURNS_MESSAGE_TYPE)).toEqual([])
+  })
+
+  test('同错连犯（issue #111 / #112）：同一工具连续 3 次报同样的错 → session.abort，流尾 yield 同错终态而非 run_end / max_turns', async () => {
+    const badCall = {
+      type: 'tool_execution_end',
+      toolCallId: 'tc',
+      toolName: 'mcp__narracat_memory__novel_submit_state_vocabulary',
+      isError: true,
+      result: { content: [{ type: 'text', text: 'Validation failed for tool "x":\n  - payload: must be object\n\nReceived arguments:\n{"payload":""}' }] },
+    }
+    const events = [
+      badCall,
+      { type: 'turn_end', message: { stopReason: 'toolUse' }, toolResults: [] },
+      badCall,
+      { type: 'turn_end', message: { stopReason: 'toolUse' }, toolResults: [] },
+      badCall,
+      { type: 'turn_end', message: { stopReason: 'toolUse' }, toolResults: [] },
+    ]
+    const fake = makeFakeSession(events)
+    const got = await collect(
+      runPiSession({ prompt: 'hi', options: makeOptions({ maxTurns: 3 }), createSession: fake.createSession }),
+    )
+    expect(fake.abortCalls()).toBe(1)
+    expect(got[got.length - 1]).toEqual({
+      type: PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE,
+      toolName: 'mcp__narracat_memory__novel_submit_state_vocabulary',
+    })
+    const types = got.map((e) => (e as { type?: string }).type)
+    expect(types).not.toContain(PI_RUN_END_MESSAGE_TYPE)
+    expect(types).not.toContain(PI_MAX_TURNS_MESSAGE_TYPE)
   })
 
   test('用户 abort：不 yield 任何合成终态（取消收口交给 run-manager）', async () => {

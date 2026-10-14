@@ -18,8 +18,10 @@ import {
 import type { Model } from '@mariozechner/pi-ai'
 import type { Extension, ToolDefinition } from '@mariozechner/pi-coding-agent'
 import type { AgentTokenUsage } from '@shared/types/agent'
-import { PI_MAX_TURNS_MESSAGE_TYPE, PI_RUN_END_MESSAGE_TYPE, PI_SESSION_MESSAGE_TYPE } from './pi-event-mapper.ts'
-import type { PiMaxTurnsMessage, PiRunEndMessage, PiSessionMessage } from './pi-event-mapper.ts'
+import { PI_MAX_TURNS_MESSAGE_TYPE, PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE, PI_RUN_END_MESSAGE_TYPE, PI_SESSION_MESSAGE_TYPE } from './pi-event-mapper.ts'
+import type { PiMaxTurnsMessage, PiRepeatedToolFailureMessage, PiRunEndMessage, PiSessionMessage } from './pi-event-mapper.ts'
+import { createRepeatedToolFailureTracker } from './pi-repeated-tool-failure.ts'
+import type { RepeatedToolFailure } from './pi-repeated-tool-failure.ts'
 // 类型导入（编译期擦除）：pi-subagent 反向依赖本模块的 runPiSession，值导入会成环。
 import type { PiSubagentEventChannel, PiSubagentEventMessage } from './pi-subagent.ts'
 
@@ -271,11 +273,23 @@ export async function* runPiSession({
   // run 级状态（映射器无状态，run 级语义全在桥内）：回合计数、usage 聚合、错误/预算终态判定。
   let turnCount = 0
   let budgetTripped = false
+  // 同错连犯即停（issue #111 / #112）：与回合预算同为「命中即 abort、排干后补合成终态」。
+  const repeatedFailureTracker = createRepeatedToolFailureTracker()
+  let repeatedFailure: RepeatedToolFailure | undefined
   let sawErrorStop = false
   let sawUsage = false
   const usageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 
   function accumulate(event: UnknownRecord): void {
+    if (event.type === 'tool_execution_end') {
+      const tripped = repeatedFailureTracker.observe(event)
+      if (tripped && !budgetTripped) {
+        repeatedFailure = tripped
+        console.warn(`[narracat] pi 会话同一工具连续 ${tripped.count} 次报同样的错，已中止：${tripped.toolName}`)
+        void safeAbort(session)
+      }
+      return
+    }
     if (event.type === 'turn_end') {
       turnCount += 1
       // 触顶判定门 = 模型是否还想继续（stopReason==='toolUse'）而非单纯计数。pi 的 agent-loop 最后一个
@@ -283,7 +297,7 @@ export async function* runPiSession({
       // 回合上限；只有模型还要下一轮工具调用（'toolUse'）却已经没有预算了，才是真触顶——语义对齐 SDK
       // 的「第 N 回合内完成算 success，要第 N+1 回合才 error_max_turns」。
       const stopReason = isRecord(event.message) ? event.message.stopReason : undefined
-      if (!budgetTripped && turnCount >= options.maxTurns && stopReason === 'toolUse') {
+      if (!budgetTripped && !repeatedFailure && turnCount >= options.maxTurns && stopReason === 'toolUse') {
         budgetTripped = true
         void safeAbort(session)
       }
@@ -380,7 +394,13 @@ export async function* runPiSession({
 
     // 合成终态：满足 run-manager「流尽必须见过终态事件」契约。用户取消不发（cancelling 分支收口）；
     // 模型错误终态已由 message_end 映射为 run.failed，不再补发避免自相矛盾。
-    if (budgetTripped) {
+    if (repeatedFailure) {
+      const repeatedMessage: PiRepeatedToolFailureMessage = {
+        type: PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE,
+        toolName: repeatedFailure.toolName,
+      }
+      yield repeatedMessage
+    } else if (budgetTripped) {
       const maxTurnsMessage: PiMaxTurnsMessage = { type: PI_MAX_TURNS_MESSAGE_TYPE }
       yield maxTurnsMessage
     } else if (!options.abortController.signal.aborted && !sawErrorStop) {

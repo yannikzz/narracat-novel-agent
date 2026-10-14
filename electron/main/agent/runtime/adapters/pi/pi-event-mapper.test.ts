@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   mapPiMessageToAgentEvents,
   PI_MAX_TURNS_MESSAGE_TYPE,
+  PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE,
   PI_RUN_END_MESSAGE_TYPE,
   PI_SESSION_MESSAGE_TYPE,
   PI_SUBAGENT_EVENT_MESSAGE_TYPE,
@@ -140,6 +141,35 @@ describe('mapPiMessageToAgentEvents', () => {
     // 并行派发时同批子任务被连坐，作者必须被告知
     expect(runError).toContain('同批并行的其它子任务也一并停止')
     expect(runError).toContain('设置 → 模型服务')
+  })
+
+  test('Task 结果 details 带致命标记（repeated-tool-failure）→ tool.failed 之后紧跟 run.failed(repeated-tool-failure)', () => {
+    const events = mapPiMessageToAgentEvents(ctx, {
+      type: 'tool_execution_end',
+      toolCallId: 'task-1',
+      toolName: 'Task',
+      isError: false,
+      result: {
+        content: [{ type: 'text', text: '⚠️ 子 agent …' }],
+        details: { narracatSubagentAbnormalStop: 'repeated-tool-failure', narracatSubagentFatal: true, narracatSubagentId: 'world-curator' },
+      },
+    })
+    expect(events.map((event) => event.type)).toEqual(['tool.failed', 'run.failed'])
+    expect(events[1]).toMatchObject({ runId: 'run-1', reason: 'repeated-tool-failure', createdAt: ctx.createdAt })
+    const runError = (events[1] as { error: string }).error
+    expect(runError).toContain('已自动停止')
+    // 作者文案不出现工具机器名
+    expect(runError).not.toContain('mcp__')
+  })
+
+  test('同错连犯合成终态 → run.failed(repeated-tool-failure)，文案不暴露工具机器名', () => {
+    const events = mapPiMessageToAgentEvents(ctx, {
+      type: PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE,
+      toolName: 'mcp__narracat_memory__novel_submit_outline',
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'run.failed', runId: 'run-1', reason: 'repeated-tool-failure', createdAt: ctx.createdAt })
+    expect((events[0] as { error: string }).error).not.toContain('mcp__')
   })
 
   test('Task 结果 details 只有 error 终态（无致命标记）→ 仅 tool.failed，主会话仍可改派', () => {

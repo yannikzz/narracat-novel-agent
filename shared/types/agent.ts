@@ -254,8 +254,9 @@ export type AgentDurableEventV1 =
       runId: string
       assistantText: string
       error: string
-      /** `output-limit`：子 agent 单次回复被输出上限截断，run 立即结束、选择权交给作者（ADR-0046）。 */
-      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns' | 'output-limit'
+      /** `output-limit`：子 agent 单次回复被输出上限截断，run 立即结束、选择权交给作者（ADR-0046）。
+       *  `repeated-tool-failure`：同一工具连续报同样的错，模型没有在纠正，run 立即结束（issue #111 / #112）。 */
+      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns' | 'output-limit' | 'repeated-tool-failure'
       provider?: string
       createdAt: string
     }
@@ -462,8 +463,9 @@ export type AgentEvent =
       type: 'run.failed'
       runId: string
       error: string
-      /** `output-limit`：子 agent 单次回复被输出上限截断，run 立即结束、选择权交给作者（ADR-0046）。 */
-      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns' | 'output-limit'
+      /** `output-limit`：子 agent 单次回复被输出上限截断，run 立即结束、选择权交给作者（ADR-0046）。
+       *  `repeated-tool-failure`：同一工具连续报同样的错，模型没有在纠正，run 立即结束（issue #111 / #112）。 */
+      reason?: 'model-service-required' | 'idle-timeout' | 'max-turns' | 'output-limit' | 'repeated-tool-failure'
       provider?: string
       createdAt: string
     }

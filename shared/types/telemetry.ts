@@ -89,7 +89,7 @@ export type TelemetryErrorCode = (typeof TELEMETRY_ERROR_CODES)[number]
  * **仍是枚举码，不是错误文本**（ADR-0039 已采纳的灰区三项之一）。分类在主进程做，
  * 见 `electron/main/telemetry/failure-reason.ts`：原始错误只用来判分类，一个字都不出境。
  *
- * 前四项直接来自 run.failed 事件已有的结构化 `reason`；其余由错误文本归类。
+ * 前五项直接来自 run.failed 事件已有的结构化 `reason`；其余由错误文本归类。
  * `provider-bad-request` 单独成项是有目的的：OpenAI 兼容渠道的协议字段错配（自建网关 / 中转 /
  * 本地 Ollama 落进 pi-ai 的默认 compat 档）正是以 400 呈现，它的占比直接决定要不要做
  * 「后端类型」选择器。
@@ -97,6 +97,7 @@ export type TelemetryErrorCode = (typeof TELEMETRY_ERROR_CODES)[number]
 export const TELEMETRY_FAILURE_REASONS = [
   'max-turns', // 回合上限
   'output-limit', // 单次回复被输出上限截断
+  'repeated-tool-failure', // 同一工具连续报同样的错，已自动停止
   'idle-timeout', // 空转超时
   'model-service-required', // 尚未配置可用模型
   'network-interrupted', // 连上了但流中途断（terminated / socket hang up / ECONNRESET）

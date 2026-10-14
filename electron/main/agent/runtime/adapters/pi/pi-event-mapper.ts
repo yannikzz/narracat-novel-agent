@@ -16,6 +16,8 @@ type UnknownRecord = Record<string, unknown>
 
 export const PI_RUN_END_MESSAGE_TYPE = 'narracat_pi_run_end'
 export const PI_MAX_TURNS_MESSAGE_TYPE = 'narracat_pi_max_turns'
+/** 会话桥判出「同一工具连续报同样的错」并中止会话后追加的合成终态（issue #111 / #112）。 */
+export const PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE = 'narracat_pi_repeated_tool_failure'
 /**
  * 子会话事件的包裹消息类型（切片⑤）。与上面两个合成消息类型同住本文件是为了断掉模块环：
  * pi-subagent → pi-session → pi-event-mapper 是单向依赖链，若该常量落在 pi-subagent.ts 再被
@@ -39,13 +41,14 @@ export const PI_SESSION_MESSAGE_TYPE = 'narracat_pi_session'
  * 折叠态——那要动汇总行信息密度，不在本刀范围。渲染端断言见
  * src/components/workbench/agent/AgentSubagentAbnormalStop.test.tsx。
  */
-export type PiSubagentAbnormalStop = 'length' | 'error'
+export type PiSubagentAbnormalStop = 'length' | 'error' | 'repeated-tool-failure'
 export interface PiSubagentAbnormalStopDetails {
   narracatSubagentAbnormalStop: PiSubagentAbnormalStop
   /**
    * 致命标记（ADR-0046）：子 agent 被输出上限截断时，run 立即结束、选择权交给作者。真机日志证明主会话
    * 拿到 ⚠️ 只会同参重派（1.5 小时 6 次截断），多给一次机会只是多烧 10 分钟。映射器据此在 tool.failed
    * 之后追加 run.failed（reason=output-limit），run-manager 见终态即收口并中止父会话。
+   * 子 agent 同错连犯（repeated-tool-failure）同理致命：重派只会再撞同一堵墙（reason=repeated-tool-failure）。
    */
   narracatSubagentFatal?: true
   /** 被截断的子 agent id，进 run 级失败文案（作者要知道是哪一步停的）。 */
@@ -70,6 +73,12 @@ export interface PiMaxTurnsMessage {
   type: typeof PI_MAX_TURNS_MESSAGE_TYPE
 }
 
+/** 会话桥在同错连犯中止后追加的合成终态消息；toolName 只进日志，不进作者文案。 */
+export interface PiRepeatedToolFailureMessage {
+  type: typeof PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE
+  toolName: string
+}
+
 const MAX_TURNS_ERROR_TEXT = 'Agent 本次运行达到回合上限，请稍后重试或提高运行上限。'
 const RUN_FAILED_FALLBACK_TEXT = 'Pi runtime 运行失败。'
 const TOOL_FAILED_FALLBACK_TEXT = '工具调用失败'
@@ -80,7 +89,11 @@ const LENGTH_TRUNCATED_ERROR_TEXT = '模型单次回复长度达到上限，本�
 const SUBAGENT_ABNORMAL_STOP_ERROR_TEXT: Record<PiSubagentAbnormalStop, string> = {
   length: '子 agent 回复达到输出上限被截断，本次派发未完成。可在「设置 → 模型服务」抬高该模型的输出上限、换模型，或把任务拆小。',
   error: '子 agent 因模型或服务端错误异常终止，本次派发未完成。',
+  'repeated-tool-failure': '子 agent 连续多次以同样的方式操作失败，已自动停止，本次派发未完成。',
 }
+/** 同错连犯的 run 级文案：作者看不懂工具名，只讲发生了什么、为什么停、能做什么。 */
+const REPEATED_TOOL_FAILURE_ERROR_TEXT =
+  'Agent 连续多次以同样的方式操作都失败了，已自动停止，避免继续消耗额度。可以直接重试；如果反复出现，换一个模型或渠道通常能解决。'
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -177,7 +190,7 @@ function mapToolExecutionStart(context: RuntimeMapContext, message: UnknownRecor
 function readSubagentAbnormalStop(result: unknown): PiSubagentAbnormalStop | undefined {
   if (!isRecord(result) || !isRecord(result.details)) return undefined
   const value = result.details.narracatSubagentAbnormalStop
-  return value === 'length' || value === 'error' ? value : undefined
+  return value === 'length' || value === 'error' || value === 'repeated-tool-failure' ? value : undefined
 }
 
 /** Task 工具结果 details 上的致命标记（ADR-0046）；带回被截断的子 agent id 供 run 级文案使用。 */
@@ -214,13 +227,14 @@ function mapToolExecutionEnd(context: RuntimeMapContext, message: UnknownRecord)
     // 停止消费并中止父会话，主会话没有机会再同参重派。
     const fatal = readSubagentFatal(message.result)
     if (fatal) {
+      const repeated = abnormalStop === 'repeated-tool-failure'
       return [
         failed,
         {
           type: 'run.failed',
           runId: context.runId,
-          error: subagentOutputLimitRunErrorText(fatal.agentId),
-          reason: 'output-limit',
+          error: repeated ? REPEATED_TOOL_FAILURE_ERROR_TEXT : subagentOutputLimitRunErrorText(fatal.agentId),
+          reason: repeated ? 'repeated-tool-failure' : 'output-limit',
           createdAt: context.createdAt,
         },
       ]
@@ -310,6 +324,18 @@ export function mapPiMessageToAgentEvents(context: RuntimeMapContext, message: u
     const usage = mapUsage(message.usage)
     if (usage) event.usage = usage
     return [event]
+  }
+
+  if (message.type === PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE) {
+    return [
+      {
+        type: 'run.failed',
+        runId: context.runId,
+        error: REPEATED_TOOL_FAILURE_ERROR_TEXT,
+        reason: 'repeated-tool-failure',
+        createdAt: context.createdAt,
+      },
+    ]
   }
 
   if (message.type === PI_MAX_TURNS_MESSAGE_TYPE) {

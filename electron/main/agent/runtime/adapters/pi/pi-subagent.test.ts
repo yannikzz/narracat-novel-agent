@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import type { EngineAgentDefinition } from '../../../../engine/engine-agent-registry.ts'
-import { PI_MAX_TURNS_MESSAGE_TYPE, PI_SUBAGENT_EVENT_MESSAGE_TYPE } from './pi-event-mapper.ts'
+import { PI_MAX_TURNS_MESSAGE_TYPE, PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE, PI_SUBAGENT_EVENT_MESSAGE_TYPE } from './pi-event-mapper.ts'
 import type { PiRunOptions, RunPiSessionArgs } from './pi-session.ts'
 import {
   createSubagentEventChannel,
@@ -276,6 +276,22 @@ describe('createTaskTool 派发', () => {
     const result = await runTool(tool, 'tc-1', { subagent_type: 'chapter-writer', prompt: '写' })
     expect(result.content[0].text).toContain('回合上限')
     expect(result.content[0].text).toContain('写到一半')
+  })
+
+  test('子会话同错连犯（issue #111 / #112）：details 打致命标记，主会话没有机会原样重派', async () => {
+    const { tool } = makeTaskTool({
+      runSession: makeScriptedSession([
+        assistantMessageEnd('先交一次'),
+        { type: PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE, toolName: 'mcp__narracat_memory__novel_submit_state_vocabulary' },
+      ]).runSession,
+    })
+    const result = await runTool(tool, 'tc-1', { subagent_type: 'memory-keeper', prompt: '入库' })
+    expect(result.content[0].text).toContain('已自动停止')
+    expect(result.details).toEqual({
+      narracatSubagentAbnormalStop: 'repeated-tool-failure',
+      narracatSubagentFatal: true,
+      narracatSubagentId: 'memory-keeper',
+    })
   })
 
   test('子会话零文本：结果回退固定占位文案', async () => {
