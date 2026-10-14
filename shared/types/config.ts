@@ -63,6 +63,11 @@ export interface AppConfig {
   telemetryNoticeAckedVersion: number
   /** 本机匿名 ID（随机 UUID，与机器指纹无关）；空串=尚未生成，首次发送时补上。 */
   telemetryAnonymousId: string
+  /**
+   * 网络代理（issue #120）：HTTP / HTTPS 代理地址，空串或缺省 = 不使用代理。
+   * 可选字段：旧配置与测试夹具不带它即等于不用代理；校验口径见 shared/lib/network-proxy。
+   */
+  networkProxyUrl?: string
 }
 
 // F4（终审修复）：这三个默认值被大量测试 fixture 直接展开（`...POOL_DEFAULT_FIELDS` 等）；

@@ -21,6 +21,7 @@ import {
 } from '@/components/settings/CapabilityPackLibraryPanel'
 import { ModelProviderDetailPanel } from '@/components/settings/ModelProviderDetailPanel'
 import { ModelProviderListPanel } from '@/components/settings/ModelProviderListPanel'
+import { NetworkProxyPanel } from '@/components/settings/NetworkProxyPanel'
 import { ReportProblemButton } from '@/components/diagnostics/ReportProblemDialog'
 import { MODEL_PROVIDERS, parseModelProviderParam } from '@/components/settings/model-providers'
 import { UpdateRow } from '@/components/settings/UpdateRow.tsx'
@@ -543,6 +544,22 @@ export function SettingsRoute() {
     }
   }
 
+  /** 网络代理只改这一个字段：基线取已持久化配置，不把模型服务页上的未保存草稿一起带下盘。 */
+  async function onSaveNetworkProxy(networkProxyUrl: string) {
+    setSavingConfig(true)
+    setStatus(null)
+    try {
+      const persisted = await getConfig()
+      const payload = await saveConfig({ ...persisted.config, networkProxyUrl })
+      setConfig((current) => ({ ...current, networkProxyUrl: payload.config.networkProxyUrl }))
+      toast.success(networkProxyUrl ? '代理设置已保存' : '已关闭代理')
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setSavingConfig(false)
+    }
+  }
+
   async function onDeleteApiKey() {
     if (!modelSub) return
     setSavingKey(true)
@@ -773,7 +790,15 @@ export function SettingsRoute() {
                     onSetLight={onSetLight}
                   />
                 ) : (
-                  <ModelProviderListPanel config={config} onOpenProvider={openModelProvider} />
+                  <div className="space-y-5">
+                    <ModelProviderListPanel config={config} onOpenProvider={openModelProvider} />
+                    <NetworkProxyPanel
+                      savedUrl={config.networkProxyUrl ?? ''}
+                      busy={busy}
+                      saving={savingConfig}
+                      onSave={(url) => void onSaveNetworkProxy(url)}
+                    />
+                  </div>
                 )
               ) : null}
 

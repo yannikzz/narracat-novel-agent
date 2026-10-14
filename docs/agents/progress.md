@@ -4,6 +4,9 @@
 
 ## Current Branch
 
+**2026-10-14（网络代理，issue #120，分支 feat/network-proxy）**：设置 →「模型服务」一级页底部新增「网络代理」，填 HTTP / HTTPS 代理地址（只写「主机:端口」自动补 http://），留空 = 不使用；保存后下一次请求起生效、不用重启。主进程用 Node 24 内置的 `http.setGlobalProxyFromEnv`（不引新依赖），启动时与保存时各应用一次，覆盖全部 Node fetch / http(s)（模型服务、测试连接、埋点、版本门控）；本机地址永远直连（本地模型不受影响）。不收 SOCKS（内置代理不支持，给出改填 http 混合端口的提示）与带账号密码的地址（配置是明文 json）。Electron 自己的网络栈（自动更新下载）不在此列。
+- 验证：校验纯函数 / 配置归一 / 设置卡片 DOM 测试共 11 条；全量 3860 条、typecheck、check:design、check:architecture、build 通过；**真机**：隔离 userData + 假代理启动 `electron .`，启动阶段的埋点与版本门控请求都以 CONNECT 进了假代理。没做：设置页截图走查（交作者真机）。
+
 **2026-10-14（opencode go 可用，issue #108，分支 fix/opencode-go-headers）**：opencode go 网关拒收缺 `x-opencode-session` 的请求（400），官方文档另要求客户端自己的 `User-Agent`。新增 `shared/lib/provider-request-headers.ts`，只对 opencode.ai 域名返回两个头，其它渠道请求不变；pi 走 `model.headers`（主会话续接沿用原会话 id、新对话与子会话派发随机生成），直连 `@anthropic-ai/sdk` 的角色聊天 / 画像 / 润色 / 编译 / 卡片改写走 `defaultHeaders`；角色聊天的 id 按「作品 + 角色」取哈希，不把本机路径发给服务商。思路来自报告者在 issue 里给的改法。
 - 验证：本地假端点实测三条协议路径（直连 SDK、pi anthropic-messages、pi openai-completions）都真的发出两个头，且 `User-Agent` 覆盖了 SDK 默认值；新增单测 8 条；全量 3857 条、typecheck、check:architecture 通过。没做：真实 opencode go 订阅联调（需要订阅 Key）。
 

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { normalizeMaxOutputTokens } from '@shared/lib/model-output-limits'
+import { normalizeNetworkProxyUrl } from '@shared/lib/network-proxy'
 import { findPoolEntry, modelEntryKey, resolvePrimaryModel } from '@shared/lib/model-slots'
 import {
   DEFAULT_MODEL_POOL,
@@ -365,6 +366,7 @@ export function normalizeAppConfig(value: unknown, homeDir = homedir()): AppConf
     telemetryEnabled: input.telemetryEnabled !== false,
     telemetryNoticeAckedVersion: normalizeSeenVersion(input.telemetryNoticeAckedVersion),
     telemetryAnonymousId: normalizeTelemetryAnonymousId(input.telemetryAnonymousId),
+    networkProxyUrl: normalizeNetworkProxyUrl(input.networkProxyUrl),
   }
 }
 

@@ -57,6 +57,12 @@ describe('app config', () => {
     expect(normalizeAppConfig({ introVersion: '3' }, '/Users/tester').introVersion).toBe(0)
   })
 
+  test('normalizes networkProxyUrl（issue #120）：旧配置缺省 = 不用代理，主机:端口补全，非法地址落盘为空', () => {
+    expect(normalizeAppConfig({}, '/Users/tester').networkProxyUrl).toBe('')
+    expect(normalizeAppConfig({ networkProxyUrl: '127.0.0.1:7890' }, '/Users/tester').networkProxyUrl).toBe('http://127.0.0.1:7890')
+    expect(normalizeAppConfig({ networkProxyUrl: 'socks5://127.0.0.1:7891' }, '/Users/tester').networkProxyUrl).toBe('')
+  })
+
   test('normalizes custom provider values', () => {
     const config = normalizeAppConfig(
       {

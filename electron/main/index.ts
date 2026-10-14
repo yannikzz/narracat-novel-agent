@@ -22,6 +22,8 @@ import {
 } from './process-health.ts'
 import { setProcessHealthStore } from './ipc/app.ts'
 import { installMainLog } from './logging/main-log.ts'
+import { applyNetworkProxy } from './network-proxy.ts'
+import { readCurrentConfig } from './ipc/inputs.ts'
 
 /**
  * 进程健康取证（#39）的 store。窗口创建早于 app.whenReady 完成的场景不存在，
@@ -74,6 +76,10 @@ async function main() {
   const agentCorePath = resolveNarraCatAgentCorePath({ appRoot, resourcesPath })
   if (await maybeRunMemorySmoke({ appRoot, resourcesPath, userDataPath, agentCorePath })) return
 
+  // 网络代理（issue #120）必须先于任何出网请求（自动更新检查、埋点补发、模型调用）生效。
+  // 配置文件坏了不能挡住启动：退回直连，后续读配置的地方会照常报错给作者。
+  const proxyUrl = await readCurrentConfig().then((config) => config.networkProxyUrl ?? '', () => '')
+  applyNetworkProxy(proxyUrl)
   registerAllIpcHandlers()
   // 子进程崩溃是进程级事件（GPU / utility，NovelMemory 就跑在 utilityProcess 上），
   // 只挂一次；挂在窗口上会随窗口数量重复记录同一次崩溃。

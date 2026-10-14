@@ -60,6 +60,7 @@ import { parseStoredWorkLocation } from '@shared/lib/work-location-schema'
 import type { ResultNotificationList } from '@shared/types/notifications'
 import type { StoredWorkLocation } from '@shared/lib/work-location-schema'
 import { invalidateAgentSessions } from './agent.ts'
+import { applyNetworkProxy } from '../network-proxy.ts'
 // 跨域共用基础设施叶子模块（评审修复：消除 app.ts ↔ agent.ts 模块级循环 import）。
 import {
   broadcastResultNotifications,
@@ -199,6 +200,7 @@ export function registerAppIpcHandlers(): void {
     if (sessionConfigBasis(previous) !== sessionConfigBasis(saved)) {
       await invalidateAgentSessions('model-service-changed')
     }
+    if (previous.networkProxyUrl !== saved.networkProxyUrl) applyNetworkProxy(saved.networkProxyUrl ?? '')
     return configPayload(saved)
   })
 
