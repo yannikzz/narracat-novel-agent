@@ -6,6 +6,7 @@ import { join } from 'node:path'
 
 import {
   assertArtifactsNotStale,
+  assertReleaseNotesWellFormed,
   assertWinAssetsInDraft,
   lastProductChangeIso,
   assertArtifactsNotarized,
@@ -48,6 +49,15 @@ describe('createReleasePlan', () => {
     expect(plan.title).toBe('NarraCat 0.1.1880')
     expect(plan.title).not.toContain('内测')
     expect(plan.prerelease).toBe(false)
+  })
+
+  // 官网更新日志拿 Release 标题当标题：写了主题就用主题，不再是和版本号重复的「NarraCat x.y.z」。
+  test('写了发布说明时，Release 标题取它的主题标题', () => {
+    const withNotes = createReleasePlan({
+      clientVersion: '0.4.4',
+      highlights: '# 重写不再清后文\n\n这一版修好了重写章节。\n\n## 修复\n\n- 重写中间某章不再清掉后文',
+    })
+    expect(withNotes.title).toBe('重写不再清后文')
   })
 })
 
@@ -652,32 +662,39 @@ describe('CI 直传 draft（--win-from-release）', () => {
     const edit = calls.at(-1)
     expect(edit[1]).toBe('edit')
     const notes = edit[edit.indexOf('--notes') + 1]
-    expect(notes).toContain('NarraCat')
+    expect(notes).toContain('自动更新')
     expect(notes).not.toContain('草稿')
     expect(notes).not.toContain('等待 mac 产物')
   })
 
-  test('写了每版正文时，它排在发布说明最前面（用户先看到「这版改了什么」）', () => {
+  test('写了每版正文时，它排在发布说明最前面（用户先看到「这版改了什么」），标题用主题', () => {
     const calls = []
     publishRelease(
-      { ...plan(), highlights: '这一版加了匿名使用统计。' },
+      createReleasePlan({
+        clientVersion: '0.3.1',
+        winFromRelease: true,
+        highlights: '# 匿名使用统计\n\n这一版加了匿名使用统计。\n\n## 新增\n\n- 首次启动可选择不参与',
+      }),
       { run: (args) => calls.push(args), draftExists: true },
     )
 
     const edit = calls.at(-1)
+    expect(edit[edit.indexOf('--title') + 1]).toBe('匿名使用统计')
     const notes = edit[edit.indexOf('--notes') + 1]
-    expect(notes).toContain('这一版加了匿名使用统计。')
-    // 排在「怎么升级」之前：用户打开 Release 页最先想知道的是这版改了什么。
-    expect(notes.indexOf('这一版加了匿名使用统计。')).toBeLessThan(notes.indexOf('自动收到更新'))
+    expect(notes.startsWith('这一版加了匿名使用统计。')).toBe(true)
+    // 怎么升级排在最后的「备注」里：用户打开 Release 页最先想知道的是这版改了什么。
+    expect(notes.indexOf('## 新增')).toBeLessThan(notes.indexOf('## 备注'))
+    expect(notes.indexOf('## 备注')).toBeLessThan(notes.indexOf('自动更新'))
   })
 
   test('没写每版正文时退回通用样板，不留空标题', () => {
     const calls = []
-    publishRelease({ ...plan(), highlights: null }, { run: (args) => calls.push(args), draftExists: true })
+    publishRelease({ ...plan(), notes: null }, { run: (args) => calls.push(args), draftExists: true })
 
     const edit = calls.at(-1)
     const notes = edit[edit.indexOf('--notes') + 1]
-    expect(notes).toContain('自动收到更新')
+    expect(notes.startsWith('## 备注')).toBe(true)
+    expect(notes).toContain('自动更新')
     expect(notes).not.toContain('\n\n\n')
   })
 
@@ -687,7 +704,7 @@ describe('CI 直传 draft（--win-from-release）', () => {
 
     const edit = calls.at(-1)
     const notes = edit[edit.indexOf('--notes') + 1]
-    expect(notes).toContain('尚未代码签名')
+    expect(notes).toContain('暂未代码签名')
   })
 
   test('draftExists 为假时仍然照常 create（老路径不受影响）', () => {
@@ -709,6 +726,12 @@ describe('CI 直传 draft（--win-from-release）', () => {
     ).toBeNull()
   })
 
+  test('assertReleaseNotesWellFormed：没写放行，写了但结构错就在打包前拦下', () => {
+    expect(() => assertReleaseNotesWellFormed(null, '9.9.9')).not.toThrow()
+    const broken = createReleasePlan({ clientVersion: '9.9.9', highlights: '这一版改了点东西。' }).notes
+    expect(() => assertReleaseNotesWellFormed(broken, '9.9.9')).toThrow('主题标题')
+  })
+
   test('readVersionHighlights：文件只有空白也算没写', () => {
     expect(readVersionHighlights('9.9.9', { read: () => '   \n\n  ' })).toBeNull()
   })
@@ -718,11 +741,13 @@ describe('CI 直传 draft（--win-from-release）', () => {
       clientVersion: '0.3.2',
       repo: 'x/y',
       tag: 'v0.3.2',
+      title: '可以用 Kimi 了',
       files: [{ name: 'a.dmg', bytes: 1 }],
-      notes: 'NarraCat 0.3.2。\n这一版改了什么。',
+      notes: '这一版改了什么。',
     })
+    expect(text).toContain('# 可以用 Kimi 了')
     expect(text).toContain('这一版改了什么。')
-    expect(text).toContain('用户在 Release 页会读到这段')
+    expect(text).toContain('用户在 Release 页与官网更新日志会读到这段')
   })
 
   test('readReleaseAssets：读不到时返回 null 而不是抛', () => {

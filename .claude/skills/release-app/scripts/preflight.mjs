@@ -40,6 +40,9 @@ const { readLatestReleasedVersion } = await import(
 const { releaseTag, winReleaseAssetFileNames, RELEASE_REPO } = await import(
   pathToFileURL(join(repoRoot, 'scripts', 'update-feed.mjs')).href
 )
+const { parseReleaseNotes, releaseNotesPath } = await import(
+  pathToFileURL(join(repoRoot, 'scripts', 'release-notes.mjs')).href
+)
 const { CORPUS_ENV_VARS, NOTARIZE_ENV_VARS, loadEnvFiles } = await import(
   pathToFileURL(join(repoRoot, 'scripts', 'package-rc.mjs')).href
 )
@@ -163,9 +166,17 @@ try {
 
 // 这一版对用户是什么（docs/release-notes/<版本号>.md）。缺了不拦——紧急修复可能真没什么好说的，
 // 但 0.3.1 那次发出去的是一句 CI 的内部占位串，没人在任何一道闸上看见过它，所以这里必须出声。
-const highlightsFile = join(repoRoot, 'docs', 'release-notes', `${version}.md`)
+// 写了就按 release-notes.mjs 的格式判：结构错是 blocker（release.mjs 打包前同样会拦），
+// 长短、加粗只是提醒。
+const highlightsFile = releaseNotesPath(version, repoRoot)
 if (existsSync(highlightsFile) && readFileSync(highlightsFile, 'utf8').trim().length > 0) {
-  add('ok', `发布说明正文已写好`, `docs/release-notes/${version}.md`)
+  const notes = parseReleaseNotes(readFileSync(highlightsFile, 'utf8'))
+  if (notes.problems.length > 0) {
+    add('blocker', '发布说明格式不对', `${notes.problems.join('；')}（规范见 docs/release-notes/README.md）`)
+  } else {
+    add('ok', `发布说明已写好：${notes.title}`, `docs/release-notes/${version}.md`)
+  }
+  if (notes.hints.length > 0) add('warning', '发布说明可以再精简', notes.hints.join('；'))
 } else {
   add(
     'warning',

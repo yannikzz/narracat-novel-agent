@@ -30,21 +30,23 @@ import {
   winReleaseAssetFileNames,
 } from './update-feed.mjs'
 import { isVersionGreater, resolveClientVersion } from './client-version.mjs'
+import { parseReleaseNotes, releaseNotesPath, renderReleaseBody } from './release-notes.mjs'
 import { loadEnvFiles, runPackageRc } from './package-rc.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
 
 /**
- * 每一版的「这一版对用户是什么」，放在 docs/release-notes/<版本号>.md。
+ * 每一版的「这一版对用户是什么」，放在 docs/release-notes/<版本号>.md（格式见 release-notes.mjs）。
  *
  * 为什么是文件而不是发版时在终端里现问：这段话要提前写、要能在 PR 里被审、要能改；
  * 而发版当口对着 TTY 敲一段中文正文，既难写也没人会认真写。文件缺失不阻断发版
  * （紧急修复可能真的没什么好说的），只是发布说明退回通用样板——预检会提醒。
+ * 写了但格式不对会被拦：官网更新日志原样同步 Release，结构错了两处一起难看。
  */
 export function readVersionHighlights(clientVersion, { root = repoRoot, read = readFileSync } = {}) {
   try {
-    const text = read(join(root, 'docs', 'release-notes', `${clientVersion}.md`), 'utf8')
+    const text = read(releaseNotesPath(clientVersion, root), 'utf8')
     const trimmed = String(text).trim()
     return trimmed.length > 0 ? trimmed : null
   } catch {
@@ -59,6 +61,7 @@ export function createReleasePlan({
   winFromRelease = false,
   highlights = readVersionHighlights(clientVersion),
 }) {
+  const notes = highlights ? parseReleaseNotes(highlights) : null
   return {
     repo: RELEASE_REPO,
     tag: releaseTag(clientVersion),
@@ -66,11 +69,12 @@ export function createReleasePlan({
     // 故不进 assets（那是「要从本机上传的文件」清单）；改由 assertWinAssetsInDraft 远程核验。
     // 记在这里是为了让 releaseNotes 知道这一版含 Windows，以及给校验函数一份期望清单。
     remoteWinAssets: winFromRelease ? winReleaseAssetFileNames(clientVersion) : [],
+    // 标题 = 发布说明的主题标题（官网更新日志直接拿它当标题）；没写才退回版本号。
     // 决策 8a（2026-08-16）：开源之后「内部测试」概念已不成立，对外物料不再带内测措辞。
     // 急刹车 / 软过期机制原样保留、只是不用。
-    title: `NarraCat ${clientVersion}`,
-    // 这一版对用户是什么（docs/release-notes/<版本号>.md）；null = 只发通用样板。
-    highlights,
+    title: notes?.title ?? `NarraCat ${clientVersion}`,
+    // 这一版对用户是什么（docs/release-notes/<版本号>.md 解析后）；null = 只发通用样板。
+    notes,
     // 不勾 Pre-release：GitHub 的 releases/latest 不含预发布版，勾了本 Worker
     // 就找不到最新版，整条自动更新链断掉。
     prerelease: false,
@@ -104,7 +108,7 @@ export function assertInteractive(isTTY) {
   )
 }
 
-export function formatConfirmation({ clientVersion, repo, tag, files, notes }) {
+export function formatConfirmation({ clientVersion, repo, tag, title, files, notes }) {
   const lines = [
     '',
     '━━━━━━━━━━━━━━━━ 发版确认 ━━━━━━━━━━━━━━━━',
@@ -118,7 +122,12 @@ export function formatConfirmation({ clientVersion, repo, tag, files, notes }) {
     // 测试全绿，发出去的却是一句 CI 的内部占位串——没有任何一道闸让人看见过它。
     // 这是最后一道人工闸，用户会读到什么就该在这里被看到。
     ...(notes
-      ? ['', '发布说明（用户在 Release 页会读到这段）：', ...notes.split('\n').map((line) => `  │ ${line}`)]
+      ? [
+          '',
+          '发布说明（用户在 Release 页与官网更新日志会读到这段）：',
+          ...(title ? [`  │ # ${title}`, '  │'] : []),
+          ...notes.split('\n').map((line) => `  │ ${line}`),
+        ]
       : []),
     '',
     '上传后所有已安装用户都会自动收到此版本。',
@@ -337,7 +346,7 @@ function assertManifestFreshness(plan, clientVersion) {
 async function confirm(plan, clientVersion) {
   const files = plan.assets.map((file) => ({ name: file.split('/').pop(), bytes: statSync(file).size }))
   process.stdout.write(
-    `${formatConfirmation({ clientVersion, repo: plan.repo, tag: plan.tag, files, notes: releaseNotes(plan) })}\n`,
+    `${formatConfirmation({ clientVersion, repo: plan.repo, tag: plan.tag, title: plan.title, files, notes: releaseNotes(plan) })}\n`,
   )
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const answer = await rl.question('确认上传？输入 yes 继续：')
@@ -585,26 +594,24 @@ export function publishRelease(plan, { run = ghRun, draftExists = false } = {}) 
 }
 
 function releaseNotes(plan) {
-  const version = plan.tag.replace(/^v/, '')
   const hasWindows =
     plan.assets.some((file) => file.endsWith('-win-x64.exe')) ||
     (plan.remoteWinAssets ?? []).some((file) => file.endsWith('-win-x64.exe'))
-  return [
-    `NarraCat ${version}。`,
-    // 每版正文排在最前：用户打开 Release 页最先想知道的是「这版改了什么」，
-    // 而不是怎么升级。没写就直接跳到通用样板，不留空标题。
-    ...(plan.highlights ? ['', plan.highlights] : []),
-    '',
-    '已装旧版的用户会在启动后自动收到更新，重启即可生效。',
-    `首次安装：macOS 下载 dmg${hasWindows ? '，Windows 下载 exe。' : '。'}`,
-    ...(hasWindows
-      ? [
-          '',
-          '⚠️ Windows 版当前尚未代码签名，首次运行会看到「Windows 已保护你的电脑」蓝色弹窗：',
-          '点「更多信息」→「仍要运行」即可。签名证书正在申请中（SignPath Foundation 开源计划）。',
-        ]
-      : []),
-  ].join('\n')
+  // 每版正文排在最前：用户打开 Release 页最先想知道的是「这版改了什么」，
+  // 怎么升级、Windows 未签名这类每版都要说的话并进「备注」末尾。
+  return renderReleaseBody(plan.notes, { hasWindows })
+}
+
+/** 写了发布说明却结构不对时拦下（没写不拦，预检会提醒）。放在打包之前，免得白等签名 + 公证。 */
+export function assertReleaseNotesWellFormed(notes, clientVersion) {
+  if (!notes || notes.problems.length === 0) return
+  throw new Error(
+    [
+      `docs/release-notes/${clientVersion}.md 格式不对（规范见 docs/release-notes/README.md）：`,
+      ...notes.problems.map((problem) => `  · ${problem}`),
+      `改完可以用 node scripts/release-notes.mjs ${clientVersion} 预览。`,
+    ].join('\n'),
+  )
 }
 
 export async function runRelease({ winDir, winFromRelease = false, useExistingArtifacts = false } = {}) {
@@ -615,6 +622,7 @@ export async function runRelease({ winDir, winFromRelease = false, useExistingAr
   // 两道版本号闸放在打包之前：撞上了就别浪费几分钟签名 + 公证（与上面 assertInteractive 同理）。
   assertVersionNotAlreadyReleased(clientVersion)
   assertVersionAboveLatestRelease(clientVersion)
+  assertReleaseNotesWellFormed(createReleasePlan({ clientVersion, winFromRelease }).notes, clientVersion)
   // 本机只打 mac：Windows 包由 CI 出（SignPath 要求可验证地从源码构建），
   // 通过 --with-win <目录> 把下载好的三件产物带进本次 Release——两条路互不影响，
   // --use-existing-artifacts 跳过的只是 mac 这一次打包。

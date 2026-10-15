@@ -67,8 +67,10 @@ node .claude/skills/release-app/scripts/preflight.mjs --win-dir <目录>
 
 发版前值得先问用户一句：**这一版对用户来说是什么？** 这既决定 patch 还是 minor，也是 Release notes 的内容。可以用 `git log --oneline v<上一版>..main` 看这一版实际包含什么，用大白话总结给用户确认 —— 用户关心的是"能感觉到什么变化"，不是提交列表。
 
-**确认下来的那段话就写进 `docs/release-notes/<版本号>.md`**，跟版本号一起走 PR 合进 main。
-它会成为 Release 页最前面的正文；不写就只有通用样板。
+**确认下来的内容写进 `docs/release-notes/<版本号>.md`**，跟版本号一起走 PR 合进 main。
+格式照 `docs/release-notes/README.md`：`# 主题标题` → 一句导语 → `## 新增 / 改进 / 修复 / 备注`，每条一行、写用户感觉得到的变化。
+标题会成为 Release 标题，整份会被**官网更新日志原样同步**——写的就是官网上那一条。
+写完跑 `node scripts/release-notes.mjs <版本号> --windows` 预览；结构不对预检报阻断、`release.mjs` 打包前也会拦。
 
 ## 步骤 2：CI 出 Windows 包（会自动传进 draft）
 
@@ -169,9 +171,10 @@ xcrun notarytool info <submission-id> --key ... --key-id ... --issuer ...
 > `--win-from-release` 路径上根本没被调用）。脚本已修并有变异验证过的测试兜底，
 > 但**产物齐全 + 更新链 200 不代表这个 Release 对用户是像样的**，所以判据里单列一条。
 
-**这一版对用户是什么，写在 `docs/release-notes/<版本号>.md`**（见该目录 README）。
-发版时它会排在发布说明最前面，后面自动接上通用样板（升级方式 + 首次安装 + Windows 未签名提示）。
-不写不阻断发版，但预检会出一条提醒，且发布说明就只剩样板、答不了「这一版改了什么」。
+**这一版对用户是什么，写在 `docs/release-notes/<版本号>.md`**（格式见该目录 README）。
+发版时 `# 标题` 当 Release 标题，正文排在最前，通用样板（升级方式 + 首次安装 + Windows 未签名提示）自动并进「备注」末尾。
+不写不阻断发版，但预检会出一条提醒，标题退回「NarraCat x.y.z」、正文只剩样板。
+发完官网会在 10 分钟内同步成待审核稿，提醒用户去 `/admin/changelog` 预览并发布。
 
 **步骤 3 那个确认界面现在会把真正会发出去的发布说明原样打出来** —— 按确认之前先读一遍它，
 用户在 Release 页看到的就是那段。
