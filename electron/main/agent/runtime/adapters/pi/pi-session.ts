@@ -248,13 +248,18 @@ export async function* runPiSession({
   })
 
   // 工具名同步归一（issue #136）：建会话后、首次 prompt 前替换 streamFn，改名赶在工具查找之前。
-  // 假会话（单测 DI）没有 agent 字段，跳过即可。
+  // 假会话（单测 DI）没有 agent 字段，跳过即可；真会话的 agent 若不再暴露 streamFn（pi 升级改了
+  // 字段），出声告警而不是静默退回只剩 message_end 兜底——wire 测试的对照组会同时变红。
   const agent = (session as { agent?: { streamFn?: unknown } }).agent
-  if (agent && typeof agent.streamFn === 'function') {
-    agent.streamFn = wrapStreamFnWithToolCallNameNormalizer(
-      agent.streamFn as (...args: never[]) => unknown,
-      () => options.tools,
-    )
+  if (agent) {
+    if (typeof agent.streamFn === 'function') {
+      agent.streamFn = wrapStreamFnWithToolCallNameNormalizer(
+        agent.streamFn as (...args: never[]) => unknown,
+        () => options.tools,
+      )
+    } else {
+      console.warn('[narracat] pi agent.streamFn 不可替换，工具名同步归一未生效，只剩 message_end 兜底（#136）')
+    }
   }
 
   // await createSession 窗口期检查：signal 可能在建会话期间才被 abort，这段时间没有监听器能捕获到

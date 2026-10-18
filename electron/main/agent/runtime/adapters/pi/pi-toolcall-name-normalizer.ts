@@ -197,6 +197,11 @@ function normalizeStream(stream: unknown, knownToolNames: () => readonly string[
  * 落点：`createAgentSession` 不透传 streamFn（见 pi-eager-toolcall-args.ts），但 `Agent.streamFn`
  * 是公开可写字段，且 `agent.js` 每次 run 都现读 `this.streamFn`，建会话后替换即生效。
  * `message_end` 扩展保留作兜底（例如 streamFn 被测试或上游替换时）。
+ *
+ * 解除条件（写于 pi-ai / pi-coding-agent 0.73.1）：上游任一满足即可拆掉本包装、只留 message_end——
+ * (a) agent-loop 在工具查找前 await 扩展的 message_end；(b) 提供工具查找前的改名钩子；
+ * (c) 上游自己做大小写/别名归一。复测方法：跑 `pi-toolcall-name-normalizer.wire.test.ts`，
+ * 对照组（未包装）三条全部转为「不再 not found」即说明余量问题已由上游解决。
  */
 export function wrapStreamFnWithToolCallNameNormalizer<F extends (...args: never[]) => unknown>(
   streamFn: F,
