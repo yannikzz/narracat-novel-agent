@@ -603,3 +603,38 @@ describe('runPiSession 会话持久化与 resume（切片⑦）', () => {
     expect(existsSync(other)).toBe(true)
   })
 })
+
+describe('runPiSession 工具名同步归一装配（issue #136）', () => {
+  test('真会话形状（带 agent.streamFn）被包装：交给 agent-loop 的事件与 result() 里工具名已是 pi 真名', async () => {
+    const toolCall = { type: 'toolCall', id: 'call_1', name: 'Read', arguments: { path: 'a.txt' } }
+    const message = { role: 'assistant', content: [toolCall], stopReason: 'toolUse' }
+    const rawStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'toolcall_end', contentIndex: 0, toolCall, partial: message }
+        yield { type: 'done', reason: 'toolUse', message }
+      },
+      result: async () => message,
+    }
+    const seenNames: string[] = []
+    const agent: { streamFn: (...args: unknown[]) => unknown } = { streamFn: () => rawStream }
+    const createSession = (async () => ({
+      session: {
+        agent,
+        subscribe: () => () => {},
+        // 模拟 agent-loop：经 agent.streamFn 取流、逐事件消费，再读 result()。
+        async prompt() {
+          const stream = (await agent.streamFn()) as typeof rawStream
+          for await (const event of stream) {
+            if (event.type === 'toolcall_end') seenNames.push(event.toolCall.name)
+          }
+          const final = (await stream.result()) as typeof message
+          seenNames.push(final.content[0].name)
+        },
+        abort: () => Promise.resolve(),
+      },
+    })) as unknown as CreatePiSession
+
+    await collect(runPiSession({ prompt: 'hi', options: makeOptions({ tools: ['read'] }), createSession }))
+    expect(seenNames).toEqual(['read', 'read'])
+  })
+})
