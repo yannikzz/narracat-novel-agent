@@ -120,6 +120,96 @@ export function resolveToolCallName(rawName: string, knownToolNames: readonly st
   return candidates[0]
 }
 
+/** 原地归一一个 toolCall 块的名字；返回是否改动。 */
+function normalizeToolCallBlockInPlace(block: unknown, known: readonly string[]): boolean {
+  if (!isRecord(block) || block.type !== 'toolCall') return false
+  if (typeof block.name !== 'string' || !block.name) return false
+  const resolved = resolveToolCallName(block.name, known)
+  if (resolved === undefined) return false
+  block.name = resolved
+  return true
+}
+
+function normalizeMessageInPlace(message: unknown, known: readonly string[]): void {
+  if (!isRecord(message) || !Array.isArray(message.content)) return
+  for (const block of message.content) normalizeToolCallBlockInPlace(block, known)
+}
+
+/**
+ * pi-ai 流事件里会带出工具调用的位置：`toolcall_*` 的 `toolCall`，所有增量事件的 `partial`，
+ * `done` 的 `message`，`error` 的 `error`（也是一条 AssistantMessage）。同一个块对象在 partial 与
+ * 最终消息之间是共享的，原地改一次即全部生效。
+ */
+function normalizeStreamEventInPlace(event: unknown, known: readonly string[]): void {
+  if (!isRecord(event)) return
+  normalizeToolCallBlockInPlace(event.toolCall, known)
+  normalizeMessageInPlace(event.partial, known)
+  normalizeMessageInPlace(event.message, known)
+  normalizeMessageInPlace(event.error, known)
+}
+
+type StreamLike = AsyncIterable<unknown> & { result(): Promise<unknown> }
+
+function isStreamLike(value: unknown): value is StreamLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { result?: unknown }).result === 'function' &&
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+  )
+}
+
+function normalizeStream(stream: unknown, knownToolNames: () => readonly string[]): unknown {
+  if (!isStreamLike(stream)) return stream
+  let known: readonly string[] | undefined
+  const getKnown = () => {
+    known ??= knownToolNames()
+    return known
+  }
+  // 以原流为原型：instanceof 与其余成员照旧，只覆盖 agent-loop 实际消费的两个入口。
+  const view = Object.create(stream) as StreamLike
+  Object.defineProperty(view, Symbol.asyncIterator, {
+    value: async function* () {
+      for await (const event of stream) {
+        normalizeStreamEventInPlace(event, getKnown())
+        yield event
+      }
+    },
+  })
+  Object.defineProperty(view, 'result', {
+    value: async () => {
+      const message = await stream.result()
+      normalizeMessageInPlace(message, getKnown())
+      return message
+    },
+  })
+  return view
+}
+
+/**
+ * 同步归一（issue #136）：包住 `session.agent.streamFn`，在事件交给 agent-loop **之前**原地改名。
+ *
+ * 为什么需要它：下面的 `message_end` 扩展靠队列余量追赶工具查找（见文件头「时序靠的是余量」）。
+ * 实测余量在两种常见流形状下不够——openai-completions 先 reasoning 再正文再工具调用、或一条消息
+ * 里有多个并行调用——`tool_execution_start` 拿到的仍是 `Read`，直接 `Tool Read not found`，3 个
+ * 并行调用还会同回合打满 #128 的同错即停。这里改名与工具查找走同一条同步链，不再依赖余量。
+ *
+ * 落点：`createAgentSession` 不透传 streamFn（见 pi-eager-toolcall-args.ts），但 `Agent.streamFn`
+ * 是公开可写字段，且 `agent.js` 每次 run 都现读 `this.streamFn`，建会话后替换即生效。
+ * `message_end` 扩展保留作兜底（例如 streamFn 被测试或上游替换时）。
+ */
+export function wrapStreamFnWithToolCallNameNormalizer<F extends (...args: never[]) => unknown>(
+  streamFn: F,
+  knownToolNames: () => readonly string[],
+): F {
+  const wrapped = (...args: Parameters<F>): unknown => {
+    const out = streamFn(...args)
+    if (out instanceof Promise) return out.then((stream) => normalizeStream(stream, knownToolNames))
+    return normalizeStream(out, knownToolNames)
+  }
+  return wrapped as unknown as F
+}
+
 /**
  * pi 包根 barrel 没导出 `MessageEndEvent` / `MessageEndEventResult`（只在内部
  * `core/extensions/types.d.ts`），照 `agent-session.js` `_emitExtensionEvent` 实际推送的形状在此
