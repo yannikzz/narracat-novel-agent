@@ -4,7 +4,13 @@ import { BrandIllustration } from '@/components/brand'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
-import { APP_CANVAS_CLASS } from '@/design-system'
+import {
+  APP_CANVAS_CLASS,
+  DIALOG_BODY_CLASS,
+  DIALOG_CONTENT_DOCUMENT_CLASS,
+  DIALOG_HEADER_SECTIONED_CLASS,
+  DIALOG_SCROLL_SHELL_CLASS,
+} from '@/design-system'
 import {
   PRO_EDITION_ADVANTAGES,
   PRO_EDITION_HEADLINE,
@@ -175,12 +181,14 @@ export function ProEditionEntry({ variant }: { variant: 'titlebar' | 'row' }) {
       ) : (
         <DialogTrigger asChild>{trigger}</DialogTrigger>
       )}
-      <DialogContent className="max-w-xl gap-5 p-6">
-        <div className="flex flex-col gap-2">
+      <DialogContent className={`${DIALOG_SCROLL_SHELL_CLASS} ${DIALOG_CONTENT_DOCUMENT_CLASS}`}>
+        <div className={`${DIALOG_HEADER_SECTIONED_CLASS} flex flex-col gap-2`}>
           <DialogTitle className="text-lg leading-tight">{PRO_EDITION_HEADLINE}</DialogTitle>
           <DialogDescription className="text-sm leading-6">{PRO_EDITION_SUMMARY}</DialogDescription>
         </div>
-        <ProEditionPanel source={source} dismissLabel="暂不" onDismiss={() => setOpen(false)} />
+        <div className={DIALOG_BODY_CLASS}>
+          <ProEditionPanel source={source} dismissLabel="暂不" onDismiss={() => setOpen(false)} />
+        </div>
       </DialogContent>
     </Dialog>
   )
