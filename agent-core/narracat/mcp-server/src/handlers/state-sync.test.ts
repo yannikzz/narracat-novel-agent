@@ -1,5 +1,5 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,8 @@ import {
   novelSyncStructure,
   novelUpdateProgress,
   novelRestoreProgress,
+  novelReconcileProgress,
+  chapterReceiptPath,
   novelCheckpoint,
   revertProgressToChapter,
   countWords,
@@ -479,6 +481,143 @@ describe("novel_update_progress promote", () => {
     expect(result.ok).toBe(true);
     const promotedContent = await readFile(join(root, "manuscript", "vol-01", "ch-004.md"), "utf-8");
     expect(promotedContent).toBe(body); // rename 不改字节，指纹（对该内容重算）仍会匹配
+  });
+
+  it("正式路径已有不在完成进度里的正文（作者自己的稿）→ 拒绝转正，草稿与正式稿都原样保留", async () => {
+    const { ctx, root, statePath } = createProject(stateWithChapterVolume(4, 1));
+    const authorText = "# 第4章\n\n作者自己写的第四章。\n";
+    writeManuscript(root, 4, authorText);
+    const draft = await passReviewStaging(ctx, root, 4);
+    const before = await readFile(statePath, "utf-8");
+
+    const result = (await novelUpdateProgress({ chapter: 4 }, ctx)) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("第 4 章已有正文但不在完成进度里");
+    expect(await readFile(join(root, "manuscript", "vol-01", "ch-004.md"), "utf-8")).toBe(authorText);
+    expect(await readFile(stagingManuscriptPath(root, 4), "utf-8")).toBe(draft);
+    expect(await readFile(statePath, "utf-8")).toBe(before);
+  });
+});
+
+describe("novel_reconcile_progress", () => {
+  /** 真实文件库：要核对对账前后 memory.db 逐字节不变 */
+  function createFileProject(stateContent: string = BASE_STATE): UpdateProgressFixture & { dbPath: string } {
+    const root = mkdtempSync(join(tmpdir(), "narracat-state-sync-reconcile-"));
+    mkdirSync(join(root, ".narracat", "receipts"), { recursive: true });
+    mkdirSync(join(root, "manuscript", "vol-01"), { recursive: true });
+    const statePath = join(root, ".narracat", "state.yaml");
+    writeFileSync(statePath, stateContent, "utf-8");
+    const dbPath = join(root, ".narracat", "memory.db");
+    const db = new Database(dbPath);
+    initSchema(db);
+    return { root, statePath, db, dbPath, ctx: { novelId: "novel-test", db, projectRoot: root } };
+  }
+
+  /** 写完过的章：正文 + 审校 pass + 章摘要 + 收尾回执 */
+  async function finishedChapter(fixture: UpdateProgressFixture, chapter: number): Promise<void> {
+    await passReview(fixture.ctx, fixture.root, chapter);
+    fixture.db
+      .prepare(`INSERT INTO chapter_summaries (id, novel_id, chapter, summary) VALUES (?, ?, ?, ?)`)
+      .run(`sum-${chapter}`, "novel-test", chapter, `第${chapter}章摘要`);
+    writeFileSync(chapterReceiptPath(fixture.root, chapter), JSON.stringify({ chapter }), "utf-8");
+  }
+
+  function snapshot(root: string, dbPath: string): Map<string, Buffer> {
+    const files = new Map<string, Buffer>();
+    for (let chapter = 1; chapter <= 25; chapter += 1) {
+      const path = join(root, "manuscript", "vol-01", `ch-${String(chapter).padStart(3, "0")}.md`);
+      files.set(path, readFileSync(path));
+    }
+    for (const path of [dbPath, `${dbPath}-wal`]) {
+      if (existsSync(path)) files.set(path, readFileSync(path));
+    }
+    return files;
+  }
+
+  it("25 章正文、1-3 章写完过、进度为空 → 补成 [1,2,3]，正文与 memory.db 逐字节不变", async () => {
+    const fixture = createFileProject();
+    for (let chapter = 1; chapter <= 3; chapter += 1) await finishedChapter(fixture, chapter);
+    for (let chapter = 4; chapter <= 25; chapter += 1) writeManuscript(fixture.root, chapter);
+    const before = snapshot(fixture.root, fixture.dbPath);
+
+    const result = (await novelReconcileProgress({}, fixture.ctx)) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    expect(result["added_chapters"]).toEqual([1, 2, 3]);
+    const state = parse(await readFile(fixture.statePath, "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 2, 3]);
+    expect(state.progress.last_completed_chapter).toBe(3);
+    const expectedTotal = Array.from({ length: 25 }, (_, i) =>
+      countWords(`# 第${i + 1}章\n\n${"字".repeat(2500)}\n`),
+    ).reduce((a, b) => a + b, 0);
+    expect(state.word_count.total).toBe(expectedTotal);
+    expect(snapshot(fixture.root, fixture.dbPath)).toEqual(before);
+  });
+
+  it("重复执行结果不变，第二次不写文件", async () => {
+    const fixture = createFileProject();
+    for (let chapter = 1; chapter <= 3; chapter += 1) await finishedChapter(fixture, chapter);
+    await novelReconcileProgress({}, fixture.ctx);
+    const afterFirst = await readFile(fixture.statePath, "utf-8");
+
+    const second = (await novelReconcileProgress({}, fixture.ctx)) as Record<string, unknown>;
+
+    expect(second["added_chapters"]).toEqual([]);
+    expect(second["completed_chapters"]).toEqual([1, 2, 3]);
+    expect(await readFile(fixture.statePath, "utf-8")).toBe(afterFirst);
+  });
+
+  it("有草稿的章、断点停在写章或重写的章不补；已在进度里的不动、只加不删", async () => {
+    const fixture = createFileProject(
+      BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [5]").replace(
+        "  last_command: null",
+        "  last_command: rewrite 2 2",
+      ),
+    );
+    for (let chapter = 1; chapter <= 4; chapter += 1) await finishedChapter(fixture, chapter);
+    mkdirSync(join(fixture.root, ".narracat", "staging"), { recursive: true });
+    writeFileSync(stagingManuscriptPath(fixture.root, 3), "# 第3章\n\n草稿。\n", "utf-8");
+
+    const result = (await novelReconcileProgress({}, fixture.ctx)) as Record<string, unknown>;
+
+    expect(result["added_chapters"]).toEqual([1, 4]);
+    const state = parse(await readFile(fixture.statePath, "utf-8"));
+    expect(state.progress.completed_chapters).toEqual([1, 4, 5]);
+    expect(state.checkpoint.last_command).toBe("rewrite 2 2");
+
+    await writeFile(
+      fixture.statePath,
+      (await readFile(fixture.statePath, "utf-8")).replace("rewrite 2 2", "write 2"),
+      "utf-8",
+    );
+    const again = (await novelReconcileProgress({}, fixture.ctx)) as Record<string, unknown>;
+    expect(again["added_chapters"]).toEqual([]);
+  });
+
+  it("缺收尾回执、缺章摘要或审校未通过的章不补", async () => {
+    const fixture = createFileProject();
+    await finishedChapter(fixture, 1);
+    await finishedChapter(fixture, 2);
+    await finishedChapter(fixture, 3);
+    await rm(chapterReceiptPath(fixture.root, 1));
+    fixture.db.prepare(`DELETE FROM chapter_summaries WHERE chapter = 2`).run();
+    fixture.db.prepare(`UPDATE chapter_reviews SET verdict = 'fail' WHERE chapter = 3`).run();
+
+    const result = (await novelReconcileProgress({}, fixture.ctx)) as Record<string, unknown>;
+
+    expect(result["added_chapters"]).toEqual([]);
+  });
+
+  it("state.yaml 不是合法 YAML → 拒绝且不写文件", async () => {
+    const broken = "progress: [unclosed\n";
+    const fixture = createFileProject(broken);
+    await finishedChapter(fixture, 1);
+
+    const result = (await novelReconcileProgress({}, fixture.ctx)) as Record<string, unknown>;
+
+    expect(result.ok).toBe(false);
+    expect(await readFile(fixture.statePath, "utf-8")).toBe(broken);
   });
 });
 

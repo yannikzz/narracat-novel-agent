@@ -21,7 +21,12 @@ const RECEIVED_ARGUMENTS_MARKER = '\n\nReceived arguments:'
 export interface RepeatedToolFailure {
   toolName: string
   count: number
+  /** 报错原文开头（不含回显的参数），写进日志，事后能看出是哪一种错（issue #137）。 */
+  errorText: string
 }
+
+/** 日志里留多少报错原文：够分辨「文件不存在 / 路径越界 / 参数不对」，又不把整段工具输出灌进日志。 */
+const ERROR_TEXT_LOG_LIMIT = 200
 
 export interface RepeatedToolFailureTracker {
   /** 喂入 pi 会话事件；第一次达到阈值时返回命中信息，其余情况返回 undefined。 */
@@ -37,10 +42,11 @@ function readResultText(result: unknown): string {
     .join('')
 }
 
-function failureSignature(toolName: string, result: unknown): string {
+/** 报错正文：去掉末尾回显的参数，同一种错不因参数不同而算成两种。 */
+function failureText(result: unknown): string {
   const text = readResultText(result)
   const markerIndex = text.indexOf(RECEIVED_ARGUMENTS_MARKER)
-  return `${toolName}\u0000${(markerIndex >= 0 ? text.slice(0, markerIndex) : text).trim()}`
+  return (markerIndex >= 0 ? text.slice(0, markerIndex) : text).trim()
 }
 
 export function createRepeatedToolFailureTracker(threshold = REPEATED_TOOL_FAILURE_THRESHOLD): RepeatedToolFailureTracker {
@@ -64,7 +70,8 @@ export function createRepeatedToolFailureTracker(threshold = REPEATED_TOOL_FAILU
         return undefined
       }
 
-      const signature = failureSignature(toolName, event.result)
+      const errorText = failureText(event.result)
+      const signature = `${toolName}\u0000${errorText}`
       if (signature === lastSignature) {
         streak += 1
       } else {
@@ -74,7 +81,7 @@ export function createRepeatedToolFailureTracker(threshold = REPEATED_TOOL_FAILU
       }
       if (streak < threshold) return undefined
       tripped = true
-      return { toolName, count: streak }
+      return { toolName, count: streak, errorText: errorText.slice(0, ERROR_TEXT_LOG_LIMIT) }
     },
   }
 }

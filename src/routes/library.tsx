@@ -23,6 +23,7 @@ import { GlobalNotificationBell } from '@/components/notifications/GlobalNotific
 import { LoadRecoveryNotice } from '@/components/LoadRecoveryNotice'
 import { Button } from '@/components/ui/button'
 import { IconTooltip } from '@/components/ui/icon-tooltip'
+import { ProEditionEntry } from '@/components/pro-edition/ProEdition'
 import {
   Dialog,
   DialogContent,
@@ -1408,6 +1409,8 @@ export function LibraryRoute() {
       navEnd={
         <>
           <UpdateReadyBanner variant="titlebar" />
+          {/* 强提醒关掉后的常驻入口：书架是每次打开都会经过的地方。 */}
+          <ProEditionEntry variant="titlebar" />
           {projects.length > 0 && <CreateNovelDialog />}
           <LibraryRestoreBackupButton />
           <GlobalNotificationBell />

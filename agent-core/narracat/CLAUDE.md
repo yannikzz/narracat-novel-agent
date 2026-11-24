@@ -47,7 +47,7 @@ NarraCat 是 NarraCat-app 内部维护的 Agent Core，为 AI 辅助超长篇小
 | chapter-writer | Write/Edit 仅写 manuscript 正文（零元数据、零 MCP 写） |
 | 主会话（setup） | `novel_submit_premise`（立项卡，premise.md 由工具机械渲染）/ `novel_update_progress` / `novel_checkpoint` / `novel_sync_structure`（state.yaml 对 LLM 零直写） |
 | 主会话（sync-chapter-memory） | `novel_restore_progress`（作者手改正文后恢复完成进度，不做审校新鲜度校验；豁免边界即该命令的 allowed-tools 白名单，写作链拿不到它） |
-| App（作者编辑，确定性直调） | `novel_submit_authored_state`（角色结构化状态作者修订：set_current/backfill/correct/retract/endorse 五 action，一次性 MCP client 直调，不进 agent 工具面）/ `novel_resolve_planned_state`（计划状态变更处置：defer/cancel/acknowledge/mark_delivered 四动作，同为 App 直调不进 agent 工具面）/ `novel_update_chapter_state_changes`（章纲计划状态变更整段替换：json+md+计划表协调写入，CAS 防并发，同为 App 直调不进 agent 工具面） |
+| App（作者编辑，确定性直调） | `novel_submit_authored_state`（角色结构化状态作者修订：set_current/backfill/correct/retract/endorse 五 action，一次性 MCP client 直调，不进 agent 工具面）/ `novel_resolve_planned_state`（计划状态变更处置：defer/cancel/acknowledge/mark_delivered 四动作，同为 App 直调不进 agent 工具面）/ `novel_update_chapter_state_changes`（章纲计划状态变更整段替换：json+md+计划表协调写入，CAS 防并发，同为 App 直调不进 agent 工具面）/ `novel_reconcile_progress`（打开作品时对齐完成进度：正文 + 收尾回执 + 章摘要 + 审校通过齐全却不在进度里的章补回，只加不删，同为 App 直调不进 agent 工具面） |
 
 ## 关键目录规则
 
@@ -157,7 +157,7 @@ CI workflow 住在**仓库根** `.github/workflows/`（不在本目录的 `.gith
 
 三位版本号 `x.y.z`：x = 架构方向 / 重大转型；y = 功能阶段迭代；z = 每次非 trivial 提交递增。x / y 仅在用户明确要求时增加。
 
-当前基准：**4.0.188**（narracat.manifest.json、mcp-server/package.json，以及 App 层 `agent-core/narracat-agent-core.lock.json` 的 version 字段均保持与此一致）。
+当前基准：**4.0.189**（narracat.manifest.json、mcp-server/package.json，以及 App 层 `agent-core/narracat-agent-core.lock.json` 的 version 字段均保持与此一致）。
 
 **bump 流程**（每次非 trivial 提交，三处版本号 + 本节基准必须逐字一致）：(1) 更新本节「当前基准」；(2) 同步 narracat.manifest.json 与 mcp-server/package.json 的 version 字段；(3) 同步 App 层版本闸门 `agent-core/narracat-agent-core.lock.json` 的 `version`——漏改会导致 App 启动报「Agent Core version 应为 X，实际为 Y」、且 `bun --no-cache run verify:narracat-agent-core` 失败。
 

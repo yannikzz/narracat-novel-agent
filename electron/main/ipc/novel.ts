@@ -60,6 +60,7 @@ import {
   readPendingMemorySync,
 } from '../novel/pending-memory-sync.ts'
 import { loadNovelProjectDetail, loadNovelProjectSummary, updateNovelProjectMetadata } from '../novel/novel-project.ts'
+import { reconcileProgressOnOpen } from '../novel/progress-reconcile.ts'
 import {
   createNovelProjectBackup,
   defaultRestoreDirectoryName,
@@ -514,6 +515,12 @@ export function registerNovelIpcHandlers(): void {
 
   ipcMain.handle('novel:get-project', async (_event, input: unknown) => {
     const { projectPath, selectedChapter } = readProjectPathInput(input)
+    // 先对齐完成进度再读详情：写完过却没记进进度的章不会被当成待写章（只在有可疑章时才叫醒引擎）
+    await reconcileProgressOnOpen(projectPath, {
+      paths: { appRoot: app.getAppPath(), resourcesPath: process.resourcesPath, userDataPath: userDataPath() },
+      isProjectBusy: async (path) => (await getAgentRuntimeCoordinator().getProjectActivity(path)).active,
+      withProjectLock: runProjectMutation,
+    })
     return loadNovelProjectDetail(projectPath, selectedChapter)
   })
 

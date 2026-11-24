@@ -37,7 +37,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: "novel_character_state",
-        description: "查角色截至某章的状态卡（按 character_uid）：受控谓词事实按最新值折叠，附完整有效事实清单",
+        description: "查角色截至某章的状态卡（按 character_uid）：受控谓词事实按最新值折叠，附完整有效事实清单。dimensions 是按状态词表维度 key 组织的当前状态（单值维度给 value、多值维度给 values；本书无词表时为 null）",
         inputSchema: {
             type: "object",
             properties: {
@@ -889,6 +889,14 @@ export const TOOL_DEFINITIONS = [
                 chapter: { type: "integer", minimum: 1, description: "要恢复进度的章节号" },
             },
             required: ["chapter"],
+        },
+    },
+    {
+        name: "novel_reconcile_progress",
+        description: "打开作品时对齐完成进度（App 确定性直调，不进 agent 工具面）：正式正文、收尾回执、章摘要、审校通过四样齐全却不在完成进度里的章补进进度；有草稿或断点停在写章 / 重写的章跳过。只加不删，只写完成进度与字数，无可补时不写文件",
+        inputSchema: {
+            type: "object",
+            properties: {},
         },
     },
     {

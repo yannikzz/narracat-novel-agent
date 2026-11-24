@@ -7,14 +7,14 @@
  *   超限硬截断并写入 warnings，落盘 .narracat/context-packs/ch-NNN.json
  * - 参数错误统一返回 { ok: false, errors: [{field, expected, actual, hint}] }
  */
-import { readFile, writeFile, mkdir, readdir, access } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, access, stat } from "node:fs/promises";
 import { basename, join, dirname } from "node:path";
 import { hybridSearch, multiQueryHybridSearch, } from "../utils/hybrid-search.js";
 import { computeStructureBudget, scanManuscriptProseHygiene, } from "./validators.js";
 import { scanProseFingerprints } from "../utils/prose-fingerprints.js";
 import { scanProseShape } from "../utils/prose-shape.js";
 import { renderChapterOutlineMarkdown } from "./chapter-outline-render.js";
-import { chapterFileSegment, extractManuscriptSnippets, checkReviewFreshness, resolveWorkingManuscript, findManuscript, volumeDirSegment, } from "./state-sync.js";
+import { chapterFileSegment, extractManuscriptSnippets, checkReviewFreshness, resolveWorkingManuscript, findManuscript, hasUntrackedFormalManuscript, untrackedFormalManuscriptError, volumeDirSegment, } from "./state-sync.js";
 import { selectStyleExamples, detectChapterEmotions } from "../corpus-loader.js";
 import { listStyleAnchorRows } from "./style-anchor.js";
 import { selectCraftPacks } from "../craft-pack-loader.js";
@@ -28,10 +28,10 @@ import { classifyQuery } from "./query-router.js";
 import { buildEntityGraph } from "./entity-graph.js";
 import { personalizedPageRank } from "../utils/ppr.js";
 import { FACT_VALID_AT_SQL, FACT_LATEST_ORDER_SQL, isFactValidAt, SECRET_FILTER_SQL, isSecretHiddenForChat, } from "./fact-temporal.js";
-import { foldCharacterCard, renderCardHumanMap, isEmptyFoldedCard, readPredicateFromCard, normalizeExtraValue, } from "./character-card-fold.js";
+import { foldCharacterCard, foldFactRows, isFoldedCardV2, renderCardHumanMap, isEmptyFoldedCard, readPredicateFromCard, normalizeExtraValue, } from "./character-card-fold.js";
 import { loadStateVocabulary } from "./state-dimensions.js";
 import { computeDerivedRelationships, loadFactCountByUid, loadValidRelationshipEdges, } from "./derived-relationships.js";
-import { singleError } from "../types.js";
+import { errorResponse, singleError } from "../types.js";
 // ============================================================
 // 共用辅助
 // ============================================================
@@ -312,7 +312,7 @@ export async function novelCharacterState(args, ctx) {
     const at = asPositiveInt(args["at_chapter"]) ?? latestChapter(ctx) ?? 1;
     const uid = characterUid.trim();
     const rows = ctx.db
-        .prepare(`SELECT predicate, object, from_chapter FROM facts
+        .prepare(`SELECT predicate, object, from_chapter, COALESCE(event_chapter, from_chapter) AS chapter FROM facts
        WHERE novel_id = ? AND subject_character_uid = ? AND subject_character_b_uid IS NULL
          AND ${FACT_VALID_AT_SQL}${secretFilterClause(ctx)}
        ORDER BY predicate ASC, ${FACT_LATEST_ORDER_SQL}`)
@@ -322,12 +322,16 @@ export async function novelCharacterState(args, ctx) {
         if (!(row.predicate in card))
             card[row.predicate] = row.object;
     }
+    // 按词表维度 key 组织的同一份状态（与折叠卡同源）：排章手等按维度 key 取值的消费方用；无词表为 null
+    const folded = foldFactRows(rows, loadStateVocabulary(ctx.projectRoot));
+    const dimensions = isFoldedCardV2(folded) ? folded.dimensions : null;
     return {
         ok: true,
         character_uid: uid,
         at_chapter: at,
         card,
-        facts: rows,
+        dimensions,
+        facts: rows.map(({ predicate, object, from_chapter }) => ({ predicate, object, from_chapter })),
     };
 }
 // ============================================================
@@ -1328,26 +1332,32 @@ export async function findChapterManuscriptFile(projectRoot, chapter) {
     return null;
 }
 /**
- * 章纲文本 + 结构化伏笔引用：优先从结构化 ch-NNN.json 现渲染（反映最新提交），.md 仅作兼容回退。
- * 重提已有章时 .md 受保护不覆盖会变陈旧，直接读 md 会让写手丢掉 payoff_beat 等重提后才补的字段；
- * 从 .json 现渲染则与 App 展示、与最新提交一致。旧书无 .json 或解析失败时回退读 .md，
- * touchIds 为 null——消费方用 `touchIds ?? extractReferencedForeshadowingIds(text)` 兜底走正则。
+ * 章纲文本 + 结构化伏笔引用：以两份文件谁更新为准。
+ * - .md 修改时间严格晚于 .json：作者在 json 之后手改过 md（重提章纲时 md 受保护不覆盖，正是为了
+ *   留住这份手改），正文用 md 全文；伏笔编号仍取 json 的结构化 foreshadowing_touch。
+ * - 否则从 .json 现渲染：重提已有章时 md 不覆盖会变陈旧，直接读 md 会丢掉 payoff_beat 等
+ *   重提后才补的字段；现渲染与 App 展示、与最新提交一致。
+ * 旧书无 .json 或解析失败时回退读 .md，touchIds 为 null——消费方用
+ * `touchIds ?? extractReferencedForeshadowingIds(text)` 兜底走正则。
  */
 async function readChapterOutlineForPack(ctx, mdPath) {
     const jsonPath = mdPath.replace(/\.md$/, ".json");
     try {
         const ch = JSON.parse(await readFile(jsonPath, "utf-8"));
+        const touchIds = [
+            ...new Set((ch.foreshadowing_touch ?? [])
+                .map((t) => t.id)
+                .filter((id) => typeof id === "string" && id.length > 0)),
+        ];
+        if (await isStrictlyNewer(mdPath, jsonPath)) {
+            return { text: await readFile(mdPath, "utf-8"), touchIds };
+        }
         const storylineNames = new Map(ctx.db
             .prepare(`SELECT id, name FROM storylines WHERE novel_id = ?`)
             .all(ctx.novelId).map((r) => [r.id, r.name]));
         const foreshadowingDescriptions = new Map(ctx.db
             .prepare(`SELECT id, description FROM foreshadowing_registry WHERE novel_id = ?`)
             .all(ctx.novelId).map((r) => [r.id, r.description]));
-        const touchIds = [
-            ...new Set((ch.foreshadowing_touch ?? [])
-                .map((t) => t.id)
-                .filter((id) => typeof id === "string" && id.length > 0)),
-        ];
         return {
             text: renderChapterOutlineMarkdown(ch, { storylineNames, foreshadowingDescriptions }),
             touchIds,
@@ -1356,6 +1366,16 @@ async function readChapterOutlineForPack(ctx, mdPath) {
     catch {
         // .json 缺失（旧书）或解析失败 → 回退读机械渲染的 .md，touchIds 交给消费方走正则兜底
         return { text: await readFile(mdPath, "utf-8"), touchIds: null };
+    }
+}
+/** a 的修改时间严格晚于 b；任一读不到 stat 视为否（调用方走默认路径） */
+async function isStrictlyNewer(a, b) {
+    try {
+        const [sa, sb] = await Promise.all([stat(a), stat(b)]);
+        return sa.mtimeMs > sb.mtimeMs;
+    }
+    catch {
+        return false;
     }
 }
 /** 解析机械渲染的细纲（格式由 novel_submit_chapter_outline 渲染器保证）。
@@ -1835,6 +1855,11 @@ export async function novelBuildWritingContextPack(args, ctx) {
     if (!ctx.projectRoot) {
         return singleError("projectRoot", "可用的项目根目录", "缺失", "NOVEL_CONFIG_PATH 未指向有效项目：检查 MCP 配置后重试");
     }
+    // 写作链拿本包给出的 manuscript_path 写正文：正式稿已存在却不在完成进度里（作者自己的稿 / 进度丢失）
+    // 时拒绝出包，不让写章覆盖它。重写与审校只针对已完成章，不受影响。
+    if (await hasUntrackedFormalManuscript(ctx.projectRoot, chapter)) {
+        return errorResponse([untrackedFormalManuscriptError(chapter)]);
+    }
     const outlinePath = await findChapterOutlineFile(ctx.projectRoot, chapter);
     if (!outlinePath) {
         return singleError("chapter", `outline/vol-VV/ch-${chapterFileSegment(chapter)}.md 存在`, "细纲文件未找到", `第${chapter}章细纲不存在：先执行 /narracat:plan 细化本章`);
@@ -1849,7 +1874,7 @@ export async function novelBuildWritingContextPack(args, ctx) {
     if (ctx.voltageBestofPresentInConfig) {
         buildNotes.push("配置项 voltage_bestof 已停用（电压点判优环节已移除），本次忽略");
     }
-    // 区块 1：本章细纲全文（优先从 ch-NNN.json 现渲染，反映最新提交；陈旧/旧书回退读 .md）
+    // 区块 1：本章细纲全文（md 比 json 新 = 作者手改过 → 用 md；否则从 ch-NNN.json 现渲染；旧书回退读 .md）
     const { text: chapterOutlineFull, touchIds } = await readChapterOutlineForPack(ctx, outlinePath);
     let chapterOutline = chapterOutlineFull;
     if (estimateTokens(chapterOutline) > BLOCK_BUDGETS.chapter_outline) {

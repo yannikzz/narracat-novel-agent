@@ -73,6 +73,7 @@ export const NARRACAT_TOOL_LABELS: Record<string, string> = {
   novel_update_chapter_state_changes: '更新章纲计划状态变更',
   novel_update_progress: '更新进度',
   novel_restore_progress: '恢复章节进度',
+  novel_reconcile_progress: '对齐完成进度',
   novel_checkpoint: '写入检查点',
   novel_register_foreshadowing: '登记伏笔',
   novel_sync_structure: '同步全书结构',

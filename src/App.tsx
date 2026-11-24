@@ -8,6 +8,7 @@ import { BrandLoading } from './components/brand/BrandLoading.tsx'
 import { WorkLocationStartupGate } from './components/WorkLocationStartupGate.tsx'
 import { useIntroGate } from './lib/use-intro-gate.ts'
 import { useTelemetryNotice } from './lib/use-telemetry-notice.ts'
+import { useProNotice } from './lib/use-pro-notice.ts'
 import { useReleaseGuard } from './lib/use-release-guard.ts'
 import { useTheme } from './lib/theme.ts'
 import { useAgentEventSubscription } from './lib/use-agent-events.ts'
@@ -22,6 +23,10 @@ const FirstRunIntro = lazy(() =>
 // 埋点告知屏同样只在"还没确认过"时出现，懒加载避免进每次启动的初始 chunk。
 const TelemetryNotice = lazy(() =>
   import('./components/onboarding/TelemetryNotice.tsx').then((m) => ({ default: m.TelemetryNotice })),
+)
+// 专业版推荐的强提醒每个版本号只弹一次，懒加载避免进每次启动的初始 chunk。
+const ProEditionNotice = lazy(() =>
+  import('./components/pro-edition/ProEdition.tsx').then((m) => ({ default: m.ProEditionNotice })),
 )
 
 function MainApp() {
@@ -78,6 +83,23 @@ function IntroducedApp() {
     return (
       <Suspense fallback={<BrandLoading />}>
         <TelemetryNotice onAccept={notice.accept} onDecline={notice.decline} />
+      </Suspense>
+    )
+  }
+  return <ProNoticedApp />
+}
+
+// 告知屏之后、进首页之前：专业版推荐的强提醒，看过一次后只留书架顶栏与「关于」里的常驻入口。
+function ProNoticedApp() {
+  const pro = useProNotice()
+
+  if (pro.status === 'loading') {
+    return <BrandLoading />
+  }
+  if (pro.status === 'notice') {
+    return (
+      <Suspense fallback={<BrandLoading />}>
+        <ProEditionNotice onDownload={pro.markSeen} onDone={pro.complete} />
       </Suspense>
     )
   }

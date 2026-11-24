@@ -21,6 +21,7 @@ import type { AgentTokenUsage } from '@shared/types/agent'
 import { PI_MAX_TURNS_MESSAGE_TYPE, PI_REPEATED_TOOL_FAILURE_MESSAGE_TYPE, PI_RUN_END_MESSAGE_TYPE, PI_SESSION_MESSAGE_TYPE } from './pi-event-mapper.ts'
 import type { PiMaxTurnsMessage, PiRepeatedToolFailureMessage, PiRunEndMessage, PiSessionMessage } from './pi-event-mapper.ts'
 import { createRepeatedToolFailureTracker } from './pi-repeated-tool-failure.ts'
+import { wrapStreamFnWithToolCallNameNormalizer } from './pi-toolcall-name-normalizer.ts'
 import type { RepeatedToolFailure } from './pi-repeated-tool-failure.ts'
 // 类型导入（编译期擦除）：pi-subagent 反向依赖本模块的 runPiSession，值导入会成环。
 import type { PiSubagentEventChannel, PiSubagentEventMessage } from './pi-subagent.ts'
@@ -246,6 +247,21 @@ export async function* runPiSession({
     settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }),
   })
 
+  // 工具名同步归一（issue #136）：建会话后、首次 prompt 前替换 streamFn，改名赶在工具查找之前。
+  // 假会话（单测 DI）没有 agent 字段，跳过即可；真会话的 agent 若不再暴露 streamFn（pi 升级改了
+  // 字段），出声告警而不是静默退回只剩 message_end 兜底——wire 测试的对照组会同时变红。
+  const agent = (session as { agent?: { streamFn?: unknown } }).agent
+  if (agent) {
+    if (typeof agent.streamFn === 'function') {
+      agent.streamFn = wrapStreamFnWithToolCallNameNormalizer(
+        agent.streamFn as (...args: never[]) => unknown,
+        () => options.tools,
+      )
+    } else {
+      console.warn('[narracat] pi agent.streamFn 不可替换，工具名同步归一未生效，只剩 message_end 兜底（#136）')
+    }
+  }
+
   // await createSession 窗口期检查：signal 可能在建会话期间才被 abort，这段时间没有监听器能捕获到
   // 那次 abort 事件（addEventListener 还没注册）。会话已建但还没订阅/没发起 prompt，直接中止已创建的
   // 会话再结束，避免"窗口期 abort 被静默吞掉、prompt 无法取消地跑到底"。
@@ -285,7 +301,9 @@ export async function* runPiSession({
       const tripped = repeatedFailureTracker.observe(event)
       if (tripped && !budgetTripped) {
         repeatedFailure = tripped
-        console.warn(`[narracat] pi 会话同一工具连续 ${tripped.count} 次报同样的错，已中止：${tripped.toolName}`)
+        console.warn(
+          `[narracat] pi 会话同一工具连续 ${tripped.count} 次报同样的错，已中止：${tripped.toolName}；报错：${tripped.errorText}`,
+        )
         void safeAbort(session)
       }
       return

@@ -91,9 +91,13 @@ const SUBAGENT_ABNORMAL_STOP_ERROR_TEXT: Record<PiSubagentAbnormalStop, string> 
   error: '子 agent 因模型或服务端错误异常终止，本次派发未完成。',
   'repeated-tool-failure': '子 agent 连续多次以同样的方式操作失败，已自动停止，本次派发未完成。',
 }
-/** 同错连犯的 run 级文案：作者看不懂工具名，只讲发生了什么、为什么停、能做什么。 */
+/**
+ * 同错连犯的 run 级文案：作者看不懂工具名，只讲发生了什么、为什么停、能做什么。
+ * 不建议换模型或渠道：撞到的多是工具或文件层面的错，换模型解决不了（issue #136 #137）；
+ * 实测有效的自救是写章时从中断处接着写，解决不了就带日志报告。
+ */
 const REPEATED_TOOL_FAILURE_ERROR_TEXT =
-  'Agent 连续多次以同样的方式操作都失败了，已自动停止，避免继续消耗额度。可以直接重试；如果反复出现，换一个模型或渠道通常能解决。'
+  'Agent 连续多次以同样的方式操作都失败了，已自动停止，避免继续消耗额度。可以直接重试；写章节时点「继续完成本章」能从中断处接着写。如果反复出现，请点「报告问题」把日志发给我。'
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

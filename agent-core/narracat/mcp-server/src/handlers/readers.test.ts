@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  statSync,
+  utimesSync,
+} from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -534,6 +543,75 @@ describe("novel_character_state / novel_relationship", () => {
       card: Record<string, string>;
     };
     expect(at2.card.location).toBe("剑冢偏院");
+  });
+
+  it("有词表时另带按维度 key 组织的 dimensions（排章手按维度 key 取值），原字段不变", async () => {
+    const fixture = createProject();
+    const { ctx, root } = fixture;
+    writeCharacter(root, "林晚", LINWAN_UID);
+    writeFileSync(
+      join(root, "bible", "state-vocabulary.json"),
+      JSON.stringify({
+        dimensions: [
+          {
+            key: "cultivation_level",
+            predicate: "ability",
+            display_name: "境界",
+            cardinality: "one",
+            value_type: "enum",
+            values: ["练气", "筑基"],
+          },
+          { key: "inventory", predicate: "possession", display_name: "持有物", cardinality: "many", value_type: "free" },
+        ],
+      }),
+    );
+    await novelSubmitExtraction(
+      {
+        chapter: 1,
+        facts: [
+          { subject: "林晚", predicate: "ability", object: "练气", change_type: "new" },
+          { subject: "林晚", predicate: "possession", object: "断剑", change_type: "new" },
+          { subject: "林晚", predicate: "location", object: "杂役峰药圃", change_type: "new" },
+        ],
+      },
+      ctx,
+    );
+    await novelSubmitExtraction(
+      {
+        chapter: 2,
+        facts: [
+          { subject: "林晚", predicate: "ability", object: "筑基", change_type: "update" },
+          { subject: "林晚", predicate: "possession", object: "血参须", change_type: "new" },
+        ],
+      },
+      ctx,
+    );
+
+    const result = (await novelCharacterState({ character_uid: LINWAN_UID, at_chapter: 2 }, ctx)) as {
+      card: Record<string, string>;
+      dimensions: Record<string, { value?: string; values?: string[] }> | null;
+      facts: Array<Record<string, unknown>>;
+    };
+    expect(result.dimensions?.cultivation_level?.value).toBe("筑基");
+    expect(result.dimensions?.inventory?.values?.sort()).toEqual(["断剑", "血参须"].sort());
+    // 词表外谓词不进 dimensions，仍在按谓词出键的 card 里
+    expect(result.dimensions && "location" in result.dimensions).toBe(false);
+    expect(result.card.ability).toBe("筑基");
+    expect(result.card.location).toBe("杂役峰药圃");
+    expect(Object.keys(result.facts[0]).sort()).toEqual(["from_chapter", "object", "predicate"]);
+  });
+
+  it("无词表时 dimensions 为 null", async () => {
+    const fixture = createProject();
+    writeCharacter(fixture.root, "林晚", LINWAN_UID);
+    await novelSubmitExtraction(
+      { chapter: 1, facts: [{ subject: "林晚", predicate: "location", object: "杂役峰药圃", change_type: "new" }] },
+      fixture.ctx,
+    );
+    const result = (await novelCharacterState({ character_uid: LINWAN_UID }, fixture.ctx)) as {
+      dimensions: unknown;
+    };
+    expect(result.dimensions).toBeNull();
   });
 
   it("关系查询不分参数顺序", async () => {
@@ -1353,6 +1431,114 @@ describe("novel_build_writing_context_pack", () => {
     expect(pack.chapter_outline).not.toContain("真相揭示（reveal）");
   });
 
+  it("本章已有正式正文却不在完成进度里：拒绝出包、正文原样不动；记进完成进度后照常出包", async () => {
+    const fixture = createProject();
+    await seedFullProject(fixture); // 第 1 章有正文，但从未走 novel_update_progress
+    const manuscriptPath = join(fixture.root, "manuscript", "vol-01", "ch-001.md");
+    const before = readFileSync(manuscriptPath);
+
+    const rejected = (await novelBuildWritingContextPack({ chapter: 1 }, fixture.ctx)) as {
+      ok: boolean;
+      errors: Array<{ hint: string }>;
+    };
+    expect(rejected.ok).toBe(false);
+    expect(rejected.errors[0].hint).toBe("第 1 章已有正文但不在完成进度里，写章不会覆盖它；不要重试写章，如实告诉作者：这一章已有正文、还没记进进度，开源版暂时接不上，导入 NarraCat 专业版可以接着写");
+    expect(readFileSync(manuscriptPath).equals(before)).toBe(true);
+    expect(existsSync(join(fixture.root, ".narracat", "context-packs", "ch-001.json"))).toBe(false);
+
+    // 已完成章（重写 / 审校的入口）不受影响
+    const statePath = join(fixture.root, ".narracat", "state.yaml");
+    writeFileSync(statePath, BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [1]"));
+    const accepted = (await novelBuildWritingContextPack({ chapter: 1 }, fixture.ctx)) as {
+      ok: boolean;
+      manuscript_path: string;
+    };
+    expect(accepted.ok).toBe(true);
+    expect(accepted.manuscript_path).toBe("manuscript/vol-01/ch-001.md");
+  });
+
+  describe("作者手改章纲 md（md 比 json 新）", () => {
+    const HAND_EDIT = "# 第2章 手改稿\n\n林晚在剑冢深处撞见白衣人，对方递来半截剑穗。\n";
+
+    function chapterFiles(root: string): { md: string; json: string } {
+      const dir = join(root, "outline", "vol-01");
+      return { md: join(dir, "ch-002.md"), json: join(dir, "ch-002.json") };
+    }
+
+    async function buildPackOutline(fixture: ProjectFixture): Promise<string> {
+      const result = (await novelBuildWritingContextPack({ chapter: 2 }, fixture.ctx)) as { pack_path: string };
+      return (JSON.parse(readFileSync(result.pack_path, "utf-8")) as Record<string, string>).chapter_outline;
+    }
+
+    it("同一进程里先出过包，手改 md 后再出包：章纲正文用 md，伏笔编号仍取 json", async () => {
+      const fixture = createProject();
+      await seedFullProject(fixture);
+      expect(await buildPackOutline(fixture)).toContain("真相揭示（reveal）");
+
+      const { md, json } = chapterFiles(fixture.root);
+      writeFileSync(md, HAND_EDIT);
+      const jsonMtime = statSync(json).mtime;
+      utimesSync(md, jsonMtime, new Date(jsonMtime.getTime() + 10_000));
+
+      const outline = await buildPackOutline(fixture);
+      expect(outline).toContain("白衣人");
+      expect(outline).not.toContain("真相揭示（reveal）");
+
+    });
+
+    it("手改稿里没写伏笔编号：结构化伏笔引用仍取 json（包与 novel_writing_context 两个读口）", async () => {
+      const fixture = createProject();
+      await seedFullProject(fixture);
+      // 只在 json 里引用一条尚未种下的伏笔：它能进 due 只可能来自 json 的 foreshadowing_touch
+      await novelRegisterForeshadowing(
+        { id: "F-MAJ-01", type: "major", description: "尚未种下的核心伏笔", planted_chapter: 6, target_reveal: "50" },
+        fixture.ctx,
+      );
+      const batch = loadFixture<Array<Record<string, unknown>>>("chapter-outline-v5-valid-batch.json");
+      const ch2 = batch.find((c) => c.chapter === 2)!;
+      ch2.foreshadowing_touch = [{ id: "F-MAJ-01", action: "develop" }];
+      expect(((await novelSubmitChapterOutline({ payload: batch }, fixture.ctx)) as { ok: boolean }).ok).toBe(true);
+
+      const { md, json } = chapterFiles(fixture.root);
+      writeFileSync(md, HAND_EDIT);
+      const jsonMtime = statSync(json).mtime;
+      utimesSync(md, jsonMtime, new Date(jsonMtime.getTime() + 10_000));
+
+      const result = (await novelBuildWritingContextPack({ chapter: 2 }, fixture.ctx)) as { pack_path: string };
+      const pack = JSON.parse(readFileSync(result.pack_path, "utf-8")) as {
+        chapter_outline: string;
+        foreshadowing_due: { due: Array<{ id: string }> };
+      };
+      expect(pack.chapter_outline).toContain("白衣人");
+      expect(pack.foreshadowing_due.due.map((f) => f.id)).toContain("F-MAJ-01");
+
+      const context = (await novelWritingContext({ chapter: 2 }, fixture.ctx)) as {
+        foreshadowing_due: { due: Array<{ id: string }> };
+      };
+      expect(context.foreshadowing_due.due.map((f) => f.id)).toContain("F-MAJ-01");
+    });
+
+    it("md 不比 json 新（重提后 json 更新）：仍从 json 现渲染", async () => {
+      const fixture = createProject();
+      await seedFullProject(fixture);
+      const { md, json } = chapterFiles(fixture.root);
+      writeFileSync(md, HAND_EDIT);
+      const mdMtime = statSync(md).mtime;
+      utimesSync(json, mdMtime, new Date(mdMtime.getTime() + 10_000));
+
+      const outline = await buildPackOutline(fixture);
+      expect(outline).toContain("真相揭示（reveal）");
+      expect(outline).not.toContain("白衣人");
+    });
+
+    it("首次提交章纲后 md 不被当成手改稿（先写 md 后写 json）", async () => {
+      const fixture = createProject();
+      await seedFullProject(fixture);
+      const { md, json } = chapterFiles(fixture.root);
+      expect(statSync(md).mtimeMs).toBeLessThanOrEqual(statSync(json).mtimeMs);
+    });
+  });
+
   // 护栏（PR#385 review P1 的根因防回归）：WCP 是 MCP 产出、写手直接 Read 消费的
   // 运行时数据，不经 SDK plugin 运行时、也不经 App expandPluginRoot 任何 ${CLAUDE_PLUGIN_ROOT}
   // 展开层——任何字段把字面 ${CLAUDE_PLUGIN_ROOT} 写进 WCP，写手都会 Read 到坏路径。
@@ -1509,6 +1695,10 @@ describe("novel_build_writing_context_pack", () => {
     const fixture = createProject();
     await seedFullProject(fixture);
     writeManuscript(fixture.root, 2); // 已完成成品且无 staging（/review 等旁路照常）
+    writeFileSync(
+      join(fixture.root, ".narracat", "state.yaml"),
+      BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [1, 2]"),
+    );
 
     const result = (await novelBuildWritingContextPack({ chapter: 2 }, fixture.ctx)) as {
       manuscript_path: string;

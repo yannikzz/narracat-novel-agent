@@ -33,6 +33,17 @@ export declare function isFoldedCardV2(card: FoldedCard): card is FoldedCardV2;
  */
 export declare function isEmptyFoldedCard(card: FoldedCard): boolean;
 export declare function foldCharacterCard(ctx: ToolContext, characterUid: string, asOfChapter: number): FoldedCard;
+export interface FoldFactRow {
+    predicate: string;
+    object: string;
+    /** event 轴章号（COALESCE(event_chapter, from_chapter)） */
+    chapter: number;
+}
+/**
+ * 折叠核心：rows 须已按 `predicate ASC, FACT_LATEST_ORDER_SQL` 排好（同谓词内最新优先）。
+ * 调用方自带 rows 是为了让各读口按自己的过滤（如聊天秘密滤网）取行，折叠规则只此一份。
+ */
+export declare function foldFactRows(rows: FoldFactRow[], vocab: StateVocabulary | null): FoldedCard;
 /** 去空白/标点/符号后比较用的归一化（SSOT：语义检索冗余剔除 readers.ts 复用同一实现，两处正则不得漂移） */
 export declare const normalizeExtraValue: (s: string) => string;
 /**

@@ -26,7 +26,11 @@
  *   被绕过的安全回归。归一发生在工具查找之前，下游（guard 圈禁、canUseTool、工具卡渲染、telemetry
  *   计数）看到的仍是唯一那个 pi 真名，零改动、零分叉。
  *
- * ## 落点（与 pi-eager-toolcall-args.ts 同一套官方扩展点）
+ * ## 落点：streamFn 包装为主，message_end 扩展兜底
+ *
+ * 主路径是 `wrapStreamFnWithToolCallNameNormalizer`（issue #136）：在流事件交给 agent-loop 之前同步
+ * 改名，与工具查找走同一条链，不依赖下面说的队列余量。下面这一节讲的 `message_end` 扩展保留作兜底
+ * （streamFn 被测试或上游替换时），它与 pi-eager-toolcall-args.ts 用同一套官方扩展点：
  *
  * `agent-session.js` 的 `message_end` 分支走 `emitMessageEnd`，返回 `{ message }` 由上游
  * `_replaceMessageInPlace` **原地** mutate 写回（delete 掉原对象全部 key 再 Object.assign），而
@@ -59,8 +63,9 @@
  *
  * - **禁止**在 message_start / message_update / message_end 的 handler 里做异步 I/O（同一条纪律对
  *   `pi-eager-toolcall-args.ts` 同样成立：它的参数救回也靠这份余量）。
- * - 护栏是 `pi-toolcall-name-normalizer.integration.test.ts`（走真实会话 + 假 streamFn，断言工具
- *   真的执行了）。**pi 升级后必须重跑它**；它红了说明余量没了，要改的是落点，不是把断言改松。
+ * - 护栏有两层：`pi-toolcall-name-normalizer.wire.test.ts` 用真 wire 流形状守主路径（streamFn
+ *   包装，断言工具真的执行了）；`pi-toolcall-name-normalizer.integration.test.ts` 守兜底的
+ *   `message_end` 扩展。**pi 升级后两份都要重跑**；主路径红了要改的是落点，不是把断言改松。
  *
  * ## 判定纪律：精确优先，大小写不敏感唯一回退
  *
@@ -118,6 +123,101 @@ export function resolveToolCallName(rawName: string, knownToolNames: readonly st
   // 零命中 = 模型调了个本会话真没有的工具；多命中 = 名字本身有大小写歧义。两种都原样交给上游报错。
   if (candidates.length !== 1) return undefined
   return candidates[0]
+}
+
+/** 原地归一一个 toolCall 块的名字；返回是否改动。 */
+function normalizeToolCallBlockInPlace(block: unknown, known: readonly string[]): boolean {
+  if (!isRecord(block) || block.type !== 'toolCall') return false
+  if (typeof block.name !== 'string' || !block.name) return false
+  const resolved = resolveToolCallName(block.name, known)
+  if (resolved === undefined) return false
+  block.name = resolved
+  return true
+}
+
+function normalizeMessageInPlace(message: unknown, known: readonly string[]): void {
+  if (!isRecord(message) || !Array.isArray(message.content)) return
+  for (const block of message.content) normalizeToolCallBlockInPlace(block, known)
+}
+
+/**
+ * pi-ai 流事件里会带出工具调用的位置：`toolcall_*` 的 `toolCall`，所有增量事件的 `partial`，
+ * `done` 的 `message`，`error` 的 `error`（也是一条 AssistantMessage）。同一个块对象在 partial 与
+ * 最终消息之间是共享的，原地改一次即全部生效。
+ */
+function normalizeStreamEventInPlace(event: unknown, known: readonly string[]): void {
+  if (!isRecord(event)) return
+  normalizeToolCallBlockInPlace(event.toolCall, known)
+  normalizeMessageInPlace(event.partial, known)
+  normalizeMessageInPlace(event.message, known)
+  normalizeMessageInPlace(event.error, known)
+}
+
+type StreamLike = AsyncIterable<unknown> & { result(): Promise<unknown> }
+
+function isStreamLike(value: unknown): value is StreamLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { result?: unknown }).result === 'function' &&
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+  )
+}
+
+function normalizeStream(stream: unknown, knownToolNames: () => readonly string[]): unknown {
+  if (!isStreamLike(stream)) return stream
+  let known: readonly string[] | undefined
+  const getKnown = () => {
+    known ??= knownToolNames()
+    return known
+  }
+  // 以原流为原型：instanceof 与其余成员照旧，只覆盖 agent-loop 实际消费的两个入口。
+  const view = Object.create(stream) as StreamLike
+  Object.defineProperty(view, Symbol.asyncIterator, {
+    value: async function* () {
+      for await (const event of stream) {
+        normalizeStreamEventInPlace(event, getKnown())
+        yield event
+      }
+    },
+  })
+  Object.defineProperty(view, 'result', {
+    value: async () => {
+      const message = await stream.result()
+      normalizeMessageInPlace(message, getKnown())
+      return message
+    },
+  })
+  return view
+}
+
+/**
+ * 同步归一（issue #136）：包住 `session.agent.streamFn`，在事件交给 agent-loop **之前**原地改名。
+ *
+ * 为什么需要它：下面的 `message_end` 扩展靠队列余量追赶工具查找（见文件头「时序靠的是余量」）。
+ * 实测余量在两种常见流形状下不够——openai-completions 先 reasoning 再正文再工具调用、或一条消息
+ * 里有多个并行调用——`tool_execution_start` 拿到的仍是 `Read`，直接 `Tool Read not found`，3 个
+ * 并行调用还会同回合打满 #128 的同错即停。这里改名与工具查找走同一条同步链，不再依赖余量。
+ *
+ * 落点：`createAgentSession` 不透传 streamFn（见 pi-eager-toolcall-args.ts），但 `Agent.streamFn`
+ * 是公开可写字段，且 `agent.js` 每次 run 都现读 `this.streamFn`，建会话后替换即生效。
+ * `message_end` 扩展保留作兜底（例如 streamFn 被测试或上游替换时）。
+ *
+ * 解除条件（写于 pi-ai / pi-coding-agent 0.73.1）：上游任一满足即可拆掉本包装、只留 message_end——
+ * (a) agent-loop 在工具查找前 await 扩展的 message_end；(b) 提供工具查找前的改名钩子；
+ * (c) 上游自己做大小写/别名归一。复测方法：跑 `pi-toolcall-name-normalizer.wire.test.ts`，
+ * 对照组（未包装）三条全部转为「不再 not found」即说明余量问题已由上游解决。
+ */
+export function wrapStreamFnWithToolCallNameNormalizer<F extends (...args: never[]) => unknown>(
+  streamFn: F,
+  knownToolNames: () => readonly string[],
+): F {
+  const wrapped = (...args: Parameters<F>): unknown => {
+    const out = streamFn(...args)
+    if (out instanceof Promise) return out.then((stream) => normalizeStream(stream, knownToolNames))
+    return normalizeStream(out, knownToolNames)
+  }
+  return wrapped as unknown as F
 }
 
 /**

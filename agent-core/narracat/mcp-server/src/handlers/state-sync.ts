@@ -1,10 +1,11 @@
 /**
- * state.yaml 机械写入工具（4 个）
+ * state.yaml 机械写入工具（5 个）
  *
  * state.yaml 对 LLM 零 Edit——全部经以下工具整体安全序列化写入：
  * - novel_sync_structure  : structure 节唯一写入通道（交叉互证，任一不过整体拒写）
  * - novel_update_progress : 章节收尾后更新 progress / word_count 并清 checkpoint（审校新鲜度强门）
  * - novel_restore_progress: 作者手改正文的记忆同步链路专用，同一段进度写逻辑但不设新鲜度门
+ * - novel_reconcile_progress: 打开作品时按已入库证据补齐完成进度（App 直调，只加不删）
  * - novel_checkpoint      : 机械写 checkpoint 节
  *
  * 写入一律 read-modify-write：解析整份 state.yaml，只改目标节，其余节原样保留。
@@ -25,6 +26,15 @@ import { getChapterWordCountRange } from "./readers.js";
 // ============================================================
 // 共用辅助
 // ============================================================
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1;
@@ -148,6 +158,11 @@ export function stagingManuscriptPath(projectRoot: string, chapter: number): str
   return join(projectRoot, ".narracat", "staging", `ch-${chapterFileSegment(chapter)}.md`);
 }
 
+/** 本章收尾回执（novel_commit_chapter 落盘）绝对路径 */
+export function chapterReceiptPath(projectRoot: string, chapter: number): string {
+  return join(projectRoot, ".narracat", "receipts", `ch-${chapterFileSegment(chapter)}.json`);
+}
+
 export interface WorkingManuscript {
   path: string;
   source: "staging" | "manuscript";
@@ -189,11 +204,35 @@ const CONTRACT_ASCII_QUOTE_CN_RE = /"[^"\n]*[一-鿿][^"\n]*"/;
 async function isGeneratingChapter(projectRoot: string, chapter: number): Promise<boolean> {
   const loaded = await loadStateDocument(projectRoot);
   if ("error" in loaded) return false;
-  const raw = loaded.doc.getIn(["checkpoint", "last_command"]);
-  if (typeof raw !== "string") return false;
+  return generatingCheckpointChapters(loaded.doc).includes(chapter);
+}
+
+/** 断点记着的写章 / 重写章号（「write N」「rewrite N N」）；断点不是这两种时为空 */
+function generatingCheckpointChapters(doc: Document): number[] {
+  const raw = doc.getIn(["checkpoint", "last_command"]);
+  if (typeof raw !== "string") return [];
   const match = /^(?:\/narracat:)?(?:write|rewrite)((?:\s+\d+)+)$/.exec(raw.trim());
-  if (!match) return false;
-  return match[1].trim().split(/\s+/).map(Number).includes(chapter);
+  if (!match) return [];
+  return match[1].trim().split(/\s+/).map(Number);
+}
+
+/**
+ * 本章已有正式正文、却不在完成进度里（作者自己的稿，或进度丢了）：写章链路不得写到它上面。
+ * 进度读不出来时同样按「不在进度里」处理——宁可拦下，不可覆盖作者正文。
+ */
+export async function hasUntrackedFormalManuscript(projectRoot: string, chapter: number): Promise<boolean> {
+  if (!(await findManuscript(projectRoot, chapter))) return false;
+  const completed = await readCompletedChapters(projectRoot);
+  return !completed.ok || !completed.chapters.includes(chapter);
+}
+
+export function untrackedFormalManuscriptError(chapter: number): ToolErrorItem {
+  return {
+    field: "chapter",
+    expected: `第 ${chapter} 章还没有正文`,
+    actual: `第 ${chapter} 章已经有正文，但不在完成进度里`,
+    hint: `第 ${chapter} 章已有正文但不在完成进度里，写章不会覆盖它；不要重试写章，如实告诉作者：这一章已有正文、还没记进进度，开源版暂时接不上，导入 NarraCat 专业版可以接着写`,
+  };
 }
 
 /**
@@ -814,26 +853,36 @@ async function applyProgressUpdate(
   }
   const { doc, statePath } = loaded;
 
-  // completed_chapters：追加 + 去重 + 升序
-  const existingRaw = doc.getIn(["progress", "completed_chapters"]);
-  const existing: number[] = [];
-  if (existingRaw && typeof (existingRaw as { toJSON?: unknown }).toJSON === "function") {
-    const parsed = (existingRaw as { toJSON: () => unknown }).toJSON();
-    if (Array.isArray(parsed)) {
-      for (const v of parsed) {
-        if (isPositiveInteger(v)) existing.push(v);
-      }
-    }
-  }
-  const completed = [...new Set([...existing, chapter])].sort((a, b) => a - b);
-  const lastCompleted = completed[completed.length - 1];
-
-  doc.setIn(["progress", "completed_chapters"], doc.createNode(completed));
-  doc.setIn(["progress", "last_completed_chapter"], lastCompleted);
+  const { completed, lastCompleted, total } = await setCompletedChapters(
+    doc,
+    [...parseCompletedChapters(doc), chapter],
+    ctx.projectRoot,
+  );
   doc.setIn(["progress", "in_progress_chapter"], null);
 
-  // word_count：读 manuscript 文件实数求和（不信任 LLM 报数）
-  const manuscripts = await scanManuscripts(ctx.projectRoot);
+  // 清 checkpoint（别的章写到一半的中断记录保留，见 clearCheckpointKeepingPendingWrite）
+  clearCheckpointKeepingPendingWrite(doc);
+
+  await writeFile(statePath, String(doc), "utf-8");
+
+  return { ok: true, completed, lastCompleted, total };
+}
+
+/**
+ * 写回完成集合（去重升序）与最末完成章，并按 manuscript 文件实数重算字数（不信任 LLM 报数）。
+ * 只改 doc，不落盘。
+ */
+async function setCompletedChapters(
+  doc: Document,
+  chapters: number[],
+  projectRoot: string,
+): Promise<{ completed: number[]; lastCompleted: number; total: number }> {
+  const completed = [...new Set(chapters)].sort((a, b) => a - b);
+  const lastCompleted = completed[completed.length - 1];
+  doc.setIn(["progress", "completed_chapters"], doc.createNode(completed));
+  doc.setIn(["progress", "last_completed_chapter"], lastCompleted);
+
+  const manuscripts = await scanManuscripts(projectRoot);
   const byChapter = new Map<number, number>();
   let total = 0;
   for (const entry of manuscripts) {
@@ -849,13 +898,7 @@ async function applyProgressUpdate(
   }
   doc.setIn(["word_count", "total"], total);
   doc.setIn(["word_count", "by_chapter"], doc.createNode(byChapter));
-
-  // 清 checkpoint（别的章写到一半的中断记录保留，见 clearCheckpointKeepingPendingWrite）
-  clearCheckpointKeepingPendingWrite(doc);
-
-  await writeFile(statePath, String(doc), "utf-8");
-
-  return { ok: true, completed, lastCompleted, total };
+  return { completed, lastCompleted, total };
 }
 
 export async function novelUpdateProgress(
@@ -879,6 +922,14 @@ export async function novelUpdateProgress(
   // 审校新鲜度硬门：最终提交的正文必须就是最后一次审校 PASS 的那份文件（指纹一致）
   const freshnessErrors = await checkReviewFreshness(ctx, chapter, true);
   if (freshnessErrors) return errorResponse(freshnessErrors);
+
+  // 草稿转正会盖掉正式路径上的文件：正式稿不在完成进度里（作者自己的稿）时拒绝，不静默覆盖
+  if (
+    (await pathExists(stagingManuscriptPath(ctx.projectRoot, chapter))) &&
+    (await hasUntrackedFormalManuscript(ctx.projectRoot, chapter))
+  ) {
+    return errorResponse([untrackedFormalManuscriptError(chapter)]);
+  }
 
   // 原子 promote：门全过后才把 staging 转正；无 staging 静默跳过（老书 / 作者链路）
   const promoted = await promoteStagingManuscript(ctx, chapter);
@@ -929,6 +980,54 @@ export async function novelRestoreProgress(
     last_completed_chapter: written.lastCompleted,
     word_count_total: written.total,
     message: `第${chapter}章进度已恢复（累计完成 ${written.completed.length} 章，总字数 ${written.total}）`,
+  };
+}
+
+// ============================================================
+// novel_reconcile_progress — 打开作品时按已入库的证据补齐完成进度（App 确定性直调）
+// ============================================================
+
+/**
+ * 一章确实写完过、只是没记进完成进度时补回：正式正文 + 收尾回执 + 章摘要 + 审校结论 pass 四样齐全。
+ * 有草稿（staging）或断点停在写章 / 重写这一章的不补——那是还在写作链里的章，交给写章自己收尾。
+ * 只加不删，只写完成进度与字数，不碰正文、不碰 memory.db、不动断点；无可补时不写文件。
+ * state.yaml 读不出或不是合法 YAML 时拒绝，不写文件。
+ */
+export async function novelReconcileProgress(
+  _args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<unknown> {
+  const loaded = await loadStateDocument(ctx.projectRoot);
+  if ("error" in loaded) {
+    return singleError("state.yaml", "可读写的合法 YAML", "不可用", loaded.error);
+  }
+  const { doc, statePath } = loaded;
+  const existing = parseCompletedChapters(doc);
+  const skip = new Set([...existing, ...generatingCheckpointChapters(doc)]);
+
+  const hasSummary = ctx.db.prepare(`SELECT 1 FROM chapter_summaries WHERE novel_id = ? AND chapter = ?`);
+  const reviewVerdict = ctx.db.prepare(`SELECT verdict FROM chapter_reviews WHERE novel_id = ? AND chapter = ?`);
+  const added: number[] = [];
+  for (const chapter of new Set((await scanManuscripts(ctx.projectRoot)).map((e) => e.chapter))) {
+    if (skip.has(chapter)) continue;
+    if (await pathExists(stagingManuscriptPath(ctx.projectRoot, chapter))) continue;
+    if (!(await pathExists(chapterReceiptPath(ctx.projectRoot, chapter)))) continue;
+    if (!hasSummary.get(ctx.novelId, chapter)) continue;
+    const review = reviewVerdict.get(ctx.novelId, chapter) as { verdict: string } | undefined;
+    if (review?.verdict !== "pass") continue;
+    added.push(chapter);
+  }
+
+  if (added.length === 0) {
+    return { ok: true, added_chapters: [], completed_chapters: existing };
+  }
+  const written = await setCompletedChapters(doc, [...existing, ...added], ctx.projectRoot);
+  await writeFile(statePath, String(doc), "utf-8");
+  return {
+    ok: true,
+    added_chapters: added,
+    completed_chapters: written.completed,
+    word_count_total: written.total,
   };
 }
 
