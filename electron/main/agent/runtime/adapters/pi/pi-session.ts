@@ -301,7 +301,9 @@ export async function* runPiSession({
       const tripped = repeatedFailureTracker.observe(event)
       if (tripped && !budgetTripped) {
         repeatedFailure = tripped
-        console.warn(`[narracat] pi 会话同一工具连续 ${tripped.count} 次报同样的错，已中止：${tripped.toolName}`)
+        console.warn(
+          `[narracat] pi 会话同一工具连续 ${tripped.count} 次报同样的错，已中止：${tripped.toolName}；报错：${tripped.errorText}`,
+        )
         void safeAbort(session)
       }
       return

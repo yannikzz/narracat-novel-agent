@@ -25,8 +25,22 @@ describe('createRepeatedToolFailureTracker', () => {
     const event = validationFailure('{\n  "payload": ""\n}')
     expect(tracker.observe(event)).toBeUndefined()
     expect(tracker.observe(event)).toBeUndefined()
-    expect(tracker.observe(event)).toEqual({ toolName: OUTLINE_TOOL, count: REPEATED_TOOL_FAILURE_THRESHOLD })
+    expect(tracker.observe(event)).toEqual({
+      toolName: OUTLINE_TOOL,
+      count: REPEATED_TOOL_FAILURE_THRESHOLD,
+      errorText: `Validation failed for tool "${OUTLINE_TOOL}":\n  - payload: must be object`,
+    })
     expect(tracker.observe(event)).toBeUndefined()
+  })
+
+  test('命中时带上报错原文开头（不含回显的参数），最多 200 字', () => {
+    const tracker = createRepeatedToolFailureTracker()
+    const event = failure('read', `ENOENT: no such file ${'x'.repeat(300)}`)
+    tracker.observe(event)
+    tracker.observe(event)
+    const tripped = tracker.observe(event)
+    expect(tripped?.errorText.startsWith('ENOENT: no such file')).toBe(true)
+    expect(tripped?.errorText.length).toBe(200)
   })
 
   test('错因相同、回显的坏参数不同：仍算没进展', () => {
