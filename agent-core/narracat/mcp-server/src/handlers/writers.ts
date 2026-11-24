@@ -52,7 +52,7 @@ import {
   validateDialogueSamples,
 } from "./validators.js";
 import { renderChapterOutlineMarkdown } from "./chapter-outline-render.js";
-import { loadStateVocabulary } from "./state-dimensions.js";
+import { loadStateVocabulary, attributeFact, type StateDimension } from "./state-dimensions.js";
 import { mirrorChapterPlannedState } from "./planned-state.js";
 import { buildBenchmarkNote } from "./grid-benchmark.js";
 import { narratorAddressPhrase } from "./narrator-address.js";
@@ -458,7 +458,7 @@ async function resolveExtractionFacts(
 }
 
 /**
- * 共享落库：把已解析的 ResolvedFact[] 写入正式 facts 表（事务内 findExisting →
+ * 共享落库：把已解析的 ResolvedFact[] 写入正式 facts 表（事务内 findSuperseded →
  * invalidate/insert + FTS/vec 索引）。embedding 在事务外预生成（invalidate 不 embed）。
  * novel_submit_extraction 与 novel_commit_extraction_union 共用此函数，行为一致。
  * 落库时新增的 warnings（update/invalidate 未命中）追加进传入的 warnings 数组。
@@ -493,24 +493,71 @@ async function commitResolvedFacts(
 
   // 只取代记录章不晚于本章的旧值：重写中间章（novel_rollback_chapter mode=reconcile-chapter）时
   // 后文章的事实仍在库里，那是更新的观察，不是本章要取代的旧值。顺写最新章时所有事实都 ≤ 本章，行为不变。
-  const findExisting = (f: ResolvedFact): { id: string } | undefined => {
-    if (f.upsert_key) {
-      const byId = ctx.db
-        .prepare(
-          `SELECT id FROM facts
-           WHERE novel_id = ? AND id = ? AND invalidated_at_chapter IS NULL AND from_chapter <= ?`,
-        )
-        .get(ctx.novelId, f.upsert_key, chapter) as { id: string } | undefined;
-      if (byId) return byId;
-    }
+  const findByUpsertKey = (f: ResolvedFact): { id: string } | undefined => {
+    if (!f.upsert_key) return undefined;
     return ctx.db
       .prepare(
         `SELECT id FROM facts
+         WHERE novel_id = ? AND id = ? AND invalidated_at_chapter IS NULL AND from_chapter <= ?`,
+      )
+      .get(ctx.novelId, f.upsert_key, chapter) as { id: string } | undefined;
+  };
+  // 同章同秒并列时 created_at 打平，rowid DESC 兜底保证取到后插的那条（与 FACT_LATEST_ORDER_SQL 同理）
+  const findLatestSamePredicate = (f: ResolvedFact): { id: string; object: string } | undefined =>
+    ctx.db
+      .prepare(
+        `SELECT id, object FROM facts
          WHERE novel_id = ? AND subject = ? AND predicate = ?
            AND invalidated_at_chapter IS NULL AND from_chapter <= ?
-         ORDER BY from_chapter DESC, created_at DESC LIMIT 1`,
+         ORDER BY from_chapter DESC, created_at DESC, rowid DESC LIMIT 1`,
       )
-      .get(ctx.novelId, f.subject, f.predicate, chapter) as { id: string } | undefined;
+      .get(ctx.novelId, f.subject, f.predicate, chapter) as { id: string; object: string } | undefined;
+
+  // 单值维度（词表 cardinality=one）同一时刻只能有一个值：写入新值时同维度旧值一律取代，
+  // 不论 change_type 是 new 还是 update。归维复用折叠卡同一套 attributeFact，只动本维度的行——
+  // 按整个谓词失效会误伤 many 维度与共用谓词的其他维度。
+  const vocab = loadStateVocabulary(ctx.projectRoot);
+  const singleValueDimensionOf = (f: ResolvedFact): StateDimension | null => {
+    if (!vocab || f.change_type === "invalidate") return null;
+    if (f.predicate === "relationship" || f.subject_character_uid === null) return null;
+    const dim = attributeFact(vocab, f.predicate, f.object);
+    return dim?.cardinality === "one" ? dim : null;
+  };
+  const findSameDimensionRows = (f: ResolvedFact, dim: StateDimension): Array<{ id: string }> =>
+    (
+      ctx.db
+        .prepare(
+          `SELECT id, object FROM facts
+           WHERE novel_id = ? AND subject_character_uid = ? AND subject_character_b_uid IS NULL
+             AND predicate = ? AND invalidated_at_chapter IS NULL
+             AND from_chapter <= ? AND COALESCE(event_chapter, from_chapter) <= ?`,
+        )
+        .all(ctx.novelId, f.subject_character_uid, f.predicate, chapter, chapter) as Array<{
+        id: string;
+        object: string;
+      }>
+    ).filter((row) => attributeFact(vocab!, f.predicate, row.object)?.key === dim.key);
+
+  /**
+   * 本条事实要取代的旧行。单值维度：同维度全部有效旧值 + upsert_key 显式指名的行；同维度无旧值时
+   * update 才回退到同谓词最新一条，且仅当它不归属任何维度（词表外旧值），不越界取代别的维度。
+   * 其余（无词表 / many 维度 / 词表外谓词 / invalidate）维持按 upsert_key → 同谓词最新一条。
+   */
+  const findSuperseded = (f: ResolvedFact): Array<{ id: string }> => {
+    const dim = singleValueDimensionOf(f);
+    if (!dim) {
+      if (f.change_type === "new") return [];
+      const existing = findByUpsertKey(f) ?? findLatestSamePredicate(f);
+      return existing ? [existing] : [];
+    }
+    const targets = new Map(findSameDimensionRows(f, dim).map((row) => [row.id, row]));
+    const byKey = findByUpsertKey(f);
+    if (byKey) targets.set(byKey.id, byKey);
+    if (targets.size === 0 && f.change_type === "update") {
+      const latest = findLatestSamePredicate(f);
+      if (latest && attributeFact(vocab!, f.predicate, latest.object) === null) targets.set(latest.id, latest);
+    }
+    return [...targets.values()];
   };
 
   const tx = ctx.db.transaction(() => {
@@ -524,24 +571,22 @@ async function commitResolvedFacts(
     );
 
     for (const f of facts) {
-      if (f.change_type === "update" || f.change_type === "invalidate") {
-        const existing = findExisting(f);
-        if (existing) {
-          // update 的旧值被新 fact 取代 → invalidated_by 指向新 fact id；invalidate 无取代者 → null
-          const replacedBy =
-            f.change_type === "update" ? (insertByFact.get(f)?.id ?? null) : null;
-          invalidate.run(chapter, replacedBy, existing.id, ctx.novelId);
-          invalidated += 1;
-        } else if (f.change_type === "invalidate") {
-          warnings.push(
-            `invalidate 未命中：${f.subject} ${f.predicate} 没有可失效的旧值，已跳过`,
-          );
-          continue;
-        } else {
-          warnings.push(`update 未命中旧值：${f.subject} ${f.predicate} 按新事实入库`);
-        }
+      const superseded = findSuperseded(f);
+      // 被新 fact 取代 → invalidated_by 指向新 fact id；invalidate 无取代者 → null
+      const replacedBy = f.change_type === "invalidate" ? null : (insertByFact.get(f)?.id ?? null);
+      for (const row of superseded) {
+        invalidate.run(chapter, replacedBy, row.id, ctx.novelId);
+        invalidated += 1;
       }
-      if (f.change_type === "invalidate") continue;
+      if (f.change_type === "invalidate") {
+        if (superseded.length === 0) {
+          warnings.push(`invalidate 未命中：${f.subject} ${f.predicate} 没有可失效的旧值，已跳过`);
+        }
+        continue;
+      }
+      if (superseded.length === 0 && f.change_type === "update") {
+        warnings.push(`update 未命中旧值：${f.subject} ${f.predicate} 按新事实入库`);
+      }
 
       const op = insertByFact.get(f);
       if (!op) continue;
@@ -2596,18 +2641,19 @@ export async function novelSubmitChapterOutline(
     const chapterDir = join(ctx.projectRoot, "outline", volumeDirSegment(arc.volumeNo));
     await mkdir(chapterDir, { recursive: true });
 
-    // 章细纲结构化数据契约 .json 总写（App 读、WCP 读取侧优先从它现渲染、反映最新提交；
-    // .md 保护用户手改不覆盖、可能陈旧——故写手侧不直接信任 .md，见 WCP builder）
-    const jsonPath = join(chapterDir, `ch-${chapterFileSegment(ch.chapter)}.json`);
-    await writeFile(jsonPath, `${JSON.stringify(ch, null, 2)}\n`, "utf-8");
-
+    // .md 保护用户手改不覆盖；章细纲结构化数据契约 .json 总写（App 读）。
+    // 先写 md 后写 json：WCP 读取侧以「md 修改时间严格晚于 json」判定作者手改过 md，
+    // 本次新渲染的 md 不得比 json 新，否则会被误当手改稿（见 readChapterOutlineForPack）
     const filePath = join(chapterDir, `ch-${chapterFileSegment(ch.chapter)}.md`);
     if (existsSync(filePath)) {
       skipped.push(filePath);
-      continue;
+    } else {
+      await writeFile(filePath, markdown, "utf-8");
+      files.push(filePath);
     }
-    await writeFile(filePath, markdown, "utf-8");
-    files.push(filePath);
+
+    const jsonPath = join(chapterDir, `ch-${chapterFileSegment(ch.chapter)}.json`);
+    await writeFile(jsonPath, `${JSON.stringify(ch, null, 2)}\n`, "utf-8");
   }
 
   // 网格对标尺（issue #428）：满足最小样本量时追加独立字段，与 warnings 平级但语义不同——

@@ -28,7 +28,13 @@ export function foldCharacterCard(ctx, characterUid, asOfChapter) {
          AND ${FACT_VALID_AT_SQL}
        ORDER BY predicate ASC, ${FACT_LATEST_ORDER_SQL}`)
         .all(ctx.novelId, characterUid, asOfChapter, asOfChapter);
-    const vocab = loadStateVocabulary(ctx.projectRoot);
+    return foldFactRows(rows, loadStateVocabulary(ctx.projectRoot));
+}
+/**
+ * 折叠核心：rows 须已按 `predicate ASC, FACT_LATEST_ORDER_SQL` 排好（同谓词内最新优先）。
+ * 调用方自带 rows 是为了让各读口按自己的过滤（如聊天秘密滤网）取行，折叠规则只此一份。
+ */
+export function foldFactRows(rows, vocab) {
     if (!vocab) {
         const card = {};
         for (const row of rows) {

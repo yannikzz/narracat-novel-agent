@@ -1879,6 +1879,103 @@ describe("novel_submit_extraction", () => {
   });
 });
 
+describe("novel_submit_extraction · 单值维度同一时刻只有一条有效值", () => {
+  const VOCAB = {
+    dimensions: [
+      {
+        key: "cultivation_level",
+        predicate: "ability",
+        display_name: "境界",
+        cardinality: "one",
+        value_type: "enum",
+        values: ["练气", "筑基", "金丹"],
+      },
+      // 与上一维度共用 ability 谓词：enum 值域外的值由它兜底认领，单值维度换值不得误伤它
+      { key: "technique", predicate: "ability", display_name: "功法", cardinality: "one", value_type: "free" },
+      { key: "inventory", predicate: "possession", display_name: "持有物", cardinality: "many", value_type: "free" },
+    ],
+  };
+
+  function validObjects(db: Database.Database, predicate: string): string[] {
+    return (
+      db
+        .prepare(
+          `SELECT object FROM facts WHERE novel_id = 'novel-test' AND subject = '林晚' AND predicate = ?
+             AND invalidated_at_chapter IS NULL ORDER BY rowid`,
+        )
+        .all(predicate) as Array<{ object: string }>
+    ).map((r) => r.object);
+  }
+
+  it("同章 update / new / update 三连后单值维度只剩最后一条；共用谓词的其他维度与多值维度不受影响", async () => {
+    const { ctx, root, db } = createProject();
+    writeCharacter(root, "林晚");
+    writeFileSync(join(root, "bible", "state-vocabulary.json"), JSON.stringify(VOCAB));
+    await novelSubmitExtraction(
+      {
+        chapter: 1,
+        facts: [
+          { subject: "林晚", predicate: "ability", object: "练气", change_type: "new" },
+          { subject: "林晚", predicate: "ability", object: "剑气离体", change_type: "new" },
+          { subject: "林晚", predicate: "possession", object: "断剑", change_type: "new" },
+        ],
+      },
+      ctx,
+    );
+
+    const write = (object: string, change_type: "new" | "update") =>
+      novelSubmitExtraction(
+        {
+          chapter: 3,
+          facts: [
+            { subject: "林晚", predicate: "ability", object, change_type },
+            { subject: "林晚", predicate: "possession", object: `${object}信物`, change_type: "new" },
+          ],
+        },
+        ctx,
+      );
+    // 同章同秒连写：created_at 打平，靠 rowid 兜底与维度取代才能只留最后一条
+    await write("筑基", "update");
+    await write("练气", "new");
+    await write("金丹", "update");
+
+    expect(validObjects(db, "ability")).toEqual(["剑气离体", "金丹"]);
+    expect(validObjects(db, "possession")).toEqual(["断剑", "筑基信物", "练气信物", "金丹信物"]);
+  });
+
+  it("同一份清单内同维度给出两个值：后写的取代先写的", async () => {
+    const { ctx, root, db } = createProject();
+    writeCharacter(root, "林晚");
+    writeFileSync(join(root, "bible", "state-vocabulary.json"), JSON.stringify(VOCAB));
+    const result = (await novelSubmitExtraction(
+      {
+        chapter: 2,
+        facts: [
+          { subject: "林晚", predicate: "ability", object: "练气", change_type: "new" },
+          { subject: "林晚", predicate: "ability", object: "筑基", change_type: "new" },
+        ],
+      },
+      ctx,
+    )) as Record<string, unknown>;
+    expect(result.facts_invalidated).toBe(1);
+    expect(validObjects(db, "ability")).toEqual(["筑基"]);
+  });
+
+  it("无词表时 new 不取代旧值（存量书行为不变）", async () => {
+    const { ctx, root, db } = createProject();
+    writeCharacter(root, "林晚");
+    await novelSubmitExtraction(
+      { chapter: 1, facts: [{ subject: "林晚", predicate: "ability", object: "练气", change_type: "new" }] },
+      ctx,
+    );
+    await novelSubmitExtraction(
+      { chapter: 2, facts: [{ subject: "林晚", predicate: "ability", object: "筑基", change_type: "new" }] },
+      ctx,
+    );
+    expect(validObjects(db, "ability")).toEqual(["练气", "筑基"]);
+  });
+});
+
 function factCount(db: Database.Database): number {
   return (
     db.prepare("SELECT COUNT(*) AS n FROM facts WHERE novel_id = ?").get("novel-test") as {

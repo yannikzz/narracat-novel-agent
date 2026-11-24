@@ -53,13 +53,23 @@ export function foldCharacterCard(
          AND ${FACT_VALID_AT_SQL}
        ORDER BY predicate ASC, ${FACT_LATEST_ORDER_SQL}`,
     )
-    .all(ctx.novelId, characterUid, asOfChapter, asOfChapter) as Array<{
-    predicate: string;
-    object: string;
-    chapter: number;
-  }>;
+    .all(ctx.novelId, characterUid, asOfChapter, asOfChapter) as FoldFactRow[];
 
-  const vocab = loadStateVocabulary(ctx.projectRoot);
+  return foldFactRows(rows, loadStateVocabulary(ctx.projectRoot));
+}
+
+export interface FoldFactRow {
+  predicate: string;
+  object: string;
+  /** event 轴章号（COALESCE(event_chapter, from_chapter)） */
+  chapter: number;
+}
+
+/**
+ * 折叠核心：rows 须已按 `predicate ASC, FACT_LATEST_ORDER_SQL` 排好（同谓词内最新优先）。
+ * 调用方自带 rows 是为了让各读口按自己的过滤（如聊天秘密滤网）取行，折叠规则只此一份。
+ */
+export function foldFactRows(rows: FoldFactRow[], vocab: StateVocabulary | null): FoldedCard {
   if (!vocab) {
     const card: Record<string, string> = {};
     for (const row of rows) {
