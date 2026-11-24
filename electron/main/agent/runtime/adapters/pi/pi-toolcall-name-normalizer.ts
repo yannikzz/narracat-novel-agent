@@ -26,7 +26,11 @@
  *   被绕过的安全回归。归一发生在工具查找之前，下游（guard 圈禁、canUseTool、工具卡渲染、telemetry
  *   计数）看到的仍是唯一那个 pi 真名，零改动、零分叉。
  *
- * ## 落点（与 pi-eager-toolcall-args.ts 同一套官方扩展点）
+ * ## 落点：streamFn 包装为主，message_end 扩展兜底
+ *
+ * 主路径是 `wrapStreamFnWithToolCallNameNormalizer`（issue #136）：在流事件交给 agent-loop 之前同步
+ * 改名，与工具查找走同一条链，不依赖下面说的队列余量。下面这一节讲的 `message_end` 扩展保留作兜底
+ * （streamFn 被测试或上游替换时），它与 pi-eager-toolcall-args.ts 用同一套官方扩展点：
  *
  * `agent-session.js` 的 `message_end` 分支走 `emitMessageEnd`，返回 `{ message }` 由上游
  * `_replaceMessageInPlace` **原地** mutate 写回（delete 掉原对象全部 key 再 Object.assign），而
@@ -59,8 +63,9 @@
  *
  * - **禁止**在 message_start / message_update / message_end 的 handler 里做异步 I/O（同一条纪律对
  *   `pi-eager-toolcall-args.ts` 同样成立：它的参数救回也靠这份余量）。
- * - 护栏是 `pi-toolcall-name-normalizer.integration.test.ts`（走真实会话 + 假 streamFn，断言工具
- *   真的执行了）。**pi 升级后必须重跑它**；它红了说明余量没了，要改的是落点，不是把断言改松。
+ * - 护栏有两层：`pi-toolcall-name-normalizer.wire.test.ts` 用真 wire 流形状守主路径（streamFn
+ *   包装，断言工具真的执行了）；`pi-toolcall-name-normalizer.integration.test.ts` 守兜底的
+ *   `message_end` 扩展。**pi 升级后两份都要重跑**；主路径红了要改的是落点，不是把断言改松。
  *
  * ## 判定纪律：精确优先，大小写不敏感唯一回退
  *
