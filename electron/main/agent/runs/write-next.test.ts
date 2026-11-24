@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, test } from 'bun:test'
 
@@ -41,6 +41,17 @@ describe('resolveWriteNextRun', () => {
     expect(resolved.prompt).toContain('--- NarraCat command source begin ---')
     expect(resolved.prompt).toContain('执行 write command。参数：$ARGUMENTS。')
     expect(resolved.prompt).toContain('继续写下一章')
+  })
+
+  test('待写章已有正式正文（进度里没算完成）：拒绝写章，正文原样不动', async () => {
+    const projectPath = await makeProject('outlined')
+    const manuscriptPath = join(projectPath, 'manuscript', 'vol-01', 'ch-001.md')
+    await writeFile(manuscriptPath, '# 第1章\n\n作者自己写的第一章。\n', 'utf-8')
+
+    await expect(resolveWriteNextRun({ projectPath, userPrompt: '写下一章' }, resolveDeps())).rejects.toThrow(
+      '第 1 章已经有正文了，但还没记进完成进度，写章不会覆盖它。开源版暂时接不上这种书，导入 NarraCat 专业版可以接着写（专业版按正文算进度）。',
+    )
+    expect(await readFile(manuscriptPath, 'utf-8')).toBe('# 第1章\n\n作者自己写的第一章。\n')
   })
 
   test('blocks projects that still need setup', async () => {

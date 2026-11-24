@@ -77,6 +77,11 @@ export function chapterContextPackCandidates(chapter: number): string[] {
   return [chapterContextPackPath(chapter), join(CONTEXT_PACKS_DIR, `${legacyChapterBaseName(chapter)}.json`)]
 }
 
+/** 章收尾回执目录（引擎 novel_commit_chapter 落 `ch-NNN.json`）。 */
+export function chapterReceiptsDir(): string {
+  return join(NARRACAT_DIR, 'receipts')
+}
+
 // --- bible/ (foundation & settings) -----------------------------------------
 
 export function premisePath(): string {

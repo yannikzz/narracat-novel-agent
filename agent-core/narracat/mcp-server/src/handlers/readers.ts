@@ -29,6 +29,8 @@ import {
   checkReviewFreshness,
   resolveWorkingManuscript,
   findManuscript,
+  hasUntrackedFormalManuscript,
+  untrackedFormalManuscriptError,
   volumeDirSegment,
 } from "./state-sync.js";
 import { selectStyleExamples, detectChapterEmotions } from "../corpus-loader.js";
@@ -71,7 +73,7 @@ import {
   loadFactCountByUid,
   loadValidRelationshipEdges,
 } from "./derived-relationships.js";
-import { singleError } from "../types.js";
+import { errorResponse, singleError } from "../types.js";
 import type {
   ToolContext,
   SummaryRow,
@@ -2497,6 +2499,12 @@ export async function novelBuildWritingContextPack(
       "缺失",
       "NOVEL_CONFIG_PATH 未指向有效项目：检查 MCP 配置后重试",
     );
+  }
+
+  // 写作链拿本包给出的 manuscript_path 写正文：正式稿已存在却不在完成进度里（作者自己的稿 / 进度丢失）
+  // 时拒绝出包，不让写章覆盖它。重写与审校只针对已完成章，不受影响。
+  if (await hasUntrackedFormalManuscript(ctx.projectRoot, chapter)) {
+    return errorResponse([untrackedFormalManuscriptError(chapter)]);
   }
 
   const outlinePath = await findChapterOutlineFile(ctx.projectRoot, chapter);

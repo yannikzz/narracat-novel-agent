@@ -1,10 +1,11 @@
 /**
- * state.yaml 机械写入工具（4 个）
+ * state.yaml 机械写入工具（5 个）
  *
  * state.yaml 对 LLM 零 Edit——全部经以下工具整体安全序列化写入：
  * - novel_sync_structure  : structure 节唯一写入通道（交叉互证，任一不过整体拒写）
  * - novel_update_progress : 章节收尾后更新 progress / word_count 并清 checkpoint（审校新鲜度强门）
  * - novel_restore_progress: 作者手改正文的记忆同步链路专用，同一段进度写逻辑但不设新鲜度门
+ * - novel_reconcile_progress: 打开作品时按已入库证据补齐完成进度（App 直调，只加不删）
  * - novel_checkpoint      : 机械写 checkpoint 节
  *
  * 写入一律 read-modify-write：解析整份 state.yaml，只改目标节，其余节原样保留。
@@ -54,6 +55,8 @@ export declare function scanManuscripts(projectRoot: string): Promise<Manuscript
 export declare function findManuscript(projectRoot: string, chapter: number): Promise<ManuscriptEntry | null>;
 /** 本章待验收正文（staging）绝对路径 */
 export declare function stagingManuscriptPath(projectRoot: string, chapter: number): string;
+/** 本章收尾回执（novel_commit_chapter 落盘）绝对路径 */
+export declare function chapterReceiptPath(projectRoot: string, chapter: number): string;
 export interface WorkingManuscript {
     path: string;
     source: "staging" | "manuscript";
@@ -64,6 +67,12 @@ export interface WorkingManuscript {
  * 定稿类消费（前章结尾摘录、样章取样、全书字数）不得用本函数——那边只认 manuscript/。
  */
 export declare function resolveWorkingManuscript(projectRoot: string, chapter: number): Promise<WorkingManuscript | null>;
+/**
+ * 本章已有正式正文、却不在完成进度里（作者自己的稿，或进度丢了）：写章链路不得写到它上面。
+ * 进度读不出来时同样按「不在进度里」处理——宁可拦下，不可覆盖作者正文。
+ */
+export declare function hasUntrackedFormalManuscript(projectRoot: string, chapter: number): Promise<boolean>;
+export declare function untrackedFormalManuscriptError(chapter: number): ToolErrorItem;
 export interface ManuscriptContractResult {
     errors: ToolErrorItem[];
     warnings: string[];
@@ -128,6 +137,13 @@ export declare function novelUpdateProgress(args: Record<string, unknown>, ctx: 
  * 作者自己改的稿不要求机器复审——但豁免只对持有本工具的命令成立，写作链拿不到它。
  */
 export declare function novelRestoreProgress(args: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
+/**
+ * 一章确实写完过、只是没记进完成进度时补回：正式正文 + 收尾回执 + 章摘要 + 审校结论 pass 四样齐全。
+ * 有草稿（staging）或断点停在写章 / 重写这一章的不补——那是还在写作链里的章，交给写章自己收尾。
+ * 只加不删，只写完成进度与字数，不碰正文、不碰 memory.db、不动断点；无可补时不写文件。
+ * state.yaml 读不出或不是合法 YAML 时拒绝，不写文件。
+ */
+export declare function novelReconcileProgress(_args: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
 export declare function novelCheckpoint(args: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
 export declare function readCompletedChapters(projectRoot: string): Promise<{
     ok: true;

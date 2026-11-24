@@ -892,6 +892,14 @@ export const TOOL_DEFINITIONS = [
         },
     },
     {
+        name: "novel_reconcile_progress",
+        description: "打开作品时对齐完成进度（App 确定性直调，不进 agent 工具面）：正式正文、收尾回执、章摘要、审校通过四样齐全却不在完成进度里的章补进进度；有草稿或断点停在写章 / 重写的章跳过。只加不删，只写完成进度与字数，无可补时不写文件",
+        inputSchema: {
+            type: "object",
+            properties: {},
+        },
+    },
+    {
         name: "novel_checkpoint",
         description: "机械写 state.yaml checkpoint 节（last_command / last_step / timestamp）。已有未完成的写章断点时，只有写章本身能覆盖它，别的命令调用会原样保留并返回 preserved_write_checkpoint=true",
         inputSchema: {

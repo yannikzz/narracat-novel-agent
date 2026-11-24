@@ -1431,6 +1431,32 @@ describe("novel_build_writing_context_pack", () => {
     expect(pack.chapter_outline).not.toContain("真相揭示（reveal）");
   });
 
+  it("本章已有正式正文却不在完成进度里：拒绝出包、正文原样不动；记进完成进度后照常出包", async () => {
+    const fixture = createProject();
+    await seedFullProject(fixture); // 第 1 章有正文，但从未走 novel_update_progress
+    const manuscriptPath = join(fixture.root, "manuscript", "vol-01", "ch-001.md");
+    const before = readFileSync(manuscriptPath);
+
+    const rejected = (await novelBuildWritingContextPack({ chapter: 1 }, fixture.ctx)) as {
+      ok: boolean;
+      errors: Array<{ hint: string }>;
+    };
+    expect(rejected.ok).toBe(false);
+    expect(rejected.errors[0].hint).toBe("第 1 章已有正文但不在完成进度里，写章不会覆盖它；不要重试写章，如实告诉作者：这一章已有正文、还没记进进度，开源版暂时接不上，导入 NarraCat 专业版可以接着写");
+    expect(readFileSync(manuscriptPath).equals(before)).toBe(true);
+    expect(existsSync(join(fixture.root, ".narracat", "context-packs", "ch-001.json"))).toBe(false);
+
+    // 已完成章（重写 / 审校的入口）不受影响
+    const statePath = join(fixture.root, ".narracat", "state.yaml");
+    writeFileSync(statePath, BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [1]"));
+    const accepted = (await novelBuildWritingContextPack({ chapter: 1 }, fixture.ctx)) as {
+      ok: boolean;
+      manuscript_path: string;
+    };
+    expect(accepted.ok).toBe(true);
+    expect(accepted.manuscript_path).toBe("manuscript/vol-01/ch-001.md");
+  });
+
   describe("作者手改章纲 md（md 比 json 新）", () => {
     const HAND_EDIT = "# 第2章 手改稿\n\n林晚在剑冢深处撞见白衣人，对方递来半截剑穗。\n";
 
@@ -1669,6 +1695,10 @@ describe("novel_build_writing_context_pack", () => {
     const fixture = createProject();
     await seedFullProject(fixture);
     writeManuscript(fixture.root, 2); // 已完成成品且无 staging（/review 等旁路照常）
+    writeFileSync(
+      join(fixture.root, ".narracat", "state.yaml"),
+      BASE_STATE.replace("  completed_chapters: []", "  completed_chapters: [1, 2]"),
+    );
 
     const result = (await novelBuildWritingContextPack({ chapter: 2 }, fixture.ctx)) as {
       manuscript_path: string;

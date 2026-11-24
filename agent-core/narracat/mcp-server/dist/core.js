@@ -67,10 +67,11 @@ export const TOOL_HANDLERS = {
     novel_resolve_planned_state: plannedState.novelResolvePlannedState,
     novel_update_chapter_state_changes: plannedState.novelUpdateChapterStateChanges,
     novel_submit_style_anchor: styleAnchor.novelSubmitStyleAnchor,
-    // 状态工具 (5) —— 写 state.yaml / staging 正文，不写记忆库
+    // 状态工具 (6) —— 写 state.yaml / staging 正文，不写记忆库
     novel_sync_structure: stateSync.novelSyncStructure,
     novel_update_progress: stateSync.novelUpdateProgress,
     novel_restore_progress: stateSync.novelRestoreProgress,
+    novel_reconcile_progress: stateSync.novelReconcileProgress,
     novel_checkpoint: stateSync.novelCheckpoint,
     novel_check_manuscript_contract: stateSync.novelCheckManuscriptContract,
     // 身份工具 (1) —— 确定性铸造 canonical 主键，不入库

@@ -66,6 +66,8 @@ export const NARRACAT_NOVEL_MEMORY_MCP_TOOL_NAMES = [
   // 直调，不进 agent 工具面——处置权归作者，agent 不得自行销账。
   // 有意排除 novel_update_chapter_state_changes：章纲卡 state_changes 整段替换同为 App 确定性
   // 直调（json+md+计划表协调写入+CAS），不进 agent 工具面——写作侧提交仍走 novel_submit_chapter_outline。
+  // 有意排除 novel_reconcile_progress：打开作品时对齐完成进度，App 确定性直调（见 progress-reconcile.ts），
+  // 不进 agent 工具面——补进度只认引擎核过的证据，不交给模型判断。
   // 有意排除 novel_pack_authoring_vocab / novel_pack_authoring_preview：造包中心受控词表与卡片
   // 干跑预览，App 造包中心专用只读工具（经 memory host 直调，见 pack-preview.ts），
   // 不面向真实小说创作会话，agent 不得调用——engine 侧 tools.ts 描述已写明「App 造包中心专用」。

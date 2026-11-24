@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { AgentRunRequest } from '../../agent-runner'
-import { chapterOutlineCandidates } from '../../novel/novel-layout'
+import { chapterManuscriptCandidates, chapterOutlineCandidates } from '../../novel/novel-layout'
 import { loadNovelProjectDetail } from '../../novel/novel-project'
 import {
   createInlineNarraCatCommandPrompt,
@@ -96,6 +96,17 @@ export async function resolveWriteNextRun(
   )
   if (!(await hasAnyFile(outlinePaths))) {
     throw new Error(`第 ${chapterNumber} 章大纲文件缺失。`)
+  }
+  // 待写章却已有正式正文（作者自己的稿，或进度丢了）：写章不覆盖它。引擎出包时同样会拦，
+  // 这里在起模型之前就拦下，不让作者白等一轮。
+  const manuscriptPaths = chapterManuscriptCandidates(volumeNumber, chapterNumber).map((relativePath) =>
+    join(input.projectPath, relativePath),
+  )
+  if (await hasAnyFile(manuscriptPaths)) {
+    // 不指向「重写」：重写只收已完成章，这种章同样会被拒；开源版这版不补「有正文没记忆」的路。
+    throw new Error(
+      `第 ${chapterNumber} 章已经有正文了，但还没记进完成进度，写章不会覆盖它。开源版暂时接不上这种书，导入 NarraCat 专业版可以接着写（专业版按正文算进度）。`,
+    )
   }
 
   return {

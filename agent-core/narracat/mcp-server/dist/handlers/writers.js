@@ -27,7 +27,7 @@ import { loadStateVocabulary, attributeFact } from "./state-dimensions.js";
 import { mirrorChapterPlannedState } from "./planned-state.js";
 import { buildBenchmarkNote } from "./grid-benchmark.js";
 import { narratorAddressPhrase } from "./narrator-address.js";
-import { writeStructureToState, checkReviewFreshness, checkManuscriptContract, resolveWorkingManuscript, countWords, visibleBodyText, extractManuscriptSnippets, chapterFileSegment, volumeDirSegment, revertProgressToChapter, readCompletedChapters, } from "./state-sync.js";
+import { writeStructureToState, checkReviewFreshness, checkManuscriptContract, resolveWorkingManuscript, countWords, visibleBodyText, extractManuscriptSnippets, chapterFileSegment, chapterReceiptPath, volumeDirSegment, revertProgressToChapter, readCompletedChapters, } from "./state-sync.js";
 import { errorResponse, singleError } from "../types.js";
 import { loadAliasMap, normalizeName, resolveCharacterUid, relationshipSubject, } from "./alias-map.js";
 /** 查最早的已兑现 plant（status='realized'），用于 plant→develop 矫正 */
@@ -177,7 +177,7 @@ export async function novelCommitChapter(args, ctx) {
     });
     tx();
     // 写 receipt 文件（SubagentStop 钩子核对它）
-    const receiptPath = join(ctx.projectRoot, ".narracat", "receipts", `ch-${chapterFileSegment(chapter)}.json`);
+    const receiptPath = chapterReceiptPath(ctx.projectRoot, chapter);
     const checklist = {
         chapter,
         word_count: wordCount,
@@ -2536,7 +2536,7 @@ async function reconcileSingleChapter(ctx, chapter) {
     });
     tx();
     const segment = chapterFileSegment(chapter);
-    const receiptPath = join(ctx.projectRoot, ".narracat", "receipts", `ch-${segment}.json`);
+    const receiptPath = chapterReceiptPath(ctx.projectRoot, chapter);
     const reviewPath = join(ctx.projectRoot, "reviews", `ch-${segment}-review.json`);
     const deletedReceipts = existsSync(receiptPath) ? (await unlink(receiptPath), 1) : 0;
     const deletedReviewFiles = existsSync(reviewPath) ? (await unlink(reviewPath), 1) : 0;

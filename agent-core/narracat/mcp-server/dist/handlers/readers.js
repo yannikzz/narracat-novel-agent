@@ -14,7 +14,7 @@ import { computeStructureBudget, scanManuscriptProseHygiene, } from "./validator
 import { scanProseFingerprints } from "../utils/prose-fingerprints.js";
 import { scanProseShape } from "../utils/prose-shape.js";
 import { renderChapterOutlineMarkdown } from "./chapter-outline-render.js";
-import { chapterFileSegment, extractManuscriptSnippets, checkReviewFreshness, resolveWorkingManuscript, findManuscript, volumeDirSegment, } from "./state-sync.js";
+import { chapterFileSegment, extractManuscriptSnippets, checkReviewFreshness, resolveWorkingManuscript, findManuscript, hasUntrackedFormalManuscript, untrackedFormalManuscriptError, volumeDirSegment, } from "./state-sync.js";
 import { selectStyleExamples, detectChapterEmotions } from "../corpus-loader.js";
 import { listStyleAnchorRows } from "./style-anchor.js";
 import { selectCraftPacks } from "../craft-pack-loader.js";
@@ -31,7 +31,7 @@ import { FACT_VALID_AT_SQL, FACT_LATEST_ORDER_SQL, isFactValidAt, SECRET_FILTER_
 import { foldCharacterCard, foldFactRows, isFoldedCardV2, renderCardHumanMap, isEmptyFoldedCard, readPredicateFromCard, normalizeExtraValue, } from "./character-card-fold.js";
 import { loadStateVocabulary } from "./state-dimensions.js";
 import { computeDerivedRelationships, loadFactCountByUid, loadValidRelationshipEdges, } from "./derived-relationships.js";
-import { singleError } from "../types.js";
+import { errorResponse, singleError } from "../types.js";
 // ============================================================
 // 共用辅助
 // ============================================================
@@ -1854,6 +1854,11 @@ export async function novelBuildWritingContextPack(args, ctx) {
     }
     if (!ctx.projectRoot) {
         return singleError("projectRoot", "可用的项目根目录", "缺失", "NOVEL_CONFIG_PATH 未指向有效项目：检查 MCP 配置后重试");
+    }
+    // 写作链拿本包给出的 manuscript_path 写正文：正式稿已存在却不在完成进度里（作者自己的稿 / 进度丢失）
+    // 时拒绝出包，不让写章覆盖它。重写与审校只针对已完成章，不受影响。
+    if (await hasUntrackedFormalManuscript(ctx.projectRoot, chapter)) {
+        return errorResponse([untrackedFormalManuscriptError(chapter)]);
     }
     const outlinePath = await findChapterOutlineFile(ctx.projectRoot, chapter);
     if (!outlinePath) {

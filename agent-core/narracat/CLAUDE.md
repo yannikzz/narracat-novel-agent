@@ -47,7 +47,7 @@ NarraCat 是 NarraCat-app 内部维护的 Agent Core，为 AI 辅助超长篇小
 | chapter-writer | Write/Edit 仅写 manuscript 正文（零元数据、零 MCP 写） |
 | 主会话（setup） | `novel_submit_premise`（立项卡，premise.md 由工具机械渲染）/ `novel_update_progress` / `novel_checkpoint` / `novel_sync_structure`（state.yaml 对 LLM 零直写） |
 | 主会话（sync-chapter-memory） | `novel_restore_progress`（作者手改正文后恢复完成进度，不做审校新鲜度校验；豁免边界即该命令的 allowed-tools 白名单，写作链拿不到它） |
-| App（作者编辑，确定性直调） | `novel_submit_authored_state`（角色结构化状态作者修订：set_current/backfill/correct/retract/endorse 五 action，一次性 MCP client 直调，不进 agent 工具面）/ `novel_resolve_planned_state`（计划状态变更处置：defer/cancel/acknowledge/mark_delivered 四动作，同为 App 直调不进 agent 工具面）/ `novel_update_chapter_state_changes`（章纲计划状态变更整段替换：json+md+计划表协调写入，CAS 防并发，同为 App 直调不进 agent 工具面） |
+| App（作者编辑，确定性直调） | `novel_submit_authored_state`（角色结构化状态作者修订：set_current/backfill/correct/retract/endorse 五 action，一次性 MCP client 直调，不进 agent 工具面）/ `novel_resolve_planned_state`（计划状态变更处置：defer/cancel/acknowledge/mark_delivered 四动作，同为 App 直调不进 agent 工具面）/ `novel_update_chapter_state_changes`（章纲计划状态变更整段替换：json+md+计划表协调写入，CAS 防并发，同为 App 直调不进 agent 工具面）/ `novel_reconcile_progress`（打开作品时对齐完成进度：正文 + 收尾回执 + 章摘要 + 审校通过齐全却不在进度里的章补回，只加不删，同为 App 直调不进 agent 工具面） |
 
 ## 关键目录规则
 
