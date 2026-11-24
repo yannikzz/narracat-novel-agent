@@ -66,6 +66,7 @@ import type {
 } from '@shared/types/ipc'
 import { summarizeProcessHealthEvent } from '@shared/lib/process-health'
 import type { ProcessHealthReport } from '@shared/types/process-health'
+import { ProEditionEntry } from '@/components/pro-edition/ProEdition'
 
 declare const __NARRACAT_CLIENT_VERSION__: string | undefined
 
@@ -915,6 +916,11 @@ export function SettingsRoute() {
                       </SettingsRow>
                       <SettingsRow title="软件更新">
                         <UpdateRow />
+                      </SettingsRow>
+                      <SettingsRow title="专业版" description="新功能都在专业版，免费下载，书可以一键带过去">
+                        <div className="text-right">
+                          <ProEditionEntry variant="row" />
+                        </div>
                       </SettingsRow>
                       <SettingsRow title="NarraCat Agent Core 版本">
                         <div className="truncate text-right text-sm tabular">

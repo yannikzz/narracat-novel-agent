@@ -57,6 +57,13 @@ describe('app config', () => {
     expect(normalizeAppConfig({ introVersion: '3' }, '/Users/tester').introVersion).toBe(0)
   })
 
+  test('normalizes proNoticeVersion: 缺省 0，只接受非负整数', () => {
+    expect(normalizeAppConfig(undefined, '/Users/tester').proNoticeVersion).toBe(0)
+    expect(normalizeAppConfig({ proNoticeVersion: 1 }, '/Users/tester').proNoticeVersion).toBe(1)
+    expect(normalizeAppConfig({ proNoticeVersion: -1 }, '/Users/tester').proNoticeVersion).toBe(0)
+    expect(normalizeAppConfig({ proNoticeVersion: '1' }, '/Users/tester').proNoticeVersion).toBe(0)
+  })
+
   test('normalizes networkProxyUrl（issue #120）：旧配置缺省 = 不用代理，主机:端口补全，非法地址落盘为空', () => {
     expect(normalizeAppConfig({}, '/Users/tester').networkProxyUrl).toBe('')
     expect(normalizeAppConfig({ networkProxyUrl: '127.0.0.1:7890' }, '/Users/tester').networkProxyUrl).toBe('http://127.0.0.1:7890')

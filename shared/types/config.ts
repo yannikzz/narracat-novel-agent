@@ -68,6 +68,12 @@ export interface AppConfig {
    * 可选字段：旧配置与测试夹具不带它即等于不用代理；校验口径见 shared/lib/network-proxy。
    */
   networkProxyUrl?: string
+  /**
+   * 已看过的「专业版推荐」强提醒版本；0 或缺省 = 没看过。
+   * 小于 CURRENT_PRO_NOTICE_VERSION 时首屏弹一次，看过后只留书架顶栏与「关于」里的常驻入口。
+   * 可选字段：旧配置与测试夹具不带它即等于没看过。
+   */
+  proNoticeVersion?: number
 }
 
 // F4（终审修复）：这三个默认值被大量测试 fixture 直接展开（`...POOL_DEFAULT_FIELDS` 等）；

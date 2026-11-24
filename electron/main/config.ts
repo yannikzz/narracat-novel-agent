@@ -367,6 +367,7 @@ export function normalizeAppConfig(value: unknown, homeDir = homedir()): AppConf
     telemetryNoticeAckedVersion: normalizeSeenVersion(input.telemetryNoticeAckedVersion),
     telemetryAnonymousId: normalizeTelemetryAnonymousId(input.telemetryAnonymousId),
     networkProxyUrl: normalizeNetworkProxyUrl(input.networkProxyUrl),
+    proNoticeVersion: normalizeSeenVersion(input.proNoticeVersion),
   }
 }
 
